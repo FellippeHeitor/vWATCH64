@@ -82,8 +82,13 @@
 '       the source file being processed.
 '     - Command line switches now include -dontcompile and -noarrays
 '
-' - Beta 6: (when?)
-'
+' - Beta 6: December 25th, 2015
+'     - Now uses Steve's File Selection Utility v1.2 - grab it here:
+'       http://www.qb64.net/forum/index.php?topic=11253.0
+'     - Also uses Terry Ritchie's QB64 Menu and GLInput libraries - grab them here:
+'       https://dl.dropbox.com/u/416997/AllRitchiesQB64Libraries.zip
+'     - Doesn't require command line to set flags anymore. User can answer Y/N
+'       questions before processing of files.
 '
 $IF WIN THEN
     DECLARE LIBRARY
@@ -91,9 +96,25 @@ $IF WIN THEN
     END DECLARE
 $END IF
 
+'Custom type library for Steve's File Selection Utility:
+DECLARE CUSTOMTYPE LIBRARY "direntry"
+    FUNCTION FILE_load_dir& ALIAS load_dir (s AS STRING)
+    FUNCTION FILE_has_next_entry& ALIAS has_next_entry ()
+    SUB FILE_close_dir ALIAS close_dir ()
+    SUB FILE_get_next_entry ALIAS get_next_entry (s AS STRING, flags AS LONG, file_size AS LONG)
+    SUB FILE_get_current_dir ALIAS get_current_dir (s AS STRING)
+    FUNCTION FILE_current_dir_length& ALIAS current_dir_length ()
+END DECLARE
+
+'$INCLUDE:'menutop.bi'
+'$INCLUDE:'glinputtop.bi'
+
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "0.5b "
+CONST VERSION = "0.6b "
+
+CONST FALSE = 0
+CONST TRUE = NOT FALSE
 
 CONST TIMEOUTLIMIT = 3
 
@@ -155,6 +176,8 @@ DIM SHARED MULTILINE AS _BIT
 DIM SHARED TTFONT AS LONG
 DIM SHARED OPTIONBASE AS INTEGER
 DIM SHARED SKIPARRAYS AS _BIT
+DIM SHARED MENU%
+DIM SHARED hWnd&
 
 DIM OVERLAYSCREEN AS LONG
 DIM TIMEOUT AS _BYTE
@@ -167,7 +190,15 @@ VERBOSE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
 
+'Screen setup: ----------------------------------------------------------------
+MAINSCREEN = _NEWIMAGE(1000, 600, 32)
+SCREEN MAINSCREEN
+
 $IF WIN THEN
+    'Under Windows, if Courier font is found, it is used;
+    'Otherwise we stick to _FONT 16 (default):
+    TTFONT = _LOADFONT("C:\windows\fonts\cour.ttf", 14, "MONOSPACE, BOLD")
+    IF TTFONT THEN _FONT TTFONT
     Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
     IF Ret > 0 THEN
         EXENAME = LEFT$(EXENAME_HOLDER$256, Ret)
@@ -176,12 +207,8 @@ $ELSE
     EXENAME = ""
 $END IF
 
-'Screen setup: ----------------------------------------------------------------
-MAINSCREEN = _NEWIMAGE(1000, 600, 32)
-SCREEN MAINSCREEN
-TITLESTRING = "vWATCH64 - v" + VERSION
-_TITLE TITLESTRING
-
+RESTORE MenuDATA
+MAKEMENU
 
 'Parse the command line: ------------------------------------------------------
 'Did the user drag a .BAS file onto this program or enter parameters?
@@ -205,21 +232,35 @@ IF LEN(COMMAND$) THEN
     IF _FILEEXISTS(COMMAND$(1)) THEN PROCESSFILE COMMAND$(1) ELSE BEEP
 END IF
 
-'If -dontcompile was used in the command line, monitor mode is skipped.
-IF DONTCOMPILE THEN SYSTEM
+GOTO MonitorMode
+OpenFileMenu:
+FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
+_AUTODISPLAY
+IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE (FILENAME$) ELSE BEEP
 
 '------------------------------------------------------------------------------
-'MONITOR MODE:                                                                -
+MonitorMode:
 '------------------------------------------------------------------------------
+TITLESTRING = "vWATCH64 - v" + VERSION
+_TITLE TITLESTRING
+COLOR _RGB32(0, 0, 0), _RGB32(255, 255, 255)
+CLS
+
 SETUP_CONNECTION
+IF MENU% = 101 THEN GOTO OpenFileMenu
 REDIM SHARED VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
 MONITOR_MODE
 '------------------------------------------------------------------------------
 
+IF NOT USERQUIT THEN GOTO MonitorMode
 SYSTEM
 
 FileError:
 RESUME NEXT
+
+MenuDATA:
+DATA "&File","&Open and process .BAS...","-E&xit","*"
+DATA "!"
 
 KeyWordsDATA:
 DATA _BIT,_UNSIGNED _BIT,_BYTE,_UNSIGNED _BYTE,INTEGER
@@ -227,14 +268,11 @@ DATA _UNSIGNED INTEGER,LONG,_UNSIGNED LONG,_INTEGER64
 DATA _UNSIGNED _INTEGER64,SINGLE,DOUBLE,_FLOAT,STRING
 DATA END
 
+'$INCLUDE:'menu.bi'
+'$INCLUDE:'glinput.bi'
 
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
-'------------------------------------------------------------------------------
-FUNCTION READKEYBOARD
-    READKEYBOARD = _KEYHIT
-END FUNCTION
-
 '------------------------------------------------------------------------------
 SUB WAITFORDATA
     'Waits until data is put in a binary file. We monitor the length of
@@ -249,7 +287,7 @@ SUB WAITFORDATA
             PREVLOF = FILELENGTH
             EXIT DO
         END IF
-        IF READKEYBOARD = 27 THEN EXIT DO
+        IF _KEYHIT = 27 THEN EXIT DO
         IF TIMER - Start# > TIMEOUTLIMIT THEN EXIT DO
     LOOP
 END SUB
@@ -302,14 +340,28 @@ SUB PROCESSFILE (FILENAME$)
 
     Q$ = CHR$(34)
 
-    PRINT "vWATCH64 - v" + VERSION
-    PRINT "Processing file: "; NOPATH$(FILENAME$)
-    COLOR _RGB32(168, 168, 168)
-    INPUT "New file name: ", NEWFILENAME$
+    'Process dialog
+    DialogX = _WIDTH(MAINSCREEN) / 2 - 200
+    DialogY = _HEIGHT(MAINSCREEN) / 2 - 100
+    CLS , _RGB32(255, 255, 255)
+    LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+
+    COLOR _RGB32(0, 0, 0), _RGB32(200, 200, 200)
+    _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+    _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+    getfilename% = GLIINPUT(DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2, GLIALPHA + GLINUMERIC + GLIDASH, "New file name: ", TRUE)
+    DO
+        GLICLEAR
+        GLIUPDATE
+        _DISPLAY
+    LOOP UNTIL GLIENTERED(getfilename%)
+    _AUTODISPLAY
+    NEWFILENAME$ = GLIOUTPUT$(getfilename%)
+    GLICLOSE getfilename%, FALSE
 
     'Check if processing can proceed:
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
-        SYSTEM
+        EXIT SUB
     END IF
 
     BIFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".BI"
@@ -317,24 +369,67 @@ SUB PROCESSFILE (FILENAME$)
     NEWFILENAME$ = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", NEWFILENAME$, NEWFILENAME$ + ".BAS")
 
     IF UCASE$(FILENAME$) = UCASE$(NEWFILENAME$) THEN
-        PRINT "Source file = destination file. Can't proceed."
-        PRINT "Press any key to exit..."
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Source file = destination file. Can't proceed."
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Press any key to continue..."
         BEEP
         SLEEP
-        SYSTEM
+        EXIT SUB
     END IF
 
     IF _FILEEXISTS(NEWFILENAME$) THEN
-        PRINT NEWFILENAME$; " already exists."
-        PRINT "Overwrite (Y/N)?"
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), NOPATH$(NEWFILENAME$) + " already exists."
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Overwrite (Y/N)?"
         BEEP
         DO
             k = _KEYHIT
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
-        IF k = 78 OR k = 110 THEN SYSTEM
+        IF k = 78 OR k = 110 THEN EXIT SUB
     END IF
 
+    'Options dialogs, unless already set using command line
+    IF _COMMANDCOUNT <= 1 THEN
+        CLS , _RGB32(255, 255, 255)
+        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Include arrays (Y/N)?"
+        _KEYCLEAR
+        DO
+            k = _KEYHIT
+        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
+        IF k = 78 OR k = 110 THEN SKIPARRAYS = -1 ELSE SKIPARRAYS = 0
+    END IF
+
+    IF _COMMANDCOUNT <= 1 THEN
+        CLS , _RGB32(255, 255, 255)
+        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Attempt to compile in the end (Y/N)?"
+        _KEYCLEAR
+        DO
+            k = _KEYHIT
+        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
+        IF k = 78 OR k = 110 THEN DONTCOMPILE = -1 ELSE DONTCOMPILE = 0
+    END IF
+
+    IF _COMMANDCOUNT <= 1 THEN
+        CLS , _RGB32(255, 255, 255)
+        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Show processing details (Y/N)?"
+        _KEYCLEAR
+        DO
+            k = _KEYHIT
+        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
+        IF k = 78 OR k = 110 THEN VERBOSE = 0 ELSE VERBOSE = -1
+    END IF
+
+
     'Processing can proceed.
+    COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
+    CLS
     InputFile = FREEFILE
     OPEN FILENAME$ FOR BINARY AS #InputFile
 
@@ -350,6 +445,7 @@ SUB PROCESSFILE (FILENAME$)
     'code. If SYSTEM is found, injects cleanup procedures (also when main module ends).
     TOTALVARIABLES = 0
     PRINT "Parsing .BAS...";
+    IF VERBOSE THEN PRINT
     row = CSRLIN: col = POS(1)
     MULTILINE = 0
     DO
@@ -375,7 +471,7 @@ SUB PROCESSFILE (FILENAME$)
                     UDT(TotalUDTs).DATATYPE = RIGHT$(caseBkpSourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
                     IF VERBOSE THEN
                         PRINT "Found UDT: "; RTRIM$(UDT(TotalUDTs).UDT); "."; RTRIM$(UDT(TotalUDTs).ELEMENT); " AS "; RTRIM$(UDT(TotalUDTs).DATATYPE)
-                        _DELAY .1
+                        _DELAY .05
                     END IF
                 END IF
             END IF
@@ -436,7 +532,7 @@ SUB PROCESSFILE (FILENAME$)
                     PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
                     PRINT VARIABLES(TOTALVARIABLES).DATATYPE,
                     PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                    _DELAY .1
+                    _DELAY .05
                 END IF
             ELSE
                 FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
@@ -476,7 +572,7 @@ SUB PROCESSFILE (FILENAME$)
                         PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
                         PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
                         PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                        _DELAY .1
+                        _DELAY .05
                     END IF
                 ELSE
                     'Variable is defined as a user defined type
@@ -507,7 +603,7 @@ SUB PROCESSFILE (FILENAME$)
                                             PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
                                             PRINT UDT(i).DATATYPE;
                                             PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                                            _DELAY .1
+                                            _DELAY .05
                                         END IF
                                     END IF
                                 NEXT i
@@ -535,7 +631,7 @@ SUB PROCESSFILE (FILENAME$)
                                     PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
                                     PRINT UDT(i).DATATYPE;
                                     PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                                    _DELAY .1
+                                    _DELAY .05
                                 END IF
                             END IF
                         NEXT i
@@ -611,7 +707,7 @@ SUB PROCESSFILE (FILENAME$)
                 END IF
                 PRINT #OutputFile, SourceLine
                 PRINT #OutputFile, "$END IF"
-                IF VERBOSE THEN _DELAY .1
+                IF VERBOSE THEN _DELAY .05
             ELSE
                 PRINT #OutputFile, bkpSourceLine$
             END IF
@@ -644,7 +740,7 @@ SUB PROCESSFILE (FILENAME$)
                 END IF
                 PRINT #OutputFile, SourceLine
                 PRINT #OutputFile, "$END IF"
-                IF VERBOSE THEN _DELAY .1
+                IF VERBOSE THEN _DELAY .05
             ELSE
                 IF SourceLine <> UCASE$("FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)") THEN
                     PRINT #OutputFile, bkpSourceLine$
@@ -683,14 +779,14 @@ SUB PROCESSFILE (FILENAME$)
     IF TOTALVARIABLES = 0 THEN
         BEEP
         PRINT "There are no watchable variables in the .BAS source."
-        PRINT "Press any key to exit..."
+        PRINT "Press any key to abort processing..."
         CLOSE
         KILL NEWFILENAME$
         SLEEP
-        SYSTEM
+        EXIT SUB
     ELSE
         PRINT "Total watchable variables found: "; TOTALVARIABLES
-        IF VERBOSE THEN _DELAY .1
+        IF VERBOSE THEN _DELAY .05
     END IF
 
     IF MainModule THEN 'All lines have been parsed. This .BAS contains no SUBs/FUNCTIONs.
@@ -816,7 +912,7 @@ SUB PROCESSFILE (FILENAME$)
     OPEN BMFileName FOR OUTPUT AS #BMFile
 
     PRINT "Generating "; BMFileName; "..."
-    IF VERBOSE THEN _DELAY .1
+    IF VERBOSE THEN _DELAY .05
     'Creates a vWATCH64.BM customized for the .BAS provided:
     PRINT #BMFile, "$IF VWATCH64 = ON THEN"
     PRINT #BMFile, "    SUB vwatch64_CONNECTTOHOST"
@@ -958,10 +1054,6 @@ SUB PROCESSFILE (FILENAME$)
     PRINT #BMFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
     PRINT #BMFile, "    END SUB"
     PRINT #BMFile, ""
-    PRINT #BMFile, "    FUNCTION vwatch64_READKEYBOARD"
-    PRINT #BMFile, "        vwatch64_READKEYBOARD = _KEYHIT"
-    PRINT #BMFile, "    END FUNCTION"
-    PRINT #BMFile, ""
     PRINT #BMFile, "    SUB vwatch64_WAITFORDATA"
     PRINT #BMFile, "        vwatch64_WAITSTART# = TIMER"
     PRINT #BMFile, "        DO: _LIMIT 30"
@@ -971,7 +1063,7 @@ SUB PROCESSFILE (FILENAME$)
     PRINT #BMFile, "                vwatch64_PREVLOF = vwatch64_LOF"
     PRINT #BMFile, "                EXIT DO"
     PRINT #BMFile, "            END IF"
-    PRINT #BMFile, "            IF vwatch64_READKEYBOARD = 27 THEN EXIT DO"
+    PRINT #BMFile, "            IF _KEYHIT = 27 THEN EXIT DO"
     PRINT #BMFile, "            IF TIMER - vwatch64_WAITSTART# > 3 THEN EXIT DO"
     PRINT #BMFile, "        LOOP"
     PRINT #BMFile, "    END SUB"
@@ -981,46 +1073,35 @@ SUB PROCESSFILE (FILENAME$)
     SLEEP 1
 
     $IF WIN THEN
-        IF NOT DONTCOMPILE AND _FILEEXISTS("qb64.exe") THEN
-            PRINT "Compiling...";
-            IF SHELL("qb64.exe -c " + Q$ + NEWFILENAME$ + Q$) <> 0 THEN
-                PRINT "failed."
-                PRINT "Press any key to exit..."
-                SLEEP
-                SYSTEM
+        ThisPath$ = ""
+        ExecutableExtension$ = ".exe"
+    $ELSE IF MAC OR LINUX THEN
+        ThisPath$ = "./"
+        ExecutableExtension$ = ""
+    $END IF
+    Compiler$ = "qb64" + ExecutableExtension$
+
+    IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
+        PRINT "Attempting to compile...";
+        IF SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$) <> 0 THEN
+            PRINT "failed."
+            PRINT "Files have been generated, you will have to compile them yourself."
+            PRINT "Press any key to go back..."
+            SLEEP
+            EXIT SUB
+        ELSE
+            PRINT "done."
+            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$) THEN
+                SHELL _DONTWAIT LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
             ELSE
-                PRINT "done."
-                IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ".EXE") THEN
-                    SHELL _DONTWAIT LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ".EXE"
-                ELSE
-                    PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ".EXE."
-                    PRINT "Press any key to exit..."
-                    SLEEP
-                    SYSTEM
-                END IF
+                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
+                PRINT "You will have to compile/run it yourself."
+                PRINT "Press any key to go back..."
+                SLEEP
+                EXIT SUB
             END IF
         END IF
-    $ELSE IF MAC OR LINUX THEN
-        IF NOT DONTCOMPILE AND _FILEEXISTS("qb64") THEN
-        PRINT "Compiling...";
-        IF SHELL("./qb64 -c " + Q$ + NEWFILENAME$ + Q$) <> 0 THEN
-        PRINT "failed."
-        PRINT "Press any key to exit..."
-        SLEEP
-        SYSTEM
-        ELSE
-        PRINT "done."
-        IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4)) THEN
-        SHELL _DONTWAIT "./" + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4)
-        ELSE
-        PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4)
-        PRINT "Press any key to exit..."
-        SLEEP
-        SYSTEM
-        END IF
-        END IF
-        END IF
-    $END IF
+    END IF
     EXIT SUB
 
     AddThisKeyword:
@@ -1219,19 +1300,12 @@ END FUNCTION
 SUB SETUP_CONNECTION
     _KEYCLEAR 'Clears the keyboard buffer
 
-    'Under Windows, if Courier font is found, it is used;
-    'Otherwise we stick to _FONT 16 (default):
-    $IF WIN THEN
-        TTFONT = _LOADFONT("C:\windows\fonts\cour.ttf", 14, "MONOSPACE, BOLD")
-        IF TTFONT THEN _FONT TTFONT
-    $END IF
-
-    COLOR _RGB32(0, 0, 0), _RGB32(255, 255, 255)
-    CLS
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
     t$ = "Waiting for a connection..."
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
-    t$ = "(Launch the program that will be monitored now. Press ESC to abort)"
+    t$ = "Launch the program that will be monitored now"
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT * 2), t$
+    t$ = "ESC to quit"
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
 
     'Setup host header:
@@ -1250,13 +1324,18 @@ SUB SETUP_CONNECTION
 
     'Wait for a connection:
     x = _EXIT
-    DO: _LIMIT 10
+    SHOWMENU
+    DO: _LIMIT 30
         GET #FILE, 1, HEADER
-        IF READKEYBOARD = 27 THEN USERQUIT = -1
+        MENU% = CHECKMENU(TRUE)
+        IF MENU% = 101 THEN HIDEMENU: CLOSE: EXIT SUB
+        k$ = INKEY$
+        IF k$ = CHR$(27) THEN USERQUIT = -1
         IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL USERQUIT OR HEADER.CONNECTED
+    LOOP UNTIL USERQUIT OR HEADER.CONNECTED OR MENU% = 102
+    HIDEMENU
 
-    IF USERQUIT THEN
+    IF USERQUIT OR MENU% = 102 THEN
         CLOSE #FILE
         ON ERROR GOTO FileError
         KILL PATHONLY$(EXENAME) + "vwatch64.dat"
@@ -1270,13 +1349,13 @@ SUB SETUP_CONNECTION
         PRINT "Client not compatible."
         PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.HOST_ID + CHR$(34)
         PRINT "Reported version: "; HEADER.VERSION
-        PRINT "Press any key to exit..."
+        PRINT "Press any key to go back..."
         'Report "DENIED" to the client:
         RESPONSE = "DENIED"
         PUT #FILE, , RESPONSE
         CLOSE #FILE
         SLEEP
-        SYSTEM
+        EXIT SUB
     END IF
 
     'Send autorization to client:
@@ -1291,9 +1370,9 @@ SUB SETUP_CONNECTION
 
     CLIENTDATA = SEEK(FILE)
 
-    '20 bytes have been transmitted so far. If LOF() is bigger than that,
+    'LEN(HEADER) + RESPONSE bytes have been transmitted so far. If LOF() is bigger than that,
     'we are connecting to an active previously connected client.
-    IF PREVLOF <= 20 THEN
+    IF PREVLOF <= LEN(HEADER) + LEN(RESPONSE) THEN
         'Wait for data to be sent by client:
         WAITFORDATA
     END IF
@@ -1320,10 +1399,8 @@ SUB MONITOR_MODE
     END IF
 
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-
-
-
     CLS
+
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
     t$ = "Waiting for variable stream..."
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
@@ -1362,13 +1439,13 @@ SUB MONITOR_MODE
                 IF LEN(filter$) THEN
                     filter$ = ""
                 ELSE
-                    EXIT DO
+                    USERQUIT = -1: EXIT DO
                 END IF
         END SELECT
 
         IF INFOSCREENHEIGHT > 600 THEN
             DO
-                IF ShowScroll THEN y = y + (_MOUSEWHEEL * (_HEIGHT(MAINSCREEN) / 10))
+                y = y + (_MOUSEWHEEL * (_HEIGHT(MAINSCREEN) / 5))
                 mx = _MOUSEX
                 my = _MOUSEY
                 mb = _MOUSEBUTTON(1)
@@ -1384,7 +1461,7 @@ SUB MONITOR_MODE
                             m = _MOUSEINPUT
                             my = _MOUSEY
                             y = starty + ((my - grabbedY) / SB_Ratio)
-                            GOSUB DisplayPic
+                            GOSUB displaypic
                         LOOP
                     ELSE
                         'Clicked above or below the thumb:
@@ -1402,7 +1479,7 @@ SUB MONITOR_MODE
             IF _KEYDOWN(18432) THEN y = y - _FONTHEIGHT
             IF _KEYDOWN(20480) THEN y = y + _FONTHEIGHT
         ELSE
-            IF INFOSCREEN < -1 THEN y = 0: GOSUB DisplayPic
+            IF INFOSCREEN < -1 THEN y = 0: GOSUB displaypic
         END IF
 
         CLS , _RGB32(255, 255, 255)
@@ -1476,7 +1553,7 @@ SUB MONITOR_MODE
             ELSEIF LEN(filter$) = 0 THEN
                 _PRINTSTRING (5, _HEIGHT(INFOSCREEN) - _FONTHEIGHT), t$
             END IF
-            GOSUB DisplayPic
+            GOSUB displaypic
         ELSE
             'End of list message:
             IF LEN(filter$) AND row > 0 THEN
@@ -1486,7 +1563,7 @@ SUB MONITOR_MODE
             END IF
         END IF
         _DISPLAY
-        IF _EXIT THEN EXIT DO
+        IF _EXIT THEN USERQUIT = -1: EXIT DO
     LOOP UNTIL HEADER.CONNECTED = 0 OR TIMEOUT
 
     IF INFOSCREENHEIGHT > 600 THEN _DEST MAINSCREEN
@@ -1514,7 +1591,7 @@ SUB MONITOR_MODE
         _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
         COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), EndMessage$
-        EndMessage$ = "Press any key to exit..."
+        EndMessage$ = "Press any key to continue..."
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT + 1), EndMessage$
         COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
@@ -1522,12 +1599,12 @@ SUB MONITOR_MODE
         _DEST MAINSCREEN
         _PUTIMAGE , OVERLAYSCREEN
         DO: _LIMIT 30
-            IF _EXIT THEN EXIT DO
+            IF _EXIT THEN USERQUIT = -1: EXIT DO
         LOOP UNTIL _KEYHIT
     END IF
 
     EXIT SUB
-    DisplayPic:
+    displaypic:
     IF y < 0 THEN y = 0
     IF INFOSCREENHEIGHT > 600 THEN
         IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
@@ -1607,5 +1684,308 @@ SUB PARSEARRAY (ArrayName$, Valid%, LowerBoundary%, UpperBoundary%)
             EXIT SUB
         END IF
     NEXT i
+END SUB
+
+FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
+    'save some old values
+    LoadFile_DC = _DEFAULTCOLOR: LoadFile_BG = _BACKGROUNDCOLOR
+    LoadFile_s = _SOURCE: LoadFile_d = _DEST
+    f = _FONT: _FONT 16
+    'some variables
+
+    LoadFile_BoxColor = &HFFAAAAFF
+    LoadFile_FolderColor = &HFFFFFF00
+    LoadFile_FileColor = &HFFFFFFFF
+    IF INSTR(_OS$, "[WINDOWS]") THEN LoadFile_Slash$ = "\" ELSE LoadFile_Slash$ = "/"
+    LoadFile_Dir$ = SPACE$(FILE_current_dir_length)
+    FILE_get_current_dir LoadFile_Dir$
+    LoadFile_Dir$ = LoadFile_Dir$ + LoadFile_Slash$
+    LoadFile_w = 639: LoadFile_h = 479
+    REDIM LoadFile_Label(0) AS STRING: LoadFile_Label(0) = "DIR"
+    REDIM LoadFile_DirList(-1 TO 9, -1 TO 9999) AS STRING
+    LoadFile_last = 1
+    REDIM Drives(0) AS STRING
+
+    'some error checking
+    IF search$ = "" THEN EXIT SUB 'We can't search for nothing!
+
+    'Copy background
+    PCOPY 0, 1
+    'set workscreen
+    LoadFile_ws = _NEWIMAGE(640, 480, 32)
+
+    'Count our filetypes to display
+    LoadFile_TypeCount = 0
+    DO
+        LoadFile_TypeCount = LoadFile_TypeCount + 1
+        LoadFile_l = INSTR(LoadFile_l + 1, search$, ";") ' look for ; to denote more files
+        REDIM _PRESERVE LoadFile_Label(LoadFile_TypeCount) AS STRING
+        IF LoadFile_l > 0 THEN LoadFile_Label(LoadFile_TypeCount) = MID$(search$, LoadFile_last + 1, LoadFile_l - LoadFile_last - 1) ELSE LoadFile_Label(LoadFile_TypeCount) = MID$(search$, LoadFile_last + 1, LEN(search$) - LoadFile_last)
+        LoadFile_last = LoadFile_l + 1
+    LOOP UNTIL LoadFile_l = 0
+    LoadFile_l = 640 / (LoadFile_TypeCount + 1)
+    REDIM LoadFile_start(LoadFile_TypeCount), LoadFile_previous(LoadFile_TypeCount), LoadFile_more(LoadFile_TypeCount), LoadFile_Count(LoadFile_TypeCount)
+    FOR i = 0 TO LoadFile_TypeCount: LoadFile_start(i) = 1: NEXT
+
+    'Get the windows drive letters
+    IF INSTR(_OS$, "[WINDOWS]") THEN
+        SHELL _HIDE CHR$(34) + "wmic logicaldisk get name" + CHR$(34) + ">TempDirList.txt"
+        REDIM Drives(0) AS STRING
+
+        OPEN "TempDirList.txt" FOR INPUT AS #1
+        LINE INPUT #1, junk$ 'First line is  name
+        counter = 0
+        DO UNTIL EOF(1)
+            counter = counter + 1
+            INPUT #1, junk$ 'drive name
+            REDIM _PRESERVE Drives(counter) AS STRING
+            IF LEN(junk$) > 1 THEN junk$ = MID$(junk$, 2, 1) + ":" ELSE junk$ = "": counter = counter - 1
+            IF junk$ <> "" THEN
+                Drives(counter) = junk$
+            END IF
+        LOOP
+        CLOSE #1
+        KILL "TempDirList.txt"
+    END IF
+
+
+    _SOURCE LoadFile_ws: _DEST LoadFile_ws
+    DO
+
+        FOR i = 0 TO LoadFile_TypeCount
+            LoadFile_Count(i) = 0
+            FOR j = 0 TO 9999
+                LoadFile_DirList(i, j) = ""
+            NEXT
+        NEXT
+        'Generate our updated directory listings.
+
+        IF FILE_load_dir&(LoadFile_Dir$ + CHR$(0)) THEN
+            DO
+                LoadFile_length = FILE_has_next_entry 'Get length of next entry
+                IF LoadFile_length > -1 THEN 'If we have a next entry
+                    LoadFile_nam$ = SPACE$(LoadFile_length) 'Set the size of our string
+                    FILE_get_next_entry LoadFile_nam$, LoadFile_flags, LoadFile_file_size 'Get the file's name, size, and 'flags'
+                    'Check if it's a file or a directory
+
+                    IF _DIREXISTS(LoadFile_Dir$ + LoadFile_nam$) THEN
+                        IF LoadFile_nam$ <> "." THEN
+                            LoadFile_Count(0) = LoadFile_Count(0) + 1
+                            LoadFile_DirList(0, LoadFile_Count(0)) = LoadFile_nam$
+                        END IF
+                    ELSE 'We have a file
+                        FOR i = 1 TO LoadFile_TypeCount
+                            LoadFile_ext$ = RIGHT$(LoadFile_nam$, LEN(LoadFile_Label(i)))
+                            IF UCASE$(LoadFile_ext$) = UCASE$(LoadFile_Label(i)) THEN
+                                LoadFile_Count(i) = LoadFile_Count(i) + 1
+                                LoadFile_DirList(i, LoadFile_Count(i)) = LEFT$(LoadFile_nam$, LEN(LoadFile_nam$) - LEN(LoadFile_Label(i)))
+                                EXIT FOR
+                            ELSEIF LoadFile_Label(i) = ".*" THEN
+                                LoadFile_Count(i) = LoadFile_Count(i) + 1
+                                LoadFile_DirList(i, LoadFile_Count(i)) = LoadFile_nam$
+                            END IF
+                        NEXT
+                    END IF
+                END IF
+            LOOP UNTIL LoadFile_length = -1
+            FILE_close_dir
+        END IF
+
+        FOR i = 1 TO UBOUND(drives)
+            LoadFile_Count(0) = LoadFile_Count(0) + 1
+            LoadFile_DirList(0, LoadFile_Count(0)) = Drives(i)
+        NEXT
+
+        updatelist:
+
+        CLS , &HFF005050 'Draw a nice display box
+        COLOR , 0
+        LINE (0, 0)-(LoadFile_w, LoadFile_h + 5 - 2 * 16), LoadFile_BoxColor, B
+        LINE (1, 1)-(LoadFile_w - 1, LoadFile_h + 6 - 2 * 16), LoadFile_BoxColor, B
+        LINE (0, 0)-(LoadFile_w, LoadFile_h), LoadFile_BoxColor, B
+        LINE (1, 1)-(LoadFile_w - 1, LoadFile_h - 1), LoadFile_BoxColor, B
+
+        LINE (0, 16 + 3)-(LoadFile_w, 16 + 3), LoadFile_BoxColor
+        LINE (0, 16 + 4)-(LoadFile_w, 16 + 4), LoadFile_BoxColor
+        FOR i = 0 TO LoadFile_TypeCount
+            _PRINTSTRING (i * LoadFile_l + (LoadFile_l - 8 * LEN(LoadFile_Label(i))) / 2, 2), LoadFile_Label(i)
+            LINE (i * LoadFile_l, 0)-(i * LoadFile_l, LoadFile_h + 5 - 2 * 16), LoadFile_BoxColor
+        NEXT
+
+        LINE (627, 2)-(637, 18), &HFFFF0000, BF
+        LINE (626, 2)-(637, 18), &HFF000000, B
+
+        _PRINTSTRING (628, 2), "X"
+        IF selection > 0 THEN
+            IF LoadFile_Label(row) <> ".*" AND LoadFile_Label(row) <> "DIR" THEN temp$ = LoadFile_DirList(row, selection) + LoadFile_Label(row) ELSE temp$ = LoadFile_DirList(row, selection)
+            IF LoadFile_DirList(row, selection) = "" THEN temp$ = ""
+            selection = 0
+        END IF
+        _PRINTSTRING (10, 28 * 16 + 7), LoadFile_Dir$
+        _PRINTSTRING (630 - LEN(temp$) * 8, 28 * 16 + 7), temp$
+        IF temp$ = "" THEN oldselection = 0
+        IF oldselection > 0 THEN LINE (row * LoadFile_l, (oldselection + 1) * 16 + 5)-((row + 1) * LoadFile_l, (oldselection + 2) * 16 + 5), &HAAAAA000, BF
+
+        FOR i = 0 TO UBOUND(LoadFile_label)
+            IF i = 0 THEN COLOR LoadFile_FolderColor ELSE COLOR LoadFile_FileColor
+            counter = 0
+            FOR j = LoadFile_start(i) TO LoadFile_start(i) + 24
+                counter = counter + 1
+                IF LoadFile_DirList(i, j) = "" THEN EXIT FOR
+                _PRINTSTRING (i * LoadFile_l + 5, (counter + 1) * 16 + 7), LEFT$(LoadFile_DirList(i, j), LoadFile_l / 8 - 2)
+            NEXT
+            IF j = LoadFile_start(i) + 25 THEN LoadFile_more(i) = -1 ELSE LoadFile_more(i) = 0
+            IF LoadFile_start(i) > 1 THEN LoadFile_previous(i) = -1 ELSE LoadFile_previous(i) = 0
+            IF LoadFile_more(i) THEN
+                LINE (i * LoadFile_l + 2, 27 * 16 + 5)-((i + 1) * LoadFile_l - 3, 28 * 16 + 3), &HFFFF0000, BF
+                LINE (i * LoadFile_l + 2, 27 * 16 + 5)-((i + 1) * LoadFile_l - 3, 28 * 16 + 3), BoxColor, B
+                COLOR &HFFFFFF00: _PRINTSTRING (i * LoadFile_l + (LoadFile_l - 8 * 11) / 2, 27 * 16 + 5), "SCROLL DOWN"
+                COLOR LoadFile_FileColor
+            END IF
+            IF LoadFile_previous(i) THEN
+                LINE (i * LoadFile_l + 2, 16 + 5)-((i + 1) * LoadFile_l - 3, 2 * 16 + 3), &HFFFF0000, BF
+                LINE (i * LoadFile_l + 2, 16 + 5)-((i + 1) * LoadFile_l - 3, 2 * 16 + 3), BoxColor, B
+                COLOR &HFFFFFF00: _PRINTSTRING (i * LoadFile_l + (LoadFile_l - 8 * 9) / 2, 16 + 5), "SCROLL UP"
+                COLOR LoadFile_FileColor
+            END IF
+        NEXT
+
+        _PUTIMAGE (0 + x, 0 + y)-(640 + x, 480 + y), LoadFile_ws, 0
+        _DISPLAY
+
+        change = 0
+        DO
+            _DELAY .05
+            LoadFile_LMB = 0 'This sets the left mouse button as unacceptable.
+            a = _KEYHIT
+            SELECT CASE a
+                CASE 8 'backspace
+                    temp$ = LEFT$(temp$, LEN(temp$) - 1)
+                    change = -1
+                CASE 13 'enter
+                    DO: LOOP UNTIL INKEY$ = "" 'Clear the keyboard buffer so it doesn't affect the main program.
+                    temp$ = LoadFile_Dir$ + temp$
+                    COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY: SelectFile$ = temp$ 'Restore our old settings
+                    _FONT f
+                    EXIT SUB 'And leave
+                CASE 27 'If ESC is pressed then...
+                    DO: LOOP UNTIL INKEY$ = "" 'Clear the keyboard buffer so it doesn't affect the main program.
+                    COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY: SelectFile$ = "" 'Restore our old settings
+                    _FONT f
+                    EXIT SUB 'And leave
+                CASE 32 TO 126
+                    temp$ = temp$ + CHR$(a)
+                    change = -1
+            END SELECT
+            DO
+                MS = MS + _MOUSEWHEEL
+                IF _MOUSEBUTTON(1) = 0 THEN LoadFile_LMB = -1 'Only by lifting the mouse, will we count it as down
+                'Note: we ignore LoadFile_LMB for the scroll bars, so we can just hold it down and scroll happily forever and ever...
+                'or until we get to the limit of our file list.
+                'We only check LoadFile_LMB when actually trying to select an item from our list.   No more "OOP!  I held it too long and did something I didn't want to do!"
+                'Now we click once to select, click again to accept that selection.
+            LOOP WHILE _MOUSEINPUT
+            MX = _MOUSEX: MY = _MOUSEY
+            IF _MOUSEBUTTON(2) OR (LoadFile_LMB AND MX > 626 + x AND MX < 638 + x AND MY > 1 + y AND MY < 19 + y AND _MOUSEBUTTON(1)) THEN
+                'restore those old values, and just exit.  Right mouse is an escape
+                COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY: SelectFile$ = ""
+                _FONT f
+                EXIT SUB
+            END IF
+
+
+
+
+
+            IF _MOUSEBUTTON(1) THEN 'Without the mouse being down, we don't need to check squat!
+                'Check the 2 roLoadFile_ws for a click in the proper Y position
+                IF MY >= 16 + 5 + y AND MY <= 2 * 16 + 3 + y THEN 'We're on the top row
+                    FOR j = 0 TO UBOUND(LoadFile_label)
+                        IF LoadFile_previous(j) AND MX >= j * LoadFile_l + 2 + x AND MX <= (j + 1) * LoadFile_l - 3 + x THEN
+                            LoadFile_start(j) = LoadFile_start(j) - 1
+                            change = -1: selection = 0: click = 0: temp$ = ""
+                            EXIT FOR
+                        END IF
+                    NEXT
+                ELSEIF MY >= 27 * 16 + 5 + y AND MY <= 28 * 16 + 3 + y THEN 'We're on the bottom row
+                    FOR j = 0 TO UBOUND(LoadFile_label)
+                        IF LoadFile_more(j) AND MX >= j * LoadFile_l + 2 + x AND MX <= (j + 1) * LoadFile_l - 3 + x THEN
+                            LoadFile_start(j) = LoadFile_start(j) + 1
+                            change = -1: selection = 0: click = 0: temp$ = ""
+                            EXIT FOR
+                        END IF
+                    NEXT
+                ELSEIF MY >= 37 + y AND MY <= 437 + y AND LoadFile_LMB THEN 'It's in a column somewhere.  Did someone click an item?!
+                    FOR j = 0 TO UBOUND(LoadFile_label)
+                        IF MX >= j * LoadFile_l + 2 + x AND MX <= (j + 1) * LoadFile_l - 3 + x THEN
+                            row = j
+                            oldselection = INT((MY - y - 37) / 16) + 1
+                            selection = LoadFile_start(j) + oldselection - 1
+                            change = -1
+                            click = -1
+                            EXIT FOR
+                        END IF
+                    NEXT
+                END IF
+            END IF
+            IF MS <> 0 THEN
+                IF MY >= 37 + y AND MY <= 437 + y AND LoadFile_LMB THEN 'It's in a column somewhere.  Did someone click an item?!
+                    FOR j = 0 TO UBOUND(LoadFile_label)
+                        IF MX >= j * LoadFile_l + 2 + x AND MX <= (j + 1) * LoadFile_l - 3 + x THEN
+                            IF LoadFile_previous(j) AND MS < 1 THEN
+                                LoadFile_start(j) = LoadFile_start(j) - 5
+                                IF LoadFile_start(j) < 1 THEN LoadFile_start(j) = 1
+                                change = -1: selection = 0: click = 0: temp$ = ""
+                                MS = 0
+                            ELSEIF LoadFile_more(j) AND MS > 1 THEN
+                                LoadFile_start(j) = LoadFile_start(j) + 5
+                                change = -1: selection = 0: click = 0: temp$ = ""
+                                MS = 0
+                            END IF
+                            EXIT FOR
+                        END IF
+                    NEXT
+                ELSE MS = 0
+                END IF
+            END IF
+            _DISPLAY
+        LOOP UNTIL change
+        IF click THEN 'we clicked something besides a scroll bar
+            IF LoadFile_Label(row) <> ".*" AND LoadFile_Label(row) <> "DIR" THEN temp1$ = LoadFile_DirList(row, selection) + LoadFile_Label(row) ELSE temp1$ = LoadFile_DirList(row, selection)
+            IF temp$ = temp1$ THEN
+                'We picked one!
+                SELECT CASE LoadFile_Label(row)
+                    CASE "DIR"
+                        SELECT CASE LoadFile_DirList(row, selection)
+                            CASE "" 'Do nothing with blank directories
+                            CASE ".." 'Up a folder
+                                DO
+                                    LoadFile_Dir$ = LEFT$(LoadFile_Dir$, LEN(LoadFile_Dir$) - 1)
+                                LOOP UNTIL RIGHT$(LoadFile_Dir$, 1) = LoadFile_Slash$ OR LEN(LoadFile_Dir$) = 0
+                            CASE ELSE 'To a specific folder
+                                IF LEN(LoadFile_DirList(row, selection)) = 2 AND RIGHT$(LoadFile_DirList(row, selection), 1) = ":" THEN
+                                    'It's a directory change
+                                    LoadFile_Dir$ = LoadFile_DirList(row, selection) + LoadFile_Slash$
+                                ELSE
+                                    LoadFile_Dir$ = LoadFile_Dir$ + LoadFile_DirList(row, selection) + LoadFile_Slash$
+                                END IF
+                        END SELECT
+                        FOR i = 0 TO UBOUND(Loadfile_start)
+                            LoadFile_start(i) = 1
+                        NEXT
+                        selection = 0: temp$ = "": oldselection = 0
+                    CASE ".*": SelectFile$ = LoadFile_Dir$ + temp$: EXIT DO
+                    CASE ELSE: SelectFile$ = LoadFile_Dir$ + temp$: EXIT DO
+                END SELECT
+            END IF
+            IF row > 0 THEN _DELAY .2: GOTO updatelist
+        ELSE
+            _DELAY .05
+            GOTO updatelist
+        END IF
+    LOOP
+    'restore those old values
+    COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY
+    _FONT f
 END SUB
 
