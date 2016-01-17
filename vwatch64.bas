@@ -71,12 +71,29 @@
 '       an error. Now they can be watched as well.
 '     - Added support for multiline statements (ending with an underscore).
 '
-DECLARE LIBRARY
-    FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
-END DECLARE
+' - Beta 5: December 23rd, 2015
+'     - Code is now a bit easier to read. Sections have been moved to SUBs, making
+'       it easier to follow.
+'     - Scroll bar behavior has been completely recoded and now works as expected
+'       (scrollbars only show when the list is too long to fit the program area)
+'     - Static arrays can now be monitored. vWATCH64 will look for unidimensional
+'       arrays and add them to the watch list.
+'     - Lower boundary of arrays is determined based on OPTION BASE, if found in
+'       the source file being processed.
+'     - Command line switches now include -dontcompile and -noarrays
+'
+' - Beta 6: (when?)
+'
+'
+$IF WIN THEN
+    DECLARE LIBRARY
+        FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
+    END DECLARE
+$END IF
 
+'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "0.4b "
+CONST VERSION = "0.5b "
 
 CONST TIMEOUTLIMIT = 3
 
@@ -85,6 +102,7 @@ CONST VARIABLENAMES = 1
 CONST VALUES = 2
 CONST DATATYPES = 3
 
+'Custom data types: -----------------------------------------------------------
 TYPE HEADERTYPE
     HOST_ID AS STRING * 8
     VERSION AS STRING * 5
@@ -113,6 +131,7 @@ TYPE UDTTYPE
     DATATYPE AS STRING * 20
 END TYPE
 
+'Shared variables: ------------------------------------------------------------
 DIM SHARED MAINSCREEN AS LONG
 DIM SHARED INFOSCREEN AS LONG
 DIM SHARED INFOSCREENHEIGHT AS INTEGER
@@ -133,13 +152,20 @@ DIM SHARED DONTCOMPILE AS _BIT
 DIM SHARED EXENAME AS STRING
 DIM SHARED TOTALVARIABLES AS INTEGER
 DIM SHARED MULTILINE AS _BIT
+DIM SHARED TTFONT AS LONG
+DIM SHARED OPTIONBASE AS INTEGER
+DIM SHARED SKIPARRAYS AS _BIT
 
 DIM OVERLAYSCREEN AS LONG
 DIM TIMEOUT AS _BYTE
 DIM i AS INTEGER
 
+'Variables initialization: ----------------------------------------------------
 DEFAULTDATATYPE = "SINGLE"
+OPTIONBASE = 0
 VERBOSE = 0
+DONTCOMPILE = 0
+SKIPARRAYS = 0
 
 $IF WIN THEN
     Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
@@ -150,13 +176,14 @@ $ELSE
     EXENAME = ""
 $END IF
 
-'Screen setup:
+'Screen setup: ----------------------------------------------------------------
 MAINSCREEN = _NEWIMAGE(1000, 600, 32)
 SCREEN MAINSCREEN
-
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
 
+
+'Parse the command line: ------------------------------------------------------
 'Did the user drag a .BAS file onto this program or enter parameters?
 'Syntax: VWATCH64 [source filename.bas] [destination filename] [-v] [-dontcompile]
 '(-v is for Verbose mode while processing - only works if file names are provided)
@@ -168,302 +195,26 @@ IF LEN(COMMAND$) THEN
             SELECT CASE LCASE$(COMMAND$(i))
                 CASE "-v": VERBOSE = -1 'Verbose switch
                 CASE "-dontcompile": DONTCOMPILE = -1
+                CASE "-noarrays": SKIPARRAYS = -1
                 CASE ELSE
                     'Any other arguments are ignored.
             END SELECT
         NEXT i
     END IF
 
-    IF _FILEEXISTS(COMMAND$(1)) THEN PROCESSFILE COMMAND$(1)
+    IF _FILEEXISTS(COMMAND$(1)) THEN PROCESSFILE COMMAND$(1) ELSE BEEP
 END IF
 
+'If -dontcompile was used in the command line, monitor mode is skipped.
 IF DONTCOMPILE THEN SYSTEM
 
-'MONITOR MODE:
-_KEYCLEAR
-$IF WIN THEN
-    TTFont = _LOADFONT("C:\windows\fonts\cour.ttf", 14, "MONOSPACE, BOLD")
-    IF TTFont THEN _FONT TTFont
-$END IF
-COLOR _RGB32(0, 0, 0), _RGB32(255, 255, 255)
-CLS
-_PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
-t$ = "Waiting for a connection..."
-_PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
-t$ = "(Launch now the program that will be monitored. Press ESC to abort)"
-_PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
-
-'Setup host header:
-HEADER.HOST_ID = ID
-HEADER.VERSION = VERSION
-HEADER.CONNECTED = 0
-
-FILE = FREEFILE
-CLOSE
-ON ERROR GOTO FileError
-'Try killing vwatch64.dat. Won't work if open, so we'll try to reconnect to client.
-KILL PATHONLY$(EXENAME) + "vwatch64.dat"
-
-'Opens "vwatch64.dat" to wait for a connection:
-OPEN PATHONLY$(EXENAME) + "vwatch64.dat" FOR BINARY AS #FILE
-
-'Wait for a connection:
-x = _EXIT
-DO: _LIMIT 10
-    GET #FILE, 1, HEADER
-    IF READKEYBOARD = 27 THEN USERQUIT = -1
-    IF _EXIT THEN USERQUIT = -1
-LOOP UNTIL USERQUIT OR HEADER.CONNECTED
-
-IF USERQUIT THEN
-    CLOSE #FILE
-    ON ERROR GOTO FileError
-    KILL PATHONLY$(EXENAME) + "vwatch64.dat"
-    SYSTEM
-END IF
-
-CLS
-'Connected! Check if client is compatible:
-IF HEADER.HOST_ID <> ID OR HEADER.VERSION <> VERSION THEN
-    PRINT "Client not compatible."
-    PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.HOST_ID + CHR$(34)
-    PRINT "Reported version: "; HEADER.VERSION
-    PRINT "Press any key to exit..."
-    'Report "DENIED" to the client:
-    RESPONSE = "DENIED"
-    PUT #FILE, , RESPONSE
-    CLOSE #FILE
-    SLEEP
-    SYSTEM
-END IF
-
-'Send autorization to client:
-RESPONSE = "AUTHOK"
-PUT #FILE, , RESPONSE
-PREVLOF = LOF(FILE)
-
-PRINT "Connected. Waiting for client ID..."
-
-CLIENTDATA = SEEK(FILE)
-
-'20 bytes have been transmitted so far. If LOF() is bigger than that,
-'we are connecting to an active previously connected client.
-IF PREVLOF <= 20 THEN
-    'Wait for data to be sent by client:
-    WAITFORDATA
-END IF
-
-GET #FILE, , CLIENT
-DATABLOCK = SEEK(FILE)
-
-TITLESTRING = TITLESTRING + " - " + TRIM$(CLIENT.NAME) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
-_TITLE TITLESTRING
-
+'------------------------------------------------------------------------------
+'MONITOR MODE:                                                                -
+'------------------------------------------------------------------------------
+SETUP_CONNECTION
 REDIM SHARED VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
-INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
-IF INFOSCREENHEIGHT > 600 THEN
-    INFOSCREEN = _NEWIMAGE(1000, INFOSCREENHEIGHT, 32)
-    VisibleArea = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-    _DEST INFOSCREEN
-    CLS
-    $IF WIN THEN
-        IF TTFont THEN _FONT TTFont
-    $END IF
-END IF
-
-COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-
-t$ = "(end of list)"
-StartOfLoop# = TIMER
-filter$ = ""
-searchIn = VARIABLENAMES
-
-PRINT "Waiting for variable stream..."
-WAITFORDATA
-
-longestVarName = 1
-GET #FILE, DATABLOCK, VARIABLES()
-FOR i = 1 TO CLIENT.TOTALVARIABLES
-    IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
-NEXT i
-
-DO: _LIMIT 60
-    CLS , _RGB32(255, 255, 255)
-    k$ = INKEY$
-    IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
-    SELECT CASE k
-        CASE 32 TO 126 'Printable ASCII characters
-            'CASE 48 TO 57, 65 TO 90, 97 TO 122, ASC("."), ASC("_") 'Numbers, letters, period and underscore
-            filter$ = filter$ + CHR$(k)
-            y = 0
-        CASE 8 'Backspace
-            IF LEN(filter$) THEN filter$ = LEFT$(filter$, LEN(filter$) - 1)
-            y = 0
-        CASE 22 'CTRL + V
-            IF LEN(_CLIPBOARD$) THEN filter$ = filter$ + _CLIPBOARD$: y = 0
-        CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES, VALUES)
-            searchIn = (searchIn) MOD 3 + 1
-            y = 0
-        CASE 27 'ESC clears the current search filter or exits the program
-            IF LEN(filter$) THEN
-                filter$ = ""
-            ELSE
-                EXIT DO
-            END IF
-    END SELECT
-    IF INFOSCREENHEIGHT > 600 THEN
-        DO WHILE _MOUSEINPUT
-            mw = _MOUSEWHEEL
-            IF ShowScroll THEN y = y + mw * (_HEIGHT(INFOSCREEN) / 10)
-        LOOP
-        mb = _MOUSEBUTTON(1)
-        mx = _MOUSEX
-        my = _MOUSEY
-        IF mb THEN
-            IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
-                y = my / VisibleArea
-            END IF
-        END IF
-
-        IF _KEYDOWN(18432) THEN y = y - _FONTHEIGHT
-        IF _KEYDOWN(20480) THEN y = y + _FONTHEIGHT
-        IF y < 0 THEN y = 0
-        IF y > _HEIGHT(INFOSCREEN) - 599 THEN y = _HEIGHT(INFOSCREEN) - 599
-    END IF
-    GET #FILE, 1, HEADER
-    GET #FILE, CLIENTDATA, CLIENT
-    GET #FILE, DATABLOCK, VARIABLES()
-
-    cursorBlink% = cursorBlink% + 1
-    IF cursorBlink% > 30 THEN cursorBlink% = 0
-
-    LINE (0, 0)-(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
-    _PRINTSTRING (5, 3), "Now running: " + RTRIM$(CLIENT.CURRENTMODULE)
-    _PRINTSTRING (5, _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
-    _PRINTSTRING (5, _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
-
-    IF CLIENT.LASTOUTPUT > 0 THEN
-        IF TIMER - CLIENT.LASTOUTPUT > 5 THEN TIMEOUT = -1
-    ELSE
-        IF TIMER - StartOfLoop# > TIMEOUTLIMIT THEN TIMEOUT = -1
-    END IF
-
-    'Places a light gray rectangle under the column that can currently be filtered
-    SELECT CASE searchIn
-        CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(7))
-            columnHighlightY = 55
-            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
-        CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
-            columnHighlightY = 55
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
-        CASE VALUES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
-            columnHighlightY = 55
-            columnHighlightW = _WIDTH
-    END SELECT
-    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, IIF(LEN(filter$), row, CLIENT.TOTALVARIABLES) * _FONTHEIGHT + 8), _RGB32(230, 230, 230), BF
-
-    i = 0: row = 0
-    DO
-        i = i + 1
-        IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
-        IF LEN(filter$) THEN
-            Found = 0
-            SELECT CASE searchIn
-                CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(filter$)) THEN Found = -1
-                CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(filter$)) THEN Found = -1
-                CASE VALUES: IF INSTR(UCASE$(VARIABLES(i).VALUE), UCASE$(filter$)) THEN Found = -1
-            END SELECT
-            IF Found THEN
-                row = row + 1
-                v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
-                _PRINTSTRING (5, (3 + row) * _FONTHEIGHT), v$
-            END IF
-        ELSE
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
-            _PRINTSTRING (5, (3 + i) * _FONTHEIGHT), v$
-        END IF
-    LOOP
-
-    IF LEN(filter$) AND row = 0 THEN 'A filter is on, but nothing was found
-        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
-        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
-    END IF
-
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF LEN(filter$) AND row > 0 THEN
-            _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
-        ELSEIF LEN(filter$) = 0 THEN
-            _PRINTSTRING (5, _HEIGHT(INFOSCREEN) - _FONTHEIGHT), t$
-        END IF
-        _PUTIMAGE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1), INFOSCREEN, MAINSCREEN, (0, y)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1)
-        'Scrollbar:
-        _DEST MAINSCREEN
-        ShowScroll = 1
-        IF LEN(filter$) AND row > 0 THEN
-            INFOSCREENHEIGHT = _FONTHEIGHT * row
-            IF NOT INFOSCREENHEIGHT > 600 THEN ShowScroll = 0 ELSE VisibleArea = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        ELSE
-            INFOSCREENHEIGHT = _FONTHEIGHT * CLIENT.TOTALVARIABLES
-            VisibleArea = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        END IF
-        RelativeY = (y * VisibleArea) - 3
-        IF ShowScroll THEN
-            LINE (_WIDTH(MAINSCREEN) - 30, 0)-STEP(29, _HEIGHT(MAINSCREEN) - 1), _RGB32(170, 170, 170), BF
-            LINE (_WIDTH(MAINSCREEN) - 25, 6 + RelativeY)-STEP(19, (_HEIGHT(MAINSCREEN) - 12) * VisibleArea), _RGB32(70, 70, 70), BF
-        END IF
-        _DEST INFOSCREEN
-        INFOSCREENHEIGHT = _FONTHEIGHT * CLIENT.TOTALVARIABLES
-    ELSE
-        'End of list message:
-        IF LEN(filter$) AND row > 0 THEN
-            _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
-        ELSEIF LEN(filter$) = 0 THEN
-            _PRINTSTRING (5, (4 + i) * _FONTHEIGHT), t$
-        END IF
-    END IF
-    _DISPLAY
-    IF _EXIT THEN EXIT DO
-LOOP UNTIL HEADER.CONNECTED = 0 OR TIMEOUT
-
-IF INFOSCREENHEIGHT > 600 THEN _DEST MAINSCREEN
-_AUTODISPLAY
-
-OVERLAYSCREEN = _NEWIMAGE(500, 300, 32)
-_DEST OVERLAYSCREEN
-_FONT 16
-LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
-
-IF HEADER.CONNECTED = 0 THEN
-    EndMessage$ = "Connection closed by client."
-ELSEIF TIMEOUT THEN
-    EndMessage$ = "Connection timed out."
-END IF
-
-CLOSE
-ON ERROR GOTO FileError
-KILL PATHONLY$(EXENAME) + "vwatch64.dat"
-
-IF HEADER.CONNECTED = 0 OR TIMEOUT THEN
-    BEEP
-    _KEYCLEAR
-    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
-    COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), EndMessage$
-    EndMessage$ = "Press any key to exit..."
-    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT + 1), EndMessage$
-    COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT), EndMessage$
-    _DEST MAINSCREEN
-    _PUTIMAGE , OVERLAYSCREEN
-    DO: _LIMIT 30
-        IF _EXIT THEN EXIT DO
-    LOOP UNTIL _KEYHIT
-END IF
+MONITOR_MODE
+'------------------------------------------------------------------------------
 
 SYSTEM
 
@@ -476,10 +227,15 @@ DATA _UNSIGNED INTEGER,LONG,_UNSIGNED LONG,_INTEGER64
 DATA _UNSIGNED _INTEGER64,SINGLE,DOUBLE,_FLOAT,STRING
 DATA END
 
+
+'------------------------------------------------------------------------------
+'SUBs and FUNCTIONs:                                                          -
+'------------------------------------------------------------------------------
 FUNCTION READKEYBOARD
     READKEYBOARD = _KEYHIT
 END FUNCTION
 
+'------------------------------------------------------------------------------
 SUB WAITFORDATA
     'Waits until data is put in a binary file. We monitor the length of
     'the file with LOF(FILE) until it is larger than the
@@ -498,6 +254,7 @@ SUB WAITFORDATA
     LOOP
 END SUB
 
+'------------------------------------------------------------------------------
 SUB PROCESSFILE (FILENAME$)
     'Parses a .BAS file and reads all compatible variables
     'in order to generate a compatible vWATCH64 client.
@@ -515,19 +272,21 @@ SUB PROCESSFILE (FILENAME$)
     DIM TotalUDTs AS INTEGER
     DIM TotalUDTsAdded AS INTEGER
     DIM TotalLines AS LONG
-    DIM CurrentLine AS LONG
     DIM ThisKeyword AS STRING
-    DIM DefiningType AS _BYTE
+    DIM DefiningType AS _BIT
+    DIM DeclaringLibrary AS _BIT
     DIM FoundType AS STRING
     DIM MainModule AS _BYTE
-    DIM LocalVariable AS _BYTE
+    DIM LocalVariable AS _BIT
+    DIM IsArray AS _BIT
     DIM bkpSourceLine$
     DIM NextVar$
     DIM caseBkpNextVar$
-    DIM DefaultTypeUsed AS _BYTE
-    REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS STRING * 40
+    DIM DefaultTypeUsed AS _BIT
+    REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
     REDIM VARIABLES(1) AS VARIABLESTYPE
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
+    REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM KeywordList(1) AS STRING
 
     RESTORE KeyWordsDATA
@@ -574,18 +333,10 @@ SUB PROCESSFILE (FILENAME$)
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
         IF k = 78 OR k = 110 THEN SYSTEM
     END IF
-    'Processing can proceed.
 
+    'Processing can proceed.
     InputFile = FREEFILE
-    OPEN FILENAME$ FOR INPUT AS #InputFile
-    TotalLines = 0
-    DO
-        IF EOF(InputFile) THEN EXIT DO
-        LINE INPUT #InputFile, bkpSourceLine$
-        TotalLines = TotalLines + 1
-    LOOP
-    CLOSE InputFile
-    OPEN FILENAME$ FOR INPUT AS #InputFile
+    OPEN FILENAME$ FOR BINARY AS #InputFile
 
     OutputFile = FREEFILE
     OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
@@ -606,8 +357,7 @@ SUB PROCESSFILE (FILENAME$)
             LINE INPUT #InputFile, bkpSourceLine$ 'Reads the next source line
             caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generates a version without comments or extra spaces
             SourceLine = UCASE$(caseBkpSourceLine) 'Generates an all upper case version
-            CurrentLine = CurrentLine + 1
-            IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###.#"; (CurrentLine / TotalLines) * 100;: PRINT "%"
+            IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (SEEK(InputFile) / LOF(InputFile)) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
         ELSE
             NextVar$ = UCASE$(caseBkpNextVar$)
         END IF
@@ -632,10 +382,10 @@ SUB PROCESSFILE (FILENAME$)
         END IF
 
         IF MULTILINE THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE = 0
+
         IF LEFT$(SourceLine, 4) = "DIM " AND MainModule THEN
             LocalVariable = 0
             IF MID$(SourceLine, 5, 7) <> "SHARED " THEN LocalVariable = -1
-
 
             IF LEN(caseBkpNextVar$) > 0 THEN
                 NextVar$ = UCASE$(caseBkpNextVar$)
@@ -644,62 +394,126 @@ SUB PROCESSFILE (FILENAME$)
                 NextVar$ = UCASE$(caseBkpNextVar$)
             END IF
 
-            'If it's not an array, we'll process this variable.
-            IF INSTR(NextVar$, "(") = 0 THEN
-                IF INSTR(NextVar$, " AS ") = 0 THEN
-                    'Attempt to infer DATA TYPE from suffixes:
-                    FoundType = SUFFIXLOOKUP$(NextVar$)
-                    DefaultTypeUsed = 0
+            IF INSTR(NextVar$, " AS ") = 0 THEN
+                'Attempt to infer DATA TYPE from suffixes:
+                FoundType = SUFFIXLOOKUP$(NextVar$)
+                DefaultTypeUsed = 0
 
-                    IF LEN(FoundType) = 0 THEN
-                        FoundType = DEFAULTDATATYPE 'Assumes default data type
-                        DefaultTypeUsed = -1
+                IF LEN(FoundType) = 0 THEN
+                    FoundType = DEFAULTDATATYPE 'Assumes default data type
+                    DefaultTypeUsed = -1
+                END IF
+
+                IsArray = 0
+                IF INSTR(NextVar$, "(") THEN IsArray = -1: PARSEARRAY NextVar$, ValidArray%, LowerBoundary%, UpperBoundary%
+                IF IsArray THEN
+                    IF ValidArray% AND NOT SKIPARRAYS THEN
+                        ValidArray% = 0
+                        FOR i = LowerBoundary% TO UpperBoundary%
+                            TOTALVARIABLES = TOTALVARIABLES + 1
+                            REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+                            VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(caseBkpNextVar$, "(")) + TRIM$(STR$(i)) + ")"
+                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                            VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+                        NEXT i
                     END IF
-
+                ELSE
                     TOTALVARIABLES = TOTALVARIABLES + 1
                     REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                     VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
                     VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
                     VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+                END IF
 
-                    IF LocalVariable THEN
-                        TotalLocalVariables = TotalLocalVariables + 1
-                        REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
-                        LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
-                        LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
-                    END IF
+                IF LocalVariable THEN
+                    TotalLocalVariables = TotalLocalVariables + 1
+                    REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
+                    LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
+                    LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
+                END IF
 
-                    IF VERBOSE THEN
-                        PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
-                        PRINT VARIABLES(TOTALVARIABLES).DATATYPE,
-                        PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                        _DELAY .1
-                    END IF
-                ELSE
-                    FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
-                    IF CHECKLIST(FoundType, KeywordList(), INTERNALKEYWORDS) THEN
-                        'Variable is defined as an internal DATA TYPE
+                IF VERBOSE THEN
+                    PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
+                    PRINT VARIABLES(TOTALVARIABLES).DATATYPE,
+                    PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                    _DELAY .1
+                END IF
+            ELSE
+                FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
+
+                IF CHECKLIST(FoundType, KeywordList(), INTERNALKEYWORDS) THEN
+                    'Variable is defined as an internal DATA TYPE
+
+                    IsArray = 0
+                    IF INSTR(NextVar$, "(") THEN IsArray = -1: PARSEARRAY NextVar$, ValidArray%, LowerBoundary%, UpperBoundary%
+                    IF IsArray THEN
+                        IF ValidArray% AND NOT SKIPARRAYS THEN
+                            ValidArray% = 0
+                            FOR i = LowerBoundary% TO UpperBoundary%
+                                TOTALVARIABLES = TOTALVARIABLES + 1
+                                REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+                                VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(caseBkpNextVar$, "(")) + TRIM$(STR$(i)) + ")"
+                                VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                                VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+                            NEXT i
+                        END IF
+                    ELSE
                         TOTALVARIABLES = TOTALVARIABLES + 1
                         REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                         VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1)
                         VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
                         VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+                    END IF
 
-                        IF LocalVariable THEN
-                            TotalLocalVariables = TotalLocalVariables + 1
-                            REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
-                            LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
-                            LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
-                        END IF
+                    IF LocalVariable THEN
+                        TotalLocalVariables = TotalLocalVariables + 1
+                        REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
+                        LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
+                        LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
+                    END IF
 
-                        IF VERBOSE THEN
-                            PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
-                            PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
-                            PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                            _DELAY .1
+                    IF VERBOSE THEN
+                        PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
+                        PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
+                        PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                        _DELAY .1
+                    END IF
+                ELSE
+                    'Variable is defined as a user defined type
+                    IsArray = 0
+                    IF INSTR(NextVar$, "(") THEN IsArray = -1: PARSEARRAY NextVar$, ValidArray%, LowerBoundary%, UpperBoundary%
+                    IF IsArray THEN
+                        IF ValidArray% AND NOT SKIPARRAYS THEN
+                            ValidArray% = 0
+                            FOR ItemsinArray = LowerBoundary% TO UpperBoundary%
+                                FOR i = 1 TO TotalUDTs
+                                    'Expand variables defined as UDTs to Variable.Element format:
+                                    IF UCASE$(RTRIM$(UDT(i).UDT)) = FoundType THEN
+                                        TOTALVARIABLES = TOTALVARIABLES + 1
+                                        REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+                                        VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, "(")) + TRIM$(STR$(ItemsinArray)) + ")." + RTRIM$(UDT(i).ELEMENT)
+                                        VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                                        VARIABLES(TOTALVARIABLES).UDT = UDT(i).UDT
+                                        VARIABLES(TOTALVARIABLES).DATATYPE = RTRIM$(UDT(i).DATATYPE)
+
+                                        IF LocalVariable THEN
+                                            TotalLocalVariables = TotalLocalVariables + 1
+                                            REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
+                                            LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
+                                            LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
+                                        END IF
+
+                                        IF VERBOSE THEN
+                                            PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
+                                            PRINT UDT(i).DATATYPE;
+                                            PRINT RTRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                                            _DELAY .1
+                                        END IF
+                                    END IF
+                                NEXT i
+                            NEXT ItemsinArray
                         END IF
                     ELSE
-                        'Variable is defined as a user defined type
                         FOR i = 1 TO TotalUDTs
                             'Expand variables defined as UDTs to Variable.Element format:
                             IF UCASE$(RTRIM$(UDT(i).UDT)) = FoundType THEN
@@ -727,19 +541,21 @@ SUB PROCESSFILE (FILENAME$)
                         NEXT i
                     END IF
                 END IF
-                caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine)
-                IF LEN(caseBkpNextVar$) = 0 THEN
-                    PRINT #OutputFile, bkpSourceLine$
-                    IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1
-                END IF
-            ELSE
-                'Variable is an array - not processed by this version yet
-                caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine)
-                IF LEN(caseBkpNextVar$) = 0 THEN
-                    PRINT #OutputFile, bkpSourceLine$
-                    IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1
-                END IF
             END IF
+            caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine)
+            IF LEN(caseBkpNextVar$) = 0 THEN
+                PRINT #OutputFile, bkpSourceLine$
+                IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1
+            END IF
+        ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
+            IF INSTR(SourceLine, " LIBRARY") THEN DeclaringLibrary = -1
+            PRINT #OutputFile, bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
+            DeclaringLibrary = 0
+            PRINT #OutputFile, bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 13) = "OPTION BASE 1" THEN
+            OPTIONBASE = 1
+            PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFINT " THEN
             DEFAULTDATATYPE = "INTEGER"
             PRINT #OutputFile, bkpSourceLine$
@@ -767,62 +583,76 @@ SUB PROCESSFILE (FILENAME$)
             DefiningType = -1
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
-            IF MainModule THEN
-                MainModule = 0
+            IF NOT DeclaringLibrary THEN
+                IF MainModule THEN
+                    MainModule = 0
+                    PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
+                    PRINT #OutputFile, "    IF vwatch64_AUTHORIZED THEN"
+                    PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
+                    PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+                    PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
+                    PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
+                    PRINT #OutputFile, "        KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+                    PRINT #OutputFile, "    END IF"
+                    PRINT #OutputFile, ""
+                    PRINT #OutputFile, "    vwatch64_FILEERROR:"
+                    PRINT #OutputFile, "    RESUME NEXT"
+                    PRINT #OutputFile, "$END IF"
+                    PRINT #OutputFile,
+                END IF
+                PRINT #OutputFile, bkpSourceLine$
                 PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
-                PRINT #OutputFile, "    IF vwatch64_AUTHORIZED THEN"
-                PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
-                PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
-                PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
-                PRINT #OutputFile, "        KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
-                PRINT #OutputFile, "    END IF"
-                PRINT #OutputFile, ""
-                PRINT #OutputFile, "    vwatch64_FILEERROR:"
-                PRINT #OutputFile, "    RESUME NEXT"
+                IF INSTR(SourceLine, "(") THEN
+                    IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
+                    SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5) + Q$
+                ELSE
+                    IF VERBOSE THEN PRINT "Found: "; caseBkpSourceLine
+                    SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
+                END IF
+                PRINT #OutputFile, SourceLine
                 PRINT #OutputFile, "$END IF"
-                PRINT #OutputFile,
-            END IF
-            PRINT #OutputFile, bkpSourceLine$
-            PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
-            IF INSTR(SourceLine, "(") THEN
-                IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
-                SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5) + Q$
+                IF VERBOSE THEN _DELAY .1
             ELSE
-                IF VERBOSE THEN PRINT "Found: "; caseBkpSourceLine
-                SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
+                PRINT #OutputFile, bkpSourceLine$
             END IF
-            PRINT #OutputFile, SourceLine
-            PRINT #OutputFile, "$END IF"
-            _DELAY .1
         ELSEIF LEFT$(SourceLine, 9) = "FUNCTION " THEN
-            IF MainModule THEN
-                MainModule = 0
+            IF NOT DeclaringLibrary THEN
+                IF MainModule THEN
+                    MainModule = 0
+                    PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
+                    PRINT #OutputFile, "    IF vwatch64_AUTHORIZED THEN"
+                    PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
+                    PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+                    PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
+                    PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
+                    PRINT #OutputFile, "        KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+                    PRINT #OutputFile, "    END IF"
+                    PRINT #OutputFile, ""
+                    PRINT #OutputFile, "    vwatch64_FILEERROR:"
+                    PRINT #OutputFile, "    RESUME NEXT"
+                    PRINT #OutputFile, "$END IF"
+                    PRINT #OutputFile,
+                END IF
+                PRINT #OutputFile, bkpSourceLine$
                 PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
-                PRINT #OutputFile, "    IF vwatch64_AUTHORIZED THEN"
-                PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
-                PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
-                PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
-                PRINT #OutputFile, "        KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
-                PRINT #OutputFile, "    END IF"
-                PRINT #OutputFile, ""
-                PRINT #OutputFile, "    vwatch64_FILEERROR:"
-                PRINT #OutputFile, "    RESUME NEXT"
+                IF INSTR(SourceLine, "(") THEN
+                    IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
+                    SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10) + Q$
+                ELSE
+                    IF VERBOSE THEN PRINT caseBkpSourceLine
+                    SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
+                END IF
+                PRINT #OutputFile, SourceLine
                 PRINT #OutputFile, "$END IF"
-                PRINT #OutputFile,
-            END IF
-            PRINT #OutputFile, bkpSourceLine$
-            PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
-            IF INSTR(SourceLine, "(") THEN
-                IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
-                SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10) + Q$
+                IF VERBOSE THEN _DELAY .1
             ELSE
-                IF VERBOSE THEN PRINT caseBkpSourceLine
-                SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
+                IF SourceLine <> UCASE$("FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)") THEN
+                    PRINT #OutputFile, bkpSourceLine$
+                ELSE
+                    PRINT #OutputFile, "'" + bkpSourceLine$
+                    PRINT #OutputFile, "'FUNCTION declaration skipped because it's already in the $INCLUDEd file (line 1)."
+                END IF
             END IF
-            PRINT #OutputFile, SourceLine
-            PRINT #OutputFile, "$END IF"
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
             PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
             PRINT #OutputFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
@@ -1015,41 +845,98 @@ SUB PROCESSFILE (FILENAME$)
     PRINT #BMFile, ""
     PRINT #BMFile, "    SUB vwatch64_VARIABLEWATCH"
 
+    LocalSharedAddedTotal = 0
     FOR i = 1 TO TotalLocalVariables
         SourceLine = "    SHARED "
-        Found = FINDVARIABLES(TRIM$(LOCALVARIABLES(i).NAME))
-        IF LEN(TRIM$(VARIABLES(Found).UDT)) > 0 THEN
+        found = FINDVARIABLES(TRIM$(LOCALVARIABLES(i).NAME))
+        IF LEN(TRIM$(VARIABLES(found).UDT)) > 0 THEN
             IF TotalUDTsAdded > 0 THEN
                 AlreadyAdded = 0
-                FOR l = 1 TO TotalUDTsAdded
-                    IF TRIM$(UDT_ADDED(l)) = TRIM$(VARIABLES(Found).UDT) THEN AlreadyAdded = -1
-                NEXT l
+                FOR L = 1 TO TotalUDTsAdded
+                    IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
+                        IF TRIM$(UDT_ADDED(L).UDT) = TRIM$(VARIABLES(found).UDT) AND LEFT$(VARIABLES(found).NAME, INSTR(VARIABLES(found).NAME, "(") - 1) = TRIM$(UDT_ADDED(L).NAME) THEN AlreadyAdded = -1
+                    ELSE
+                        IF TRIM$(UDT_ADDED(L).UDT) = TRIM$(VARIABLES(found).UDT) AND TRIM$(VARIABLES(found).NAME) = TRIM$(UDT_ADDED(L).NAME) THEN AlreadyAdded = -1
+                    END IF
+                NEXT L
                 IF NOT AlreadyAdded THEN
                     'New local variable AS UDT found
-                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(Found).UDT)
                     TotalUDTsAdded = TotalUDTsAdded + 1
-                    REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS STRING * 40
-                    UDT_ADDED(TotalUDTsAdded) = TRIM$(VARIABLES(Found).UDT)
-                    PRINT #BMFile, SourceLine
+                    REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS VARIABLESTYPE
+                    UDT_ADDED(TotalUDTsAdded).UDT = TRIM$(VARIABLES(found).UDT)
+                    IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
+                        SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, "(")) + ") AS " + TRIM$(VARIABLES(found).UDT)
+                        UDT_ADDED(TotalUDTsAdded).NAME = LEFT$(VARIABLES(found).NAME, INSTR(VARIABLES(found).NAME, "(") - 1)
+                    ELSE
+                        UDT_ADDED(TotalUDTsAdded).NAME = TRIM$(VARIABLES(found).NAME)
+                        SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(found).UDT)
+                    END IF
+                    LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                    REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                    LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
                 END IF
             ELSE
                 'New local variable AS UDT found
-                SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(Found).UDT)
+                IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
+                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, "(")) + ") AS " + TRIM$(VARIABLES(found).UDT)
+                ELSE
+                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(found).UDT)
+                END IF
                 TotalUDTsAdded = TotalUDTsAdded + 1
-                REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS STRING * 40
-                UDT_ADDED(TotalUDTsAdded) = TRIM$(VARIABLES(Found).UDT)
-                PRINT #BMFile, SourceLine
+                REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS VARIABLESTYPE
+                UDT_ADDED(TotalUDTsAdded).NAME = TRIM$(VARIABLES(found).NAME)
+                UDT_ADDED(TotalUDTsAdded).UDT = TRIM$(VARIABLES(found).UDT)
+                LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
             END IF
         ELSE
-            IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
-                SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME)
-            ELSE
-                IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
-                    SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME) + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+            IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
+                IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
+                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(TRIM$(LOCALVARIABLES(i).NAME), "(")) + ")"
+                ELSE
+                    IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
+                        SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(TRIM$(LOCALVARIABLES(i).NAME), "(")) + ")" + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+                    END IF
                 END IF
+                LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
+            ELSE
+                IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
+                    SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME)
+                ELSE
+                    IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
+                        SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME) + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+                    END IF
+                END IF
+                LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
             END IF
-            PRINT #BMFile, SourceLine
         END IF
+    NEXT i
+
+    LocalSharedNotRepeated = 0
+    REDIM LocalShared_NOREPETITION(1 TO LocalSharedAddedTotal) AS STRING
+    FOR i = 1 TO LocalSharedAddedTotal
+        found = 0
+        IF LocalSharedNotRepeated > 0 THEN
+            FOR j = 1 TO LocalSharedNotRepeated
+                IF LOCALSHAREDADDED(i) = LocalShared_NOREPETITION(j) THEN found = -1: EXIT FOR
+            NEXT j
+            IF NOT found THEN
+                LocalSharedNotRepeated = LocalSharedNotRepeated + 1
+                LocalShared_NOREPETITION(LocalSharedNotRepeated) = LOCALSHAREDADDED(i)
+            END IF
+        ELSE
+            LocalSharedNotRepeated = LocalSharedNotRepeated + 1
+            LocalShared_NOREPETITION(LocalSharedNotRepeated) = LOCALSHAREDADDED(i)
+        END IF
+    NEXT i
+
+    FOR i = 1 TO LocalSharedNotRepeated
+        PRINT #BMFile, LocalShared_NOREPETITION(i)
     NEXT i
 
     PRINT #BMFile, ""
@@ -1143,6 +1030,7 @@ SUB PROCESSFILE (FILENAME$)
     RETURN
 END SUB
 
+'------------------------------------------------------------------------------
 FUNCTION CHECKLIST (Text$, List$(), UpperBoundary%)
     'Checks if Text$ is in List$()
     FOR i = 1 TO UpperBoundary%
@@ -1152,6 +1040,7 @@ FUNCTION CHECKLIST (Text$, List$(), UpperBoundary%)
     NEXT i
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION FINDVARIABLES (Text$)
     FOR i = 1 TO TOTALVARIABLES
         IF TRIM$(VARIABLES(i).NAME) = TRIM$(Text$) THEN
@@ -1162,6 +1051,7 @@ FUNCTION FINDVARIABLES (Text$)
 END FUNCTION
 
 
+'------------------------------------------------------------------------------
 FUNCTION STRIPCOMMENTS$ (Text AS STRING)
     DIM OpenQuotation AS _BYTE
     DIM CurrentPos AS INTEGER
@@ -1184,6 +1074,7 @@ FUNCTION STRIPCOMMENTS$ (Text AS STRING)
     STRIPCOMMENTS$ = TextRebuilt
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION NOPATH$ (FILENAME$)
     IF INSTR(_OS$, "WIN") THEN div$ = "\" ELSE div$ = "/"
     IF INSTR(FILENAME$, div$) = 0 THEN NOPATH$ = FILENAME$: EXIT FUNCTION
@@ -1196,14 +1087,17 @@ FUNCTION NOPATH$ (FILENAME$)
     NEXT
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION PATHONLY$ (FILENAME$)
     PATHONLY$ = LEFT$(FILENAME$, LEN(FILENAME$) - LEN(NOPATH$(FILENAME$)))
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION TRIM$ (Text$)
     TRIM$ = RTRIM$(LTRIM$(TRUNCATE$(Text$, CHR$(0))))
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION TRUNCATE$ (Text$, Char$)
     DIM NewText$
     FOR i = 1 TO LEN(Text$)
@@ -1213,6 +1107,7 @@ FUNCTION TRUNCATE$ (Text$, Char$)
     TRUNCATE$ = NewText$
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
     IF LEN(Var) < 2 THEN EXIT FUNCTION
 
@@ -1263,17 +1158,17 @@ FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
     IF MID$(Var, LEN(Var) - 2, 1) = "~" THEN SUFFIXLOOKUP$ = "_UNSIGNED " + SUFFIXLOOKUP$
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION IIF (Condition, IfTrue, IfFalse)
-    IIF = IfFalse
-    IF Condition THEN IIF = IfTrue
+    IF Condition THEN IIF = IfTrue ELSE IIF = IfFalse
 END FUNCTION
 
+'------------------------------------------------------------------------------
 FUNCTION IIFSTR$ (Condition, IfTrue$, IfFalse$)
-    IIFSTR$ = IfFalse$
-    IF Condition THEN IIFSTR$ = IfTrue$
+    IF Condition THEN IIFSTR$ = IfTrue$ ELSE IIFSTR$ = IfFalse$
 END FUNCTION
 
-
+'------------------------------------------------------------------------------
 FUNCTION GETNEXTVARIABLE$ (Text$)
     'Parses a line of code in which more than one variable
     'may have been defined using commas. Returns an empty
@@ -1318,4 +1213,399 @@ FUNCTION GETNEXTVARIABLE$ (Text$)
 
     GETNEXTVARIABLE$ = TRIM$(Result$)
 END FUNCTION
+
+
+'------------------------------------------------------------------------------
+SUB SETUP_CONNECTION
+    _KEYCLEAR 'Clears the keyboard buffer
+
+    'Under Windows, if Courier font is found, it is used;
+    'Otherwise we stick to _FONT 16 (default):
+    $IF WIN THEN
+        TTFONT = _LOADFONT("C:\windows\fonts\cour.ttf", 14, "MONOSPACE, BOLD")
+        IF TTFONT THEN _FONT TTFONT
+    $END IF
+
+    COLOR _RGB32(0, 0, 0), _RGB32(255, 255, 255)
+    CLS
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
+    t$ = "Waiting for a connection..."
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
+    t$ = "(Launch the program that will be monitored now. Press ESC to abort)"
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
+
+    'Setup host header:
+    HEADER.HOST_ID = ID
+    HEADER.VERSION = VERSION
+    HEADER.CONNECTED = 0
+
+    FILE = FREEFILE
+    CLOSE
+    ON ERROR GOTO FileError
+    'Try killing vwatch64.dat. Won't work if open, so we'll try to reconnect to client.
+    KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+
+    'Opens "vwatch64.dat" to wait for a connection:
+    OPEN PATHONLY$(EXENAME) + "vwatch64.dat" FOR BINARY AS #FILE
+
+    'Wait for a connection:
+    x = _EXIT
+    DO: _LIMIT 10
+        GET #FILE, 1, HEADER
+        IF READKEYBOARD = 27 THEN USERQUIT = -1
+        IF _EXIT THEN USERQUIT = -1
+    LOOP UNTIL USERQUIT OR HEADER.CONNECTED
+
+    IF USERQUIT THEN
+        CLOSE #FILE
+        ON ERROR GOTO FileError
+        KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+        SYSTEM
+    END IF
+
+    CLS
+    'Connected! Check if client is compatible:
+    IF HEADER.HOST_ID <> ID OR HEADER.VERSION <> VERSION THEN
+        BEEP
+        PRINT "Client not compatible."
+        PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.HOST_ID + CHR$(34)
+        PRINT "Reported version: "; HEADER.VERSION
+        PRINT "Press any key to exit..."
+        'Report "DENIED" to the client:
+        RESPONSE = "DENIED"
+        PUT #FILE, , RESPONSE
+        CLOSE #FILE
+        SLEEP
+        SYSTEM
+    END IF
+
+    'Send autorization to client:
+    RESPONSE = "AUTHOK"
+    PUT #FILE, , RESPONSE
+    PREVLOF = LOF(FILE)
+
+    CLS
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
+    t$ = "Connected. Waiting for client ID..."
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
+
+    CLIENTDATA = SEEK(FILE)
+
+    '20 bytes have been transmitted so far. If LOF() is bigger than that,
+    'we are connecting to an active previously connected client.
+    IF PREVLOF <= 20 THEN
+        'Wait for data to be sent by client:
+        WAITFORDATA
+    END IF
+
+    GET #FILE, , CLIENT
+    DATABLOCK = SEEK(FILE)
+
+    TITLESTRING = TITLESTRING + " - " + TRIM$(CLIENT.NAME) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
+    _TITLE TITLESTRING
+END SUB
+
+'------------------------------------------------------------------------------
+SUB MONITOR_MODE
+    INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
+    IF INFOSCREENHEIGHT > 600 THEN
+        INFOSCREEN = _NEWIMAGE(1000, INFOSCREENHEIGHT, 32)
+        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
+        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
+        _DEST INFOSCREEN
+        CLS
+        $IF WIN THEN
+            IF TTFONT THEN _FONT TTFONT
+        $END IF
+    END IF
+
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+
+
+
+    CLS
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
+    t$ = "Waiting for variable stream..."
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
+
+    WAITFORDATA
+
+    filter$ = ""
+    searchIn = VARIABLENAMES
+    SB_ThumbY = 0
+    t$ = "(end of list)"
+
+    longestVarName = 1
+    GET #FILE, DATABLOCK, VARIABLES()
+    FOR i = 1 TO CLIENT.TOTALVARIABLES
+        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
+    NEXT i
+
+    StartOfLoop# = TIMER
+    DO: _LIMIT 60
+        k$ = INKEY$
+        IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
+        SELECT CASE k
+            CASE 32 TO 126 'Printable ASCII characters
+                'CASE 48 TO 57, 65 TO 90, 97 TO 122, ASC("."), ASC("_") 'Numbers, letters, period and underscore
+                filter$ = filter$ + CHR$(k)
+                y = 0
+            CASE 8 'Backspace
+                IF LEN(filter$) THEN filter$ = LEFT$(filter$, LEN(filter$) - 1)
+                y = 0
+            CASE 22 'CTRL + V
+                IF LEN(_CLIPBOARD$) THEN filter$ = filter$ + _CLIPBOARD$: y = 0
+            CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES, VALUES)
+                searchIn = (searchIn) MOD 3 + 1
+                y = 0
+            CASE 27 'ESC clears the current search filter or exits the program
+                IF LEN(filter$) THEN
+                    filter$ = ""
+                ELSE
+                    EXIT DO
+                END IF
+        END SELECT
+
+        IF INFOSCREENHEIGHT > 600 THEN
+            DO
+                IF ShowScroll THEN y = y + (_MOUSEWHEEL * (_HEIGHT(MAINSCREEN) / 10))
+                mx = _MOUSEX
+                my = _MOUSEY
+                mb = _MOUSEBUTTON(1)
+            LOOP WHILE _MOUSEINPUT
+
+            IF mb THEN
+                IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
+                    'Clicked inside the scroll bar. Check if click was on the thumb:
+                    IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
+                        'Clicked on the thumb:
+                        grabbedY = my: starty = y
+                        DO WHILE _MOUSEBUTTON(1)
+                            m = _MOUSEINPUT
+                            my = _MOUSEY
+                            y = starty + ((my - grabbedY) / SB_Ratio)
+                            GOSUB DisplayPic
+                        LOOP
+                    ELSE
+                        'Clicked above or below the thumb:
+                        IF my < SB_ThumbY THEN
+                            m = _MOUSEINPUT
+                            y = y - (_HEIGHT(PIC) * SB_Ratio)
+                        ELSE
+                            m = _MOUSEINPUT
+                            y = y + ((_HEIGHT(PIC) - y) * SB_Ratio)
+                        END IF
+                    END IF
+                END IF
+            END IF
+
+            IF _KEYDOWN(18432) THEN y = y - _FONTHEIGHT
+            IF _KEYDOWN(20480) THEN y = y + _FONTHEIGHT
+        ELSE
+            IF INFOSCREEN < -1 THEN y = 0: GOSUB DisplayPic
+        END IF
+
+        CLS , _RGB32(255, 255, 255)
+        GET #FILE, 1, HEADER
+        GET #FILE, CLIENTDATA, CLIENT
+        GET #FILE, DATABLOCK, VARIABLES()
+
+        cursorBlink% = cursorBlink% + 1
+        IF cursorBlink% > 30 THEN cursorBlink% = 0
+
+        LINE (0, 0)-(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
+        _PRINTSTRING (5, 3), "Now running: " + RTRIM$(CLIENT.CURRENTMODULE)
+        _PRINTSTRING (5, _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
+        _PRINTSTRING (5, _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
+
+        IF CLIENT.LASTOUTPUT > 0 THEN
+            IF TIMER - CLIENT.LASTOUTPUT > 5 THEN TIMEOUT = -1
+        ELSE
+            IF TIMER - StartOfLoop# > TIMEOUTLIMIT THEN TIMEOUT = -1
+        END IF
+
+        'Places a light gray rectangle under the column that can currently be filtered
+        SELECT CASE searchIn
+            CASE DATATYPES
+                columnHighlightX = _PRINTWIDTH(SPACE$(7))
+                columnHighlightY = 55
+                columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
+            CASE VARIABLENAMES
+                columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+                columnHighlightY = 55
+                columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+            CASE VALUES
+                columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
+                columnHighlightY = 55
+                columnHighlightW = _WIDTH
+        END SELECT
+        LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, IIF(LEN(filter$), row, CLIENT.TOTALVARIABLES) * _FONTHEIGHT + 8), _RGB32(230, 230, 230), BF
+
+        'Update list:
+        i = 0: row = 0
+        DO
+            i = i + 1
+            IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
+            IF LEN(filter$) THEN
+                Found = 0
+                SELECT CASE searchIn
+                    CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(filter$)) THEN Found = -1
+                    CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(filter$)) THEN Found = -1
+                    CASE VALUES: IF INSTR(UCASE$(VARIABLES(i).VALUE), UCASE$(filter$)) THEN Found = -1
+                END SELECT
+                IF Found THEN
+                    row = row + 1
+                    v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
+                    _PRINTSTRING (5, (3 + row) * _FONTHEIGHT), v$
+                END IF
+            ELSE
+                INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
+                v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
+                _PRINTSTRING (5, (3 + i) * _FONTHEIGHT), v$
+            END IF
+        LOOP
+
+        IF LEN(filter$) AND row = 0 THEN 'A filter is on, but nothing was found
+            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
+            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
+        END IF
+
+        IF INFOSCREENHEIGHT > 600 THEN
+            IF LEN(filter$) AND row > 0 THEN
+                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
+            ELSEIF LEN(filter$) = 0 THEN
+                _PRINTSTRING (5, _HEIGHT(INFOSCREEN) - _FONTHEIGHT), t$
+            END IF
+            GOSUB DisplayPic
+        ELSE
+            'End of list message:
+            IF LEN(filter$) AND row > 0 THEN
+                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
+            ELSEIF LEN(filter$) = 0 THEN
+                _PRINTSTRING (5, (4 + i) * _FONTHEIGHT), t$
+            END IF
+        END IF
+        _DISPLAY
+        IF _EXIT THEN EXIT DO
+    LOOP UNTIL HEADER.CONNECTED = 0 OR TIMEOUT
+
+    IF INFOSCREENHEIGHT > 600 THEN _DEST MAINSCREEN
+    _AUTODISPLAY
+
+    OVERLAYSCREEN = _NEWIMAGE(500, 300, 32)
+    _DEST OVERLAYSCREEN
+    _FONT 16
+    LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
+
+    IF HEADER.CONNECTED = 0 THEN
+        EndMessage$ = "Connection closed by client."
+    ELSEIF TIMEOUT THEN
+        EndMessage$ = "Connection timed out."
+    END IF
+
+    CLOSE
+    ON ERROR GOTO FileError
+    KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+
+    IF HEADER.CONNECTED = 0 OR TIMEOUT THEN
+        BEEP
+        _KEYCLEAR
+        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), EndMessage$
+        EndMessage$ = "Press any key to exit..."
+        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT + 1), EndMessage$
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT), EndMessage$
+        _DEST MAINSCREEN
+        _PUTIMAGE , OVERLAYSCREEN
+        DO: _LIMIT 30
+            IF _EXIT THEN EXIT DO
+        LOOP UNTIL _KEYHIT
+    END IF
+
+    EXIT SUB
+    DisplayPic:
+    IF y < 0 THEN y = 0
+    IF INFOSCREENHEIGHT > 600 THEN
+        IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
+    ELSE
+        y = 0
+    END IF
+    _PUTIMAGE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1), INFOSCREEN, MAINSCREEN, (0, y)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1)
+
+    ShowScroll = 1
+    IF LEN(filter$) AND row > 0 THEN
+        INFOSCREENHEIGHT = _FONTHEIGHT * (row + 6)
+        IF INFOSCREENHEIGHT < 600 THEN
+            ShowScroll = 0
+        ELSE
+            SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
+            SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+        END IF
+    ELSE
+        INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
+        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
+        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+    END IF
+    'Scrollbar:
+    IF ShowScroll THEN
+        _DEST MAINSCREEN
+        SB_ThumbY = (y * SB_Ratio)
+        LINE (_WIDTH(MAINSCREEN) - 30, 0)-STEP(29, _HEIGHT(MAINSCREEN) - 1), _RGB32(170, 170, 170), BF
+        LINE (_WIDTH(MAINSCREEN) - 25, SB_ThumbY + 3)-STEP(19, SB_ThumbH - 7), _RGB32(70, 70, 70), BF
+        _DEST INFOSCREEN
+    END IF
+    _DISPLAY
+    RETURN
+
+END SUB
+
+SUB PARSEARRAY (ArrayName$, Valid%, LowerBoundary%, UpperBoundary%)
+    DIM Position AS INTEGER
+    DIM Char AS STRING
+    DIM LowerBoundary$
+    DIM UpperBoundary$
+
+    Valid% = 0
+    IF INSTR(ArrayName$, "(") = 0 OR INSTR(ArrayName$, ")") = 0 THEN EXIT SUB
+    IF INSTR(ArrayName$, ",") THEN EXIT SUB
+
+    Position = INSTR(ArrayName$, "(") + 1
+    IF Position > LEN(ArrayName$) THEN EXIT SUB
+
+    'Read lower boundary
+    FOR i = Position TO LEN(ArrayName$)
+        Char = MID$(ArrayName$, i, 1)
+        IF ASC(Char) >= 48 AND ASC(Char) <= 57 THEN
+            LowerBoundary$ = LowerBoundary$ + Char
+        ELSEIF Char = ")" THEN
+            'If bracket was closed, then we only have an upper boundary.
+            LowerBoundary% = OPTIONBASE
+            UpperBoundary% = VAL(LowerBoundary$)
+            Valid% = -1
+            EXIT SUB
+        ELSE
+            'Lower boundary found.
+            EXIT FOR
+        END IF
+    NEXT i
+    LowerBoundary% = VAL(LowerBoundary$)
+    Position = i
+
+    'Read upper boundary
+    FOR i = Position TO LEN(ArrayName$)
+        Char = MID$(ArrayName$, i, 1)
+        IF ASC(Char) >= 48 AND ASC(Char) <= 57 THEN
+            UpperBoundary$ = UpperBoundary$ + Char
+        ELSEIF Char = ")" THEN
+            'If bracket was closed, our job is done
+            UpperBoundary% = VAL(UpperBoundary$)
+            Valid% = -1
+            EXIT SUB
+        END IF
+    NEXT i
+END SUB
 
