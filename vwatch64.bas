@@ -90,6 +90,10 @@
 '     - Doesn't require command line to set flags anymore. User can answer Y/N
 '       questions before processing of files.
 '
+' - Beta 7: January 13th, 2016
+'     - Fixes an issue that caused arrays DIM'd with a sigil not to be properly
+'       identified.
+'
 $IF WIN THEN
     DECLARE LIBRARY
         FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
@@ -1190,9 +1194,16 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
-    IF LEN(Var) < 2 THEN EXIT FUNCTION
+    DIM VarBKP AS STRING
 
-    SELECT CASE MID$(Var, LEN(Var), 1)
+    VarBKP = Var
+    IF LEN(VarBKP) < 2 THEN EXIT FUNCTION
+
+    IF INSTR(VarBKP, "(") > 0 THEN 'An array was found. Let's strip it of its brackets.
+        VarBKP = LEFT$(VarBKP, INSTR(VarBKP, "(") - 1)
+    END IF
+
+    SELECT CASE MID$(VarBKP, LEN(VarBKP), 1)
         CASE "$"
             SUFFIXLOOKUP$ = "STRING"
         CASE "`"
@@ -1206,8 +1217,8 @@ FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
         CASE "#"
             SUFFIXLOOKUP$ = "DOUBLE"
         CASE "0" TO "9"
-            FOR i = LEN(Var) - 1 TO 1 STEP -1
-                SELECT CASE MID$(Var, i, 1)
+            FOR i = LEN(VarBKP) - 1 TO 1 STEP -1
+                SELECT CASE MID$(VarBKP, i, 1)
                     CASE "0" TO "9"
                         'Numbers allowed. Won't check for validity. Leave that to qb64 compiler.
                     CASE "`"
@@ -1222,9 +1233,9 @@ FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
             NEXT i
     END SELECT
 
-    IF LEN(Var) < 3 THEN EXIT FUNCTION 'no more suffixes to evaluate
+    IF LEN(VarBKP) < 3 THEN EXIT FUNCTION 'no more suffixes to evaluate
 
-    SELECT CASE MID$(Var, LEN(Var) - 1, 1)
+    SELECT CASE MID$(VarBKP, LEN(VarBKP) - 1, 1)
         CASE "~"
             SUFFIXLOOKUP$ = "_UNSIGNED " + SUFFIXLOOKUP$
         CASE "%"
@@ -1235,8 +1246,8 @@ FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
             SUFFIXLOOKUP$ = "FLOAT"
     END SELECT
 
-    IF LEN(Var) < 4 THEN EXIT FUNCTION 'no more suffixes to evaluate
-    IF MID$(Var, LEN(Var) - 2, 1) = "~" THEN SUFFIXLOOKUP$ = "_UNSIGNED " + SUFFIXLOOKUP$
+    IF LEN(VarBKP) < 4 THEN EXIT FUNCTION 'no more suffixes to evaluate
+    IF MID$(VarBKP, LEN(VarBKP) - 2, 1) = "~" THEN SUFFIXLOOKUP$ = "_UNSIGNED " + SUFFIXLOOKUP$
 END FUNCTION
 
 '------------------------------------------------------------------------------
