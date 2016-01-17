@@ -94,6 +94,10 @@
 '     - Fixes an issue that caused arrays DIM'd with a sigil not to be properly
 '       identified.
 '
+' - Beta 8: January 17th, 2016
+'     - Minor change to fix "can't compile" errors, when compilation was actually
+'       successful.
+'
 $IF WIN THEN
     DECLARE LIBRARY
         FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
@@ -115,7 +119,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "0.6b "
+CONST VERSION = "0.8b "
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
@@ -1079,7 +1083,7 @@ SUB PROCESSFILE (FILENAME$)
     $IF WIN THEN
         ThisPath$ = ""
         ExecutableExtension$ = ".exe"
-    $ELSE IF MAC OR LINUX THEN
+    $ELSE
         ThisPath$ = "./"
         ExecutableExtension$ = ""
     $END IF
@@ -1087,8 +1091,9 @@ SUB PROCESSFILE (FILENAME$)
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
         PRINT "Attempting to compile...";
-        IF SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$) <> 0 THEN
-            PRINT "failed."
+        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
+        IF AttemptCompile% <> 0 THEN
+            PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
             PRINT "Files have been generated, you will have to compile them yourself."
             PRINT "Press any key to go back..."
             SLEEP
