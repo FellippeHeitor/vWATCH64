@@ -201,6 +201,8 @@ SKIPARRAYS = 0
 'Screen setup: ----------------------------------------------------------------
 MAINSCREEN = _NEWIMAGE(1000, 600, 32)
 SCREEN MAINSCREEN
+TITLESTRING = "vWATCH64 - v" + VERSION
+_TITLE TITLESTRING
 
 $IF WIN THEN
     'Under Windows, if Courier font is found, it is used;
