@@ -13,9 +13,23 @@
 'started and connects to your program output, displaying variable
 'values in real time.
 '
-
+' - Beta 1: Initial release (December 13th, 2015)
+'
+' - Beta 2: December 14th, 2015
+'     - Added code to look for and parse user defined types. Variables
+'       SHARED as a user defined type can be monitored, unless they
+'       are arrays.
+'     - Fixed vwatch64_FILE being set as FREEFILE, which could conflict
+'       with programs using OPEN "file" AS #1, instead of a variable
+'       and FREEFILE.
+'     - Added a vwatch64_STRIPCOMMENTS function, that, you guessed it,
+'       strips away comments from a source line. I added this after
+'       trying some other people's codes (especially Terry Ritchie's
+'       games) and finding many comments being misinterpreted as
+'       data types.
+'
 CONST vwatch64_ID = "vWATCH64"
-CONST vwatch64_VERSION = "0.1b "
+CONST vwatch64_VERSION = "0.2b "
 
 TYPE vwatch64_HEADERTYPE
     HOST_ID AS STRING * 8
@@ -35,6 +49,12 @@ TYPE vwatch64_VARIABLESTYPE
     VALUE AS STRING * 255
 END TYPE
 
+TYPE vwatch64_UDTTYPE
+    UDT AS STRING * 128
+    ELEMENT AS STRING * 128
+    DATATYPE AS STRING * 20
+END TYPE
+
 DIM SHARED vwatch64_MS AS LONG
 DIM SHARED vwatch64_INFOSCREEN AS LONG
 DIM SHARED vwatch64_INFOSCREENHEIGHT AS INTEGER
@@ -48,6 +68,7 @@ DIM SHARED vwatch64_CLIENTDATA AS LONG
 DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE
 DIM SHARED vwatch64_CLIENT AS vwatch64_CLIENTTYPE
 DIM SHARED vwatch64_TITLESTRING AS STRING
+DIM SHARED vwatch64_INTERNALKEYWORDS AS INTEGER
 DIM i AS INTEGER
 
 'Did the user drag a .BAS file onto this program?
@@ -63,7 +84,8 @@ SCREEN vwatch64_MS
 COLOR 0, 15
 CLS
 _FONT 16
-_TITLE "vWATCH64"
+vwatch64_TITLESTRING = "vWATCH64 - v" + vwatch64_VERSION
+_TITLE vwatch64_TITLESTRING
 _SCREENSHOW
 
 PRINT "vWATCH64"
@@ -123,7 +145,7 @@ vwatch64_WAITFORDATA
 GET #vwatch64_FILE, , vwatch64_CLIENT
 vwatch64_DATABLOCK = SEEK(vwatch64_FILE)
 
-vwatch64_TITLESTRING = "Source: " + RTRIM$(vwatch64_CLIENT.NAME)
+vwatch64_TITLESTRING = vwatch64_TITLESTRING + " - " + RTRIM$(vwatch64_CLIENT.NAME)
 _TITLE vwatch64_TITLESTRING
 
 REDIM SHARED vwatch64_VARIABLES(1 TO vwatch64_CLIENT.TOTALVARIABLES) AS vwatch64_VARIABLESTYPE
@@ -194,6 +216,10 @@ FUNCTION vwatch64_READKEYBOARD
 END FUNCTION
 
 SUB vwatch64_WAITFORDATA
+    'Waits until data is put in a binary file. We monitor the length of
+    'the file with LOF(vwatch64_FILE) until it is larger than the
+    'previously reported length (vwatch64_PREVLOF), which indicates
+    'new data was PUT/PRINTed
     DO: _LIMIT 30
         vwatch64_LOF = LOF(vwatch64_FILE)
         IF vwatch64_LOF > vwatch64_PREVLOF THEN
@@ -217,17 +243,23 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
     DIM ThisVariableName AS STRING
     DIM ThisVariableType AS STRING
     DIM TotalKeywords AS INTEGER
+    DIM TotalUDTs AS INTEGER
     DIM ThisKeyword AS STRING
-
+    DIM DefiningType AS _BYTE
+    DIM FoundType AS STRING
+    REDIM UDT(1) AS vwatch64_UDTTYPE
     REDIM vwatch64_VARIABLES(1) AS vwatch64_VARIABLESTYPE
+    REDIM _PRESERVE KeywordList(1) AS STRING
 
     RESTORE KeyWordsDATA
+    'Populate KeywordList() with DATA TYPES
     DO
         READ ThisKeyword
-        IF ThisKeyword = "END" THEN EXIT DO
-        TotalKeywords = TotalKeywords + 1
-        REDIM _PRESERVE KeywordList(1 TO TotalKeywords) AS STRING
-        KeywordList(TotalKeywords) = ThisKeyword
+        IF ThisKeyword = "END" THEN
+            vwatch64_INTERNALKEYWORDS = TotalKeywords
+            EXIT DO
+        END IF
+        GOSUB AddThisKeyword
     LOOP
 
 
@@ -236,6 +268,8 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
 
     Q$ = CHR$(34)
 
+    _TITLE "vWATCH64 - v" + vwatch64_VERSION
+    PRINT "vWATCH64 - v" + vwatch64_VERSION
     PRINT "Processing file: "; FILENAME$
     INPUT "New file name (without .BAS - will be replaced if already exists): ", NEWFILENAME$
     IF LEN(NEWFILENAME$) = 0 THEN BEEP: CLOSE: SYSTEM
@@ -267,24 +301,73 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
     TotalVariables = 0
     PRINT "Parsing .BAS..."
     DO
-        LINE INPUT #InputFile, SourceLine
-        SourceLine = RTRIM$(LTRIM$(SourceLine))
+        LINE INPUT #InputFile, bkpSourceLine$
+        SourceLine = vwatch64_STRIPCOMMENTS(RTRIM$(LTRIM$(bkpSourceLine$)))
+
+        IF DefiningType THEN
+            'A TYPE ... was found earlier, so until we find an END TYPE, we'll populate UDT()
+            IF LEFT$(SourceLine, 8) = "END TYPE" THEN
+                DefiningType = 0
+            ELSE
+                IF INSTR(SourceLine, " AS ") > 0 THEN
+                    TotalUDTs = TotalUDTs + 1
+                    REDIM _PRESERVE UDT(1 TO TotalUDTs) AS vwatch64_UDTTYPE
+                    UDT(TotalUDTs).UDT = KeywordList(TotalKeywords)
+                    UDT(TotalUDTs).ELEMENT = LEFT$(SourceLine, INSTR(SourceLine, " AS "))
+                    UDT(TotalUDTs).DATATYPE = RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
+                    'IF INSTR(UDT(TotalUDTs).DATATYPE, "'") THEN
+                    '    'Strip any comments after statement:
+                    '    UDT(TotalUDTs).DATATYPE = vwatch64_STRIPCOMMENTS(UDT(TotalUDTs).DATATYPE)
+                    'END IF
+                    PRINT "Found UDT: "; RTRIM$(UDT(TotalUDTs).UDT); "."; RTRIM$(UDT(TotalUDTs).ELEMENT)
+                    PRINT "           DATA TYPE: "; RTRIM$(UDT(TotalUDTs).DATATYPE)
+                    _DELAY .1
+                END IF
+            END IF
+        END IF
+
         IF LEFT$(SourceLine, 11) = "DIM SHARED " THEN
             'If it's not an array, we'll process this variable.
-            IF INSTR(SourceLine, "(") = 0 AND vwatch64_CHECKKEYWORDS(RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3), KeywordList()) THEN
-                TotalVariables = TotalVariables + 1
-                REDIM _PRESERVE vwatch64_VARIABLES(1 TO TotalVariables) AS vwatch64_VARIABLESTYPE
-                vwatch64_VARIABLES(TotalVariables).NAME = MID$(SourceLine, 12, INSTR(SourceLine, " AS ") - 12)
-                vwatch64_VARIABLES(TotalVariables).DATATYPE = RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
-                PRINT "Found "; TotalVariables;
-                PRINT vwatch64_VARIABLES(TotalVariables).DATATYPE,
-                PRINT RTRIM$(vwatch64_VARIABLES(TotalVariables).NAME)
-                PRINT #OutputFile, SourceLine
+            IF INSTR(SourceLine, "(") = 0 THEN
+                SourceLine = vwatch64_STRIPCOMMENTS(SourceLine)
+                FoundType = RTRIM$(RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3))
+                IF vwatch64_CHECKKEYWORDS(FoundType, KeywordList()) THEN
+                    TotalVariables = TotalVariables + 1
+                    REDIM _PRESERVE vwatch64_VARIABLES(1 TO TotalVariables) AS vwatch64_VARIABLESTYPE
+                    vwatch64_VARIABLES(TotalVariables).NAME = MID$(SourceLine, 12, INSTR(SourceLine, " AS ") - 12)
+                    vwatch64_VARIABLES(TotalVariables).DATATYPE = RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
+                    PRINT "Found "; TotalVariables;
+                    PRINT vwatch64_VARIABLES(TotalVariables).DATATYPE,
+                    PRINT RTRIM$(vwatch64_VARIABLES(TotalVariables).NAME)
+                    _DELAY .1
+                    PRINT #OutputFile, bkpSourceLine$
+                ELSE
+                    FOR i = 1 TO TotalUDTs
+                        'Expand variables defined as UDTs to Variable.Element:
+                        IF RTRIM$(UDT(i).UDT) = FoundType THEN
+                            TotalVariables = TotalVariables + 1
+                            REDIM _PRESERVE vwatch64_VARIABLES(1 TO TotalVariables) AS vwatch64_VARIABLESTYPE
+                            vwatch64_VARIABLES(TotalVariables).NAME = MID$(SourceLine, 12, INSTR(SourceLine, " AS ") - 12) + "." + RTRIM$(UDT(i).ELEMENT)
+                            vwatch64_VARIABLES(TotalVariables).DATATYPE = RTRIM$(UDT(i).DATATYPE)
+                            PRINT "Found "; TotalVariables;
+                            PRINT UDT(i).DATATYPE,
+                            PRINT RTRIM$(vwatch64_VARIABLES(TotalVariables).NAME)
+                            _DELAY .1
+                        END IF
+                    NEXT i
+                    PRINT #OutputFile, bkpSourceLine$
+                END IF
             ELSE
-                PRINT #OutputFile, SourceLine
+                PRINT #OutputFile, bkpSourceLine$
             END IF
+        ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
+            'User defined types will be added to the DATA TYPE keyword list
+            ThisKeyword = RIGHT$(SourceLine, LEN(SourceLine) - 5)
+            GOSUB AddThisKeyword
+            DefiningType = -1
+            PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
-            PRINT #OutputFile, SourceLine
+            PRINT #OutputFile, bkpSourceLine$
             PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
             IF INSTR(SourceLine, "(") THEN
                 PRINT "SUB "; MID$(SourceLine, 5, INSTR(SourceLine, "(") - 5)
@@ -296,7 +379,7 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
             PRINT #OutputFile, SourceLine
             PRINT #OutputFile, "$END IF"
         ELSEIF LEFT$(SourceLine, 9) = "FUNCTION " THEN
-            PRINT #OutputFile, SourceLine
+            PRINT #OutputFile, bkpSourceLine$
             PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
             IF INSTR(SourceLine, "(") THEN
                 PRINT "FUNCTION "; MID$(SourceLine, 10, INSTR(SourceLine, "(") - 10)
@@ -311,12 +394,12 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
             PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
             PRINT #OutputFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE"
             PRINT #OutputFile, "$END IF"
-            PRINT #OutputFile, SourceLine
+            PRINT #OutputFile, bkpSourceLine$
         ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
             PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
             PRINT #OutputFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE"
             PRINT #OutputFile, "$END IF"
-            PRINT #OutputFile, SourceLine
+            PRINT #OutputFile, bkpSourceLine$
         ELSEIF SourceLine = "SYSTEM" THEN
             PRINT #OutputFile, "$IF VWATCH64 = ON THEN"
             PRINT #OutputFile, "    IF vwatch64_AUTHORIZED THEN"
@@ -325,9 +408,9 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
             PRINT #OutputFile, "        CLOSE #vwatch64_FILE"
             PRINT #OutputFile, "    END IF"
             PRINT #OutputFile, "$END IF"
-            PRINT #OutputFile, SourceLine
+            PRINT #OutputFile, bkpSourceLine$
         ELSE
-            PRINT #OutputFile, SourceLine
+            PRINT #OutputFile, bkpSourceLine$
         END IF
     LOOP UNTIL EOF(InputFile)
 
@@ -340,8 +423,40 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
         KILL BIFileName
         SLEEP 1
         END
-    ELSE PRINT "Total SHARED variables found: "; TotalVariables
+    ELSE
+        PRINT "Total SHARED variables found: "; TotalVariables
+        _DELAY .1
     END IF
+
+    'Expand variables defined as UDTs to Variable.Element:
+    i = 0
+    DO
+        i = i + 1
+        IF i > TotalVariables THEN EXIT DO
+        PRINT i, vwatch64_VARIABLES(i).DATATYPE
+        IF vwatch64_CHECKKEYWORDS(RTRIM$(vwatch64_VARIABLES(i).DATATYPE), KeywordList()) = 0 THEN
+            'User defined type found:
+            FOR j = 1 TO TotalUDTs
+                PRINT RTRIM$(UDT(j).UDT), RTRIM$(vwatch64_VARIABLES(i).DATATYPE)
+                IF RTRIM$(UDT(j).UDT) = RTRIM$(vwatch64_VARIABLES(i).DATATYPE) THEN
+                    'Found a match, add the variable watch:
+                    BEEP
+                    IF j > 1 THEN
+                        TotalVariables = TotalVariables + 1
+                        REDIM _PRESERVE vwatch64_VARIABLES(1 TO TotalVariables) AS vwatch64_VARIABLESTYPE
+                        'Move all currently stored variables 1 position up in the list,
+                        'so that the user defined type variable can be inserted
+                        'FOR k = TotalVariables TO i + 1 STEP -1
+                        '    SWAP vwatch64_VARIABLES(k), vwatch64_VARIABLES(k - 1)
+                        'NEXT k
+                    END IF
+                    vwatch64_VARIABLES(TotalVariables).NAME = vwatch64_VARIABLES(i).NAME + "." + RTRIM$(UDT(j).ELEMENT)
+                    PRINT vwatch64_VARIABLES(TotalVariables).NAME
+                    SLEEP
+                END IF
+            NEXT j
+        END IF
+    LOOP
 
     PRINT #OutputFile, "'$INCLUDE:'" + BMFileName + "'"
     CLOSE OutputFile
@@ -353,7 +468,7 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
     PRINT #BIFile, ""
     PRINT #BIFile, "$IF VWATCH64 = ON THEN"
     PRINT #BIFile, "    CONST vwatch64_ID = " + Q$ + "vWATCH64" + Q$
-    PRINT #BIFile, "    CONST vwatch64_VERSION = " + Q$ + "0.1b " + Q$
+    PRINT #BIFile, "    CONST vwatch64_VERSION = " + Q$ + vwatch64_VERSION + Q$
     PRINT #BIFile, "    CONST vwatch64_INTERVAL = .1"
     PRINT #BIFile, ""
     PRINT #BIFile, "    TYPE vwatch64_HEADERTYPE"
@@ -419,11 +534,13 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
     CLOSE BIFile
 
     PRINT "Generating "; BMFileName; "..."
+    _DELAY .1
     'Creates a vWATCH64.BM customized for the .BAS provided:
     PRINT #BMFile, "$IF VWATCH64 = ON THEN"
     PRINT #BMFile, "    SUB vwatch64_CONNECTTOHOST"
     PRINT #BMFile, "        IF _FILEEXISTS(" + Q$ + "vwatch64.dat" + Q$ + ") THEN"
-    PRINT #BMFile, "            vwatch64_FILE = FREEFILE"
+    PRINT #BMFile, "            vwatch64_FILE = " + LTRIM$(RTRIM$(STR$(_CEIL(RND * 30000) + 100)))
+    PRINT #BMFile, "            'You may be wondering why such a weird file number..."
     PRINT #BMFile, "            OPEN " + Q$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_FILE"
     PRINT #BMFile, ""
     PRINT #BMFile, "            'Send this client's version"
@@ -458,6 +575,37 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
             PRINT #BMFile, SourceLine
         END IF
     NEXT i
+
+    'DO
+    '    _LIMIT 5
+    '    i = i + 1
+    '    IF i > TotalVariables THEN EXIT DO
+    '    PRINT vwatch64_VARIABLES(i).DATATYPE, vwatch64_CHECKKEYWORDS(RTRIM$(vwatch64_VARIABLES(i).DATATYPE), KeywordList())
+    '    IF vwatch64_CHECKKEYWORDS(RTRIM$(vwatch64_VARIABLES(i).DATATYPE), KeywordList()) THEN
+    '        'Internal DATA TYPE found
+    '        IF INSTR(vwatch64_VARIABLES(i).DATATYPE, "STRING") THEN
+    '            SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").VALUE = " + RTRIM$(vwatch64_VARIABLES(i).NAME)
+    '            PRINT #BMFile, SourceLine
+    '        ELSE
+    '            SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").VALUE = STR$(" + RTRIM$(vwatch64_VARIABLES(i).NAME) + ")"
+    '            PRINT #BMFile, SourceLine
+    '        END IF
+    '    ELSE
+    '        'User defined type found:
+    '        FOR j = 1 TO UBOUND(UDT)
+    '            'For every ELEMENT in User Defined Type, we'll add a variable check.
+    '            IF RTRIM$(UDT(j).UDT) = RTRIM$(vwatch64_VARIABLES(i).DATATYPE) THEN
+    '                IF INSTR(UDT(j).DATATYPE, "STRING") THEN
+    '                    SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").VALUE = " + RTRIM$(vwatch64_VARIABLES(i).NAME) + "." + RTRIM$(UDT(j).ELEMENT)
+    '                    PRINT #BMFile, SourceLine
+    '                ELSE
+    '                    SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").VALUE = STR$(" + RTRIM$(vwatch64_VARIABLES(i).NAME) + "." + RTRIM$(UDT(j).ELEMENT) + ")"
+    '                    PRINT #BMFile, SourceLine
+    '                END IF
+    '            END IF
+    '        NEXT j
+    '    END IF
+    'LOOP
     PRINT #BMFile, ""
     PRINT #BMFile, "        PUT #vwatch64_FILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
     PRINT #BMFile, "    END SUB"
@@ -500,12 +648,41 @@ SUB vwatch64_PROCESSFILE (FILENAME$)
         END IF
     END IF
     EXIT SUB
+
+    AddThisKeyword:
+    TotalKeywords = TotalKeywords + 1
+    REDIM _PRESERVE KeywordList(1 TO TotalKeywords) AS STRING
+    KeywordList(TotalKeywords) = ThisKeyword
+    RETURN
 END SUB
 
 FUNCTION vwatch64_CHECKKEYWORDS (Text$, List$())
-    FOR i = 1 TO UBOUND(List$)
+    'Checks if Text$ is an internal DATA TYPE keyword
+    FOR i = 1 TO vwatch64_INTERNALKEYWORDS
         IF INSTR(List$(i), Text$) THEN
             vwatch64_CHECKKEYWORDS = i
         END IF
     NEXT i
+END FUNCTION
+
+FUNCTION vwatch64_STRIPCOMMENTS$ (SourceLine AS STRING)
+    DIM OpenQuotation AS _BYTE
+    DIM CurrentPos AS INTEGER
+    DIM SourceLineRebuilt AS STRING
+    DIM i AS INTEGER
+
+    FOR i = 1 TO LEN(SourceLine)
+        SELECT CASE MID$(SourceLine, i, 1)
+            CASE "'"
+                IF NOT OpenQuotation THEN
+                    'Found a comment. This is the end of parsing.
+                    vwatch64_STRIPCOMMENTS$ = SourceLineRebuilt
+                    EXIT FUNCTION
+                END IF
+            CASE CHR$(34) 'Quotation marks
+                OpenQuotation = NOT OpenQuotation
+        END SELECT
+        SourceLineRebuilt = SourceLineRebuilt + MID$(SourceLine, i, 1)
+    NEXT i
+    vwatch64_STRIPCOMMENTS$ = SourceLineRebuilt
 END FUNCTION
