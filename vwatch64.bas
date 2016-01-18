@@ -98,6 +98,17 @@
 '     - Minor change to fix "can't compile" errors, when compilation was actually
 '       successful.
 '
+' - Beta 9: (when?)
+'     - Fixes the window title not being set until process/monitoring started.
+'     - Adds INTERACTIVE MODE (also -interactive command line switch), which
+'       allows the user to choose which variables to export (useful in case TOO
+'       MANY are found).
+'     - Simplifies command line swiches: -v, -d, -n, -i can be used instead of
+'       -verbose, -dontcompile, -noarrays and -interactive.
+'     -
+'
+DEFLNG A-Z
+
 $IF WIN THEN
     DECLARE LIBRARY
         FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
@@ -119,7 +130,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "0.8b "
+CONST VERSION = "0.9b "
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
@@ -143,11 +154,11 @@ TYPE CLIENTTYPE
     EXENAME AS STRING * 256
     CURRENTMODULE AS STRING * 50
     LASTOUTPUT AS DOUBLE
-    TOTALVARIABLES AS INTEGER
+    TOTALVARIABLES AS LONG
 END TYPE
 
 TYPE VARIABLESTYPE
-    NAME AS STRING * 40
+    NAME AS STRING * 256
     SCOPE AS STRING * 7
     UDT AS STRING * 40
     DATATYPE AS STRING * 20
@@ -156,7 +167,7 @@ END TYPE
 
 TYPE UDTTYPE
     UDT AS STRING * 40
-    ELEMENT AS STRING * 40
+    ELEMENT AS STRING * 256
     DATATYPE AS STRING * 20
 END TYPE
 
@@ -178,14 +189,16 @@ DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED DEFAULTDATATYPE AS STRING * 20
 DIM SHARED VERBOSE AS _BIT
 DIM SHARED DONTCOMPILE AS _BIT
+DIM SHARED INTERACTIVE AS _BIT
 DIM SHARED EXENAME AS STRING
-DIM SHARED TOTALVARIABLES AS INTEGER
+DIM SHARED TOTALVARIABLES AS LONG
 DIM SHARED MULTILINE AS _BIT
 DIM SHARED TTFONT AS LONG
 DIM SHARED OPTIONBASE AS INTEGER
 DIM SHARED SKIPARRAYS AS _BIT
 DIM SHARED MENU%
 DIM SHARED hWnd&
+DIM SHARED FILENAME$
 
 DIM OVERLAYSCREEN AS LONG
 DIM TIMEOUT AS _BYTE
@@ -197,6 +210,7 @@ OPTIONBASE = 0
 VERBOSE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
+INTERACTIVE = 0
 
 'Screen setup: ----------------------------------------------------------------
 MAINSCREEN = _NEWIMAGE(1000, 600, 32)
@@ -230,23 +244,24 @@ IF LEN(COMMAND$) THEN
         'Set flags based on command line arguments
         FOR i = 2 TO _COMMANDCOUNT
             SELECT CASE LCASE$(COMMAND$(i))
-                CASE "-v": VERBOSE = -1 'Verbose switch
-                CASE "-dontcompile": DONTCOMPILE = -1
-                CASE "-noarrays": SKIPARRAYS = -1
+                CASE "-verbose", "-v": VERBOSE = -1
+                CASE "-dontcompile", "-d": DONTCOMPILE = -1
+                CASE "-noarrays", "-n": SKIPARRAYS = -1
+                CASE "-interactive", "-i": INTERACTIVE = -1
                 CASE ELSE
                     'Any other arguments are ignored.
             END SELECT
         NEXT i
     END IF
 
-    IF _FILEEXISTS(COMMAND$(1)) THEN PROCESSFILE COMMAND$(1) ELSE BEEP
+    IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
 END IF
 
 GOTO MonitorMode
 OpenFileMenu:
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
 _AUTODISPLAY
-IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE (FILENAME$) ELSE BEEP
+IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE ELSE BEEP
 
 '------------------------------------------------------------------------------
 MonitorMode:
@@ -278,12 +293,12 @@ DATA _UNSIGNED INTEGER,LONG,_UNSIGNED LONG,_INTEGER64
 DATA _UNSIGNED _INTEGER64,SINGLE,DOUBLE,_FLOAT,STRING
 DATA END
 
-'$INCLUDE:'menu.bi'
-'$INCLUDE:'glinput.bi'
-
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
 '------------------------------------------------------------------------------
+'$INCLUDE:'menu.bi'
+'$INCLUDE:'glinput.bi'
+
 SUB WAITFORDATA
     'Waits until data is put in a binary file. We monitor the length of
     'the file with LOF(FILE) until it is larger than the
@@ -303,7 +318,7 @@ SUB WAITFORDATA
 END SUB
 
 '------------------------------------------------------------------------------
-SUB PROCESSFILE (FILENAME$)
+SUB PROCESSFILE
     'Parses a .BAS file and reads all compatible variables
     'in order to generate a compatible vWATCH64 client.
 
@@ -387,8 +402,11 @@ SUB PROCESSFILE (FILENAME$)
     END IF
 
     IF _FILEEXISTS(NEWFILENAME$) THEN
+        COLOR _RGB32(255, 0, 0)
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), NOPATH$(NEWFILENAME$) + " already exists."
+        COLOR _RGB32(0, 0, 0)
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Overwrite (Y/N)?"
+        LINE (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3 + _FONTHEIGHT - 1)-STEP(_PRINTWIDTH(NOPATH$(NEWFILENAME$)), 0), _RGB32(0, 0, 0)
         BEEP
         DO
             k = _KEYHIT
@@ -422,6 +440,20 @@ SUB PROCESSFILE (FILENAME$)
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
         IF k = 78 OR k = 110 THEN DONTCOMPILE = -1 ELSE DONTCOMPILE = 0
     END IF
+
+    IF _COMMANDCOUNT <= 1 THEN
+        CLS , _RGB32(255, 255, 255)
+        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Use interactive mode (Y/N)?"
+        _KEYCLEAR
+        DO
+            k = _KEYHIT
+        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
+        IF k = 78 OR k = 110 THEN INTERACTIVE = 0 ELSE INTERACTIVE = -1
+    END IF
+
 
     IF _COMMANDCOUNT <= 1 THEN
         CLS , _RGB32(255, 255, 255)
@@ -745,7 +777,7 @@ SUB PROCESSFILE (FILENAME$)
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
                     SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10) + Q$
                 ELSE
-                    IF VERBOSE THEN PRINT caseBkpSourceLine
+                    IF VERBOSE THEN PRINT "Found: FUNCTION "; caseBkpSourceLine
                     SourceLine = "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
                 PRINT #OutputFile, SourceLine
@@ -789,6 +821,8 @@ SUB PROCESSFILE (FILENAME$)
     IF TOTALVARIABLES = 0 THEN
         BEEP
         PRINT "There are no watchable variables in the .BAS source."
+        PRINT "(watchable variables are those initialized using DIM)"
+        PRINT
         PRINT "Press any key to abort processing..."
         CLOSE
         KILL NEWFILENAME$
@@ -797,6 +831,30 @@ SUB PROCESSFILE (FILENAME$)
     ELSE
         PRINT "Total watchable variables found: "; TOTALVARIABLES
         IF VERBOSE THEN _DELAY .05
+        IF INTERACTIVE THEN
+            bkpx% = POS(1): bkpy% = CSRLIN
+            PCOPY 0, 1
+            INTERACTIVE_MODE VARIABLES(), AddedList$, TotalSelected
+            PCOPY 1, 0
+            LOCATE bkpy%, bkpx%
+            IF AddedList$ = CHR$(3) THEN
+                'Processing was canceled by user.
+                BEEP
+                PRINT
+                PRINT
+                COLOR _RGB32(255, 0, 0)
+                PRINT "Processing canceled."
+                COLOR _RGB32(0, 0, 0)
+                PRINT "Press any key..."
+                CLOSE
+                KILL NEWFILENAME$
+                SLEEP
+                EXIT SUB
+            END IF
+        ELSE
+            AddedList$ = STRING$(TOTALVARIABLES, 1)
+            TotalSelected = TOTALVARIABLES
+        END IF
     END IF
 
     IF MainModule THEN 'All lines have been parsed. This .BAS contains no SUBs/FUNCTIONs.
@@ -849,11 +907,11 @@ SUB PROCESSFILE (FILENAME$)
     PRINT #BIFile, "        EXENAME AS STRING * 256"
     PRINT #BIFile, "        CURRENTMODULE AS STRING * 50"
     PRINT #BIFile, "        LASTOUTPUT AS DOUBLE"
-    PRINT #BIFile, "        TOTALVARIABLES AS INTEGER"
+    PRINT #BIFile, "        TOTALVARIABLES AS LONG"
     PRINT #BIFile, "    END TYPE"
     PRINT #BIFile, ""
     PRINT #BIFile, "    TYPE vwatch64_VARIABLESTYPE"
-    PRINT #BIFile, "        NAME AS STRING * 40"
+    PRINT #BIFile, "        NAME AS STRING * 256"
     PRINT #BIFile, "        SCOPE AS STRING * 7"
     PRINT #BIFile, "        UDT AS STRING * 40"
     PRINT #BIFile, "        DATATYPE AS STRING * 20"
@@ -880,7 +938,7 @@ SUB PROCESSFILE (FILENAME$)
     PRINT #BIFile, ""
     PRINT #BIFile, "    vwatch64_CLIENT.NAME = " + Q$ + NOPATH$(FILENAME$) + Q$
     PRINT #BIFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
-    PRINT #BIFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TOTALVARIABLES)
+    PRINT #BIFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TotalSelected)
     PRINT #BIFile, ""
     $IF WIN THEN
         PRINT #BIFile, "        Ret = GetModuleFileNameA(0, vwatch64_EXENAME, LEN(vwatch64_EXENAME))"
@@ -892,11 +950,13 @@ SUB PROCESSFILE (FILENAME$)
     $END IF
     PRINT #BIFile, ""
     PRINT #BIFile, "    DIM SHARED vwatch64_VARIABLES(1 TO vwatch64_CLIENT.TOTALVARIABLES) AS vwatch64_VARIABLESTYPE"
+    tempindex = 0
     FOR i = 1 TO TOTALVARIABLES
-        IF LEN(TRIM$(VARIABLES(i).NAME)) THEN
-            PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").NAME = " + Q$ + RTRIM$(VARIABLES(i).NAME) + Q$
-            PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").SCOPE = " + Q$ + RTRIM$(VARIABLES(i).SCOPE) + Q$
-            PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").DATATYPE = " + Q$ + RTRIM$(VARIABLES(i).DATATYPE) + Q$
+        IF MID$(AddedList$, i, 1) = CHR$(1) THEN
+            tempindex = tempindex + 1
+            PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + RTRIM$(VARIABLES(i).NAME) + Q$
+            PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + RTRIM$(VARIABLES(i).SCOPE) + Q$
+            PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + RTRIM$(VARIABLES(i).DATATYPE) + Q$
         END IF
     NEXT i
     PRINT #BIFile, ""
@@ -926,6 +986,7 @@ SUB PROCESSFILE (FILENAME$)
     'Creates a vWATCH64.BM customized for the .BAS provided:
     PRINT #BMFile, "$IF VWATCH64 = ON THEN"
     PRINT #BMFile, "    SUB vwatch64_CONNECTTOHOST"
+    RANDOMIZE TIMER
     PRINT #BMFile, "        vwatch64_CLIENTFILE = " + LTRIM$(RTRIM$(STR$(_CEIL(RND * 30000) + 100)))
     PRINT #BMFile, "        'You may be wondering why such a weird file number..."
     PRINT #BMFile, "        OPEN " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
@@ -954,71 +1015,73 @@ SUB PROCESSFILE (FILENAME$)
     LocalSharedAddedTotal = 0
     FOR i = 1 TO TotalLocalVariables
         SourceLine = "    SHARED "
-        found = FINDVARIABLES(TRIM$(LOCALVARIABLES(i).NAME))
-        IF LEN(TRIM$(VARIABLES(found).UDT)) > 0 THEN
-            IF TotalUDTsAdded > 0 THEN
-                AlreadyAdded = 0
-                FOR L = 1 TO TotalUDTsAdded
-                    IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
-                        IF TRIM$(UDT_ADDED(L).UDT) = TRIM$(VARIABLES(found).UDT) AND LEFT$(VARIABLES(found).NAME, INSTR(VARIABLES(found).NAME, "(") - 1) = TRIM$(UDT_ADDED(L).NAME) THEN AlreadyAdded = -1
-                    ELSE
-                        IF TRIM$(UDT_ADDED(L).UDT) = TRIM$(VARIABLES(found).UDT) AND TRIM$(VARIABLES(found).NAME) = TRIM$(UDT_ADDED(L).NAME) THEN AlreadyAdded = -1
+        found = FINDVARIABLES(TRIM$(LOCALVARIABLES(i).NAME), AddedList$)
+        IF found THEN
+            IF LEN(TRIM$(VARIABLES(found).UDT)) > 0 THEN
+                IF TotalUDTsAdded > 0 THEN
+                    AlreadyAdded = 0
+                    FOR L = 1 TO TotalUDTsAdded
+                        IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
+                            IF TRIM$(UDT_ADDED(L).UDT) = TRIM$(VARIABLES(found).UDT) AND LEFT$(VARIABLES(found).NAME, INSTR(VARIABLES(found).NAME, "(") - 1) = TRIM$(UDT_ADDED(L).NAME) THEN AlreadyAdded = -1
+                        ELSE
+                            IF TRIM$(UDT_ADDED(L).UDT) = TRIM$(VARIABLES(found).UDT) AND TRIM$(VARIABLES(found).NAME) = TRIM$(UDT_ADDED(L).NAME) THEN AlreadyAdded = -1
+                        END IF
+                    NEXT L
+                    IF NOT AlreadyAdded THEN
+                        'New local variable AS UDT found
+                        TotalUDTsAdded = TotalUDTsAdded + 1
+                        REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS VARIABLESTYPE
+                        UDT_ADDED(TotalUDTsAdded).UDT = TRIM$(VARIABLES(found).UDT)
+                        IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
+                            SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, "(")) + ") AS " + TRIM$(VARIABLES(found).UDT)
+                            UDT_ADDED(TotalUDTsAdded).NAME = LEFT$(VARIABLES(found).NAME, INSTR(VARIABLES(found).NAME, "(") - 1)
+                        ELSE
+                            UDT_ADDED(TotalUDTsAdded).NAME = TRIM$(VARIABLES(found).NAME)
+                            SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(found).UDT)
+                        END IF
+                        LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                        REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                        LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
                     END IF
-                NEXT L
-                IF NOT AlreadyAdded THEN
+                ELSE
                     'New local variable AS UDT found
-                    TotalUDTsAdded = TotalUDTsAdded + 1
-                    REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS VARIABLESTYPE
-                    UDT_ADDED(TotalUDTsAdded).UDT = TRIM$(VARIABLES(found).UDT)
                     IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
                         SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, "(")) + ") AS " + TRIM$(VARIABLES(found).UDT)
-                        UDT_ADDED(TotalUDTsAdded).NAME = LEFT$(VARIABLES(found).NAME, INSTR(VARIABLES(found).NAME, "(") - 1)
                     ELSE
-                        UDT_ADDED(TotalUDTsAdded).NAME = TRIM$(VARIABLES(found).NAME)
                         SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(found).UDT)
                     END IF
+                    TotalUDTsAdded = TotalUDTsAdded + 1
+                    REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS VARIABLESTYPE
+                    UDT_ADDED(TotalUDTsAdded).NAME = TRIM$(VARIABLES(found).NAME)
+                    UDT_ADDED(TotalUDTsAdded).UDT = TRIM$(VARIABLES(found).UDT)
                     LocalSharedAddedTotal = LocalSharedAddedTotal + 1
                     REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
                     LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
                 END IF
             ELSE
-                'New local variable AS UDT found
                 IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
-                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, "(")) + ") AS " + TRIM$(VARIABLES(found).UDT)
-                ELSE
-                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(LOCALVARIABLES(i).NAME, ".") - 1) + " AS " + TRIM$(VARIABLES(found).UDT)
-                END IF
-                TotalUDTsAdded = TotalUDTsAdded + 1
-                REDIM _PRESERVE UDT_ADDED(1 TO TotalUDTsAdded) AS VARIABLESTYPE
-                UDT_ADDED(TotalUDTsAdded).NAME = TRIM$(VARIABLES(found).NAME)
-                UDT_ADDED(TotalUDTsAdded).UDT = TRIM$(VARIABLES(found).UDT)
-                LocalSharedAddedTotal = LocalSharedAddedTotal + 1
-                REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
-                LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
-            END IF
-        ELSE
-            IF INSTR(LOCALVARIABLES(i).NAME, "(") THEN
-                IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
-                    SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(TRIM$(LOCALVARIABLES(i).NAME), "(")) + ")"
-                ELSE
-                    IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
-                        SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(TRIM$(LOCALVARIABLES(i).NAME), "(")) + ")" + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+                    IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
+                        SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(TRIM$(LOCALVARIABLES(i).NAME), "(")) + ")"
+                    ELSE
+                        IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
+                            SourceLine = SourceLine + LEFT$(TRIM$(LOCALVARIABLES(i).NAME), INSTR(TRIM$(LOCALVARIABLES(i).NAME), "(")) + ")" + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+                        END IF
                     END IF
-                END IF
-                LocalSharedAddedTotal = LocalSharedAddedTotal + 1
-                REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
-                LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
-            ELSE
-                IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
-                    SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME)
+                    LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                    REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                    LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
                 ELSE
-                    IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
-                        SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME) + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+                    IF LEN(SUFFIXLOOKUP$(TRIM$(LOCALVARIABLES(i).NAME))) > 0 OR TRIM$(LOCALVARIABLES(i).DATATYPE) = "" THEN
+                        SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME)
+                    ELSE
+                        IF CHECKLIST(TRIM$(LOCALVARIABLES(i).DATATYPE), KeywordList(), INTERNALKEYWORDS) AND INSTR(SourceLine, " AS ") = 0 THEN
+                            SourceLine = SourceLine + TRIM$(LOCALVARIABLES(i).NAME) + " AS " + TRIM$(LOCALVARIABLES(i).DATATYPE)
+                        END IF
                     END IF
+                    LocalSharedAddedTotal = LocalSharedAddedTotal + 1
+                    REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
+                    LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
                 END IF
-                LocalSharedAddedTotal = LocalSharedAddedTotal + 1
-                REDIM _PRESERVE LOCALSHAREDADDED(1 TO LocalSharedAddedTotal) AS STRING
-                LOCALSHAREDADDED(LocalSharedAddedTotal) = SourceLine
             END IF
         END IF
     NEXT i
@@ -1049,13 +1112,15 @@ SUB PROCESSFILE (FILENAME$)
     PRINT #BMFile, "        vwatch64_CLIENT.LASTOUTPUT = TIMER"
     PRINT #BMFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTDATA, vwatch64_CLIENT"
     PRINT #BMFile, ""
+    tempindex = 0
     FOR i = 1 TO TOTALVARIABLES
-        IF LEN(TRIM$(VARIABLES(i).NAME)) THEN
+        IF MID$(AddedList$, i, 1) = CHR$(1) THEN
+            tempindex = tempindex + 1
             IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
-                SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").VALUE = " + RTRIM$(VARIABLES(i).NAME)
+                SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + RTRIM$(VARIABLES(i).NAME)
                 PRINT #BMFile, SourceLine
             ELSE
-                SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(i)) + ").VALUE = STR$(" + RTRIM$(VARIABLES(i).NAME) + ")"
+                SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = STR$(" + RTRIM$(VARIABLES(i).NAME) + ")"
                 PRINT #BMFile, SourceLine
             END IF
         END IF
@@ -1133,9 +1198,9 @@ FUNCTION CHECKLIST (Text$, List$(), UpperBoundary%)
 END FUNCTION
 
 '------------------------------------------------------------------------------
-FUNCTION FINDVARIABLES (Text$)
+FUNCTION FINDVARIABLES (Text$, AddedList$)
     FOR i = 1 TO TOTALVARIABLES
-        IF TRIM$(VARIABLES(i).NAME) = TRIM$(Text$) THEN
+        IF TRIM$(VARIABLES(i).NAME) = TRIM$(Text$) AND MID$(AddedList$, i, 1) = CHR$(1) THEN
             FINDVARIABLES = i
             EXIT FUNCTION
         END IF
@@ -1508,11 +1573,6 @@ SUB MONITOR_MODE
         cursorBlink% = cursorBlink% + 1
         IF cursorBlink% > 30 THEN cursorBlink% = 0
 
-        LINE (0, 0)-(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
-        _PRINTSTRING (5, 3), "Now running: " + RTRIM$(CLIENT.CURRENTMODULE)
-        _PRINTSTRING (5, _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
-        _PRINTSTRING (5, _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
-
         IF CLIENT.LASTOUTPUT > 0 THEN
             IF TIMER - CLIENT.LASTOUTPUT > 5 THEN TIMEOUT = -1
         ELSE
@@ -1564,6 +1624,12 @@ SUB MONITOR_MODE
             _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
             _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
         END IF
+
+        'Top bar:
+        LINE (0, y)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
+        _PRINTSTRING (5, y + 3), "Now running: " + RTRIM$(CLIENT.CURRENTMODULE)
+        _PRINTSTRING (5, y + _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
+        _PRINTSTRING (5, y + _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
 
         IF INFOSCREENHEIGHT > 600 THEN
             IF LEN(filter$) AND row > 0 THEN
@@ -2007,3 +2073,251 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
     _FONT f
 END SUB
 
+SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
+    'Allows user to mark which of the found variables will be watched.
+    'Shows a UI similar to monitor mode, with extra commands to filter/add.
+
+    AddedList$ = STRING$(TOTALVARIABLES, 0) 'Start interactive mode with all variables unselected
+    TotalSelected = 0
+
+    INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
+    IF INFOSCREENHEIGHT > 600 THEN
+        INFOSCREEN = _NEWIMAGE(1000, INFOSCREENHEIGHT, 32)
+        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
+        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
+        _DEST INFOSCREEN
+        CLS
+        $IF WIN THEN
+            IF TTFONT THEN _FONT TTFONT
+        $END IF
+    END IF
+
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+    CLS
+
+    filter$ = ""
+    searchIn = VARIABLENAMES
+    SB_ThumbY = 0
+    t$ = "(end of list)"
+    _KEYCLEAR
+
+    longestVarName = 1
+    FOR i = 1 TO TOTALVARIABLES
+        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
+    NEXT i
+
+    DO: _LIMIT 60
+        k$ = INKEY$
+        IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
+        IF LEN(k$) = 2 THEN k = ASC(k$, 2) * 256
+        SELECT CASE k
+            CASE 32 TO 126 'Printable ASCII characters
+                'CASE 48 TO 57, 65 TO 90, 97 TO 122, ASC("."), ASC("_") 'Numbers, letters, period and underscore
+                filter$ = filter$ + k$
+                y = 0
+            CASE 8 'Backspace
+                IF LEN(filter$) THEN filter$ = LEFT$(filter$, LEN(filter$) - 1)
+                y = 0
+            CASE 22 'CTRL + V
+                IF LEN(_CLIPBOARD$) THEN filter$ = filter$ + _CLIPBOARD$: y = 0
+            CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
+                IF searchIn = VARIABLENAMES THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
+                y = 0
+            CASE 27 'ESC clears the current search filter or exits interactive mode
+                IF LEN(filter$) THEN
+                    filter$ = ""
+                ELSE
+                    AddedList$ = CHR$(3)
+                    EXIT DO
+                END IF
+            CASE 15360 'F2
+                IF LEN(filter$) = 0 THEN
+                    AddedList$ = STRING$(TOTALVARIABLES, 1)
+                    TotalSelected = TOTALVARIABLES
+                ELSE
+                    FOR i = 1 TO LEN(filteredlist$) / 4
+                        item = CVL(MID$(filteredlist$, i * 4 - 3, 4))
+                        IF MID$(AddedList$, item, 1) = CHR$(0) THEN
+                            MID$(AddedList$, item, 1) = CHR$(1): TotalSelected = TotalSelected + 1
+                        END IF
+                    NEXT i
+                END IF
+            CASE 15616 'F3
+                IF LEN(filter$) = 0 THEN
+                    AddedList$ = STRING$(TOTALVARIABLES, 0)
+                    TotalSelected = 0
+                ELSE
+                    FOR i = 1 TO LEN(filteredlist$) / 4
+                        item = CVL(MID$(filteredlist$, i * 4 - 3, 4))
+                        IF MID$(AddedList$, item, 1) = CHR$(1) THEN
+                            MID$(AddedList$, item, 1) = CHR$(0): TotalSelected = TotalSelected - 1
+                        END IF
+                    NEXT i
+                END IF
+            CASE 16128 'F5
+                IF TotalSelected > 0 THEN
+                    EXIT DO
+                END IF
+        END SELECT
+
+        IF INFOSCREENHEIGHT > 600 THEN
+            DO
+                y = y + (_MOUSEWHEEL * (_HEIGHT(MAINSCREEN) / 5))
+                mx = _MOUSEX
+                my = _MOUSEY
+                mb = _MOUSEBUTTON(1)
+            LOOP WHILE _MOUSEINPUT
+
+            IF mb THEN
+                IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
+                    'Clicked inside the scroll bar. Check if click was on the thumb:
+                    IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
+                        'Clicked on the thumb:
+                        grabbedY = my: starty = y
+                        DO WHILE _MOUSEBUTTON(1)
+                            m = _MOUSEINPUT
+                            my = _MOUSEY
+                            y = starty + ((my - grabbedY) / SB_Ratio)
+                            GOSUB displaypic
+                        LOOP
+                    ELSE
+                        'Clicked above or below the thumb:
+                        IF my < SB_ThumbY THEN
+                            m = _MOUSEINPUT
+                            y = y - (_HEIGHT(PIC) * SB_Ratio)
+                        ELSE
+                            m = _MOUSEINPUT
+                            y = y + ((_HEIGHT(PIC) - y) * SB_Ratio)
+                        END IF
+                    END IF
+                END IF
+            END IF
+        ELSE
+            IF _KEYDOWN(18432) THEN y = y - _FONTHEIGHT
+            IF _KEYDOWN(20480) THEN y = y + _FONTHEIGHT
+            IF INFOSCREEN < -1 THEN y = 0: GOSUB displaypic
+        END IF
+
+        CLS , _RGB32(255, 255, 255)
+
+        cursorBlink% = cursorBlink% + 1
+        IF cursorBlink% > 30 THEN cursorBlink% = 0
+
+        'Places a light gray rectangle under the column that can currently be filtered
+        SELECT CASE searchIn
+            CASE DATATYPES
+                columnHighlightX = _PRINTWIDTH(SPACE$(7))
+                columnHighlightY = 55
+                columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
+            CASE VARIABLENAMES
+                columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+                columnHighlightY = 55
+                columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+        END SELECT
+        LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, IIF(LEN(filter$), row, TOTALVARIABLES) * _FONTHEIGHT + 8), _RGB32(230, 230, 230), BF
+
+        'Update list:
+        i = 0: row = 0: filteredlist$ = ""
+        DO
+            i = i + 1
+            IF i > TOTALVARIABLES THEN EXIT DO
+            IF LEN(filter$) THEN
+                Found = 0
+                SELECT CASE searchIn
+                    CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(filter$)) THEN Found = -1
+                    CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(filter$)) THEN Found = -1
+                END SELECT
+                IF Found THEN
+                    row = row + 1
+                    v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(MID$(AddedList$, i, 1) = CHR$(1), "+", " ") + " ]"
+                    _PRINTSTRING (5, (3 + row) * _FONTHEIGHT), v$
+                    filteredlist$ = filteredlist$ + MKL$(i)
+                END IF
+            ELSE
+                INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
+                v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(MID$(AddedList$, i, 1) = CHR$(1), "+", " ") + " ]"
+                _PRINTSTRING (5, (3 + i) * _FONTHEIGHT), v$
+            END IF
+        LOOP
+
+        IF LEN(filter$) AND row = 0 THEN 'A filter is on, but nothing was found
+            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
+            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
+        END IF
+
+        'Top bar:
+        IF y < 0 THEN y = 0
+        IF INFOSCREENHEIGHT > 600 THEN
+            IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
+        ELSE
+            y = 0
+        END IF
+        LINE (0, y)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(179, 255, 255), BF
+        LINE (0, y)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+        totalinfo$ = "INTERACTIVE MODE: " + NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
+        _PRINTSTRING (5, y + _FONTHEIGHT + 3), totalinfo$
+        _PRINTSTRING (5, y + _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "")))
+
+        keyhelp$ = "<F2 = Select" + IIFSTR$(LEN(filter$), " filtered", " all") + "> <F3 = Clear" + IIFSTR$(LEN(filter$), " filtered", " all") + ">" + IIFSTR$(TotalSelected > 0, " <F5 = Save and continue>", "") + " <ESC = Cancel>"
+        '_PRINTSTRING (6, y + 4), keyhelp$
+        'COLOR _RGB32(255, 255, 255)
+        _PRINTSTRING (5, y + 3), keyhelp$
+        'COLOR _RGB32(0, 0, 0)
+
+        IF INFOSCREENHEIGHT > 600 THEN
+            IF LEN(filter$) AND row > 0 THEN
+                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
+            ELSEIF LEN(filter$) = 0 THEN
+                _PRINTSTRING (5, _HEIGHT(INFOSCREEN) - _FONTHEIGHT), t$
+            END IF
+            GOSUB displaypic
+        ELSE
+            'End of list message:
+            IF LEN(filter$) AND row > 0 THEN
+                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
+            ELSEIF LEN(filter$) = 0 THEN
+                _PRINTSTRING (5, (4 + i) * _FONTHEIGHT), t$
+            END IF
+        END IF
+        _DISPLAY
+        IF _EXIT THEN USERQUIT = -1: EXIT DO
+    LOOP
+
+    IF INFOSCREENHEIGHT > 600 THEN _DEST MAINSCREEN
+    _AUTODISPLAY
+
+    EXIT SUB
+    displaypic:
+    IF y < 0 THEN y = 0
+    IF INFOSCREENHEIGHT > 600 THEN
+        IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
+    ELSE
+        y = 0
+    END IF
+    _PUTIMAGE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1), INFOSCREEN, MAINSCREEN, (0, y)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1)
+
+    ShowScroll = 1
+    IF LEN(filter$) AND row > 0 THEN
+        INFOSCREENHEIGHT = _FONTHEIGHT * (row + 6)
+        IF INFOSCREENHEIGHT < 600 THEN
+            ShowScroll = 0
+        ELSE
+            SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
+            SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+        END IF
+    ELSE
+        INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
+        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
+        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+    END IF
+    'Scrollbar:
+    IF ShowScroll THEN
+        _DEST MAINSCREEN
+        SB_ThumbY = (y * SB_Ratio)
+        LINE (_WIDTH(MAINSCREEN) - 30, 0)-STEP(29, _HEIGHT(MAINSCREEN) - 1), _RGB32(170, 170, 170), BF
+        LINE (_WIDTH(MAINSCREEN) - 25, SB_ThumbY + 3)-STEP(19, SB_ThumbH - 7), _RGB32(70, 70, 70), BF
+        _DEST INFOSCREEN
+    END IF
+    _DISPLAY
+    RETURN
+END SUB
