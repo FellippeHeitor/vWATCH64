@@ -1495,13 +1495,13 @@ SUB MONITOR_MODE
                     USERQUIT = -1: EXIT DO
                 END IF
             CASE 18432 'Up
-                IF INFOSCREENHEIGHT > 600 THEN y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            CASE 36096 'Ctrl+Up
-                IF INFOSCREENHEIGHT > 600 THEN y = y - _FONTHEIGHT
+                IF INFOSCREENHEIGHT > 600 THEN
+                    IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
+                END IF
             CASE 20480 'Down
-                IF INFOSCREENHEIGHT > 600 THEN y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            CASE 37120 'Ctrl+Down
-                IF INFOSCREENHEIGHT > 600 THEN y = y + _FONTHEIGHT
+                IF INFOSCREENHEIGHT > 600 THEN
+                    IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
+                END IF
         END SELECT
 
         IF INFOSCREENHEIGHT > 600 THEN
@@ -1629,10 +1629,10 @@ SUB MONITOR_MODE
             IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
             Found = 0
             SELECT CASE searchIn
-                CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$)) THEN Found = -1
-                CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(Filter$)) THEN Found = -1
-                CASE VALUES: IF INSTR(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$)) THEN Found = -1
-                CASE SCOPE: IF INSTR(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$)) THEN Found = -1
+                CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
+                CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
+                CASE VALUES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$))
+                CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
             END SELECT
             IF Found THEN
                 FilteredList$ = FilteredList$ + MKL$(i)
@@ -2213,13 +2213,13 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     EXIT DO
                 END IF
             CASE 18432 'Up
-                IF INFOSCREENHEIGHT > 600 THEN y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            CASE 36096 'Ctrl+Up
-                IF INFOSCREENHEIGHT > 600 THEN y = y - _FONTHEIGHT
+                IF INFOSCREENHEIGHT > 600 THEN
+                    IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
+                END IF
             CASE 20480 'Down
-                IF INFOSCREENHEIGHT > 600 THEN y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            CASE 37120 'Ctrl+Down
-                IF INFOSCREENHEIGHT > 600 THEN y = y + _FONTHEIGHT
+                IF INFOSCREENHEIGHT > 600 THEN
+                    IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
+                END IF
         END SELECT
 
         IF INFOSCREENHEIGHT > 600 THEN
@@ -2304,9 +2304,9 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             IF i > TOTALVARIABLES THEN EXIT DO
             Found = 0
             SELECT CASE searchIn
-                CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$)) THEN Found = -1
-                CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(Filter$)) THEN Found = -1
-                CASE SCOPE: IF INSTR(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$)) THEN Found = -1
+                CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
+                CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
+                CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
             END SELECT
             IF Found THEN
                 FilteredList$ = FilteredList$ + MKL$(i)
@@ -2503,3 +2503,25 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     RETURN
 END SUB
 
+FUNCTION MULTI_SEARCH (FullText$, SearchString$)
+    'Returns -1 if any of the search items in SearchString can be found
+    'in FullText$. Returns 0 if no search terms are found.
+    'Multiple items in SearchString$ must be in the format "term1+term2+..."
+
+    IF LEN(FullText$) = 0 THEN EXIT FUNCTION
+    IF LEN(SearchString$) = 0 THEN EXIT FUNCTION
+
+    FOR i = 1 TO LEN(SearchString$)
+        IF (ASC(SearchString$, i)) = 43 THEN
+            IF LEN(ThisTerm$) > 0 THEN
+                IF INSTR(FullText$, TRIM$(ThisTerm$)) > 0 THEN MULTI_SEARCH = -1: EXIT FUNCTION
+                ThisTerm$ = ""
+            END IF
+        ELSE
+            ThisTerm$ = ThisTerm$ + MID$(SearchString$, i, 1)
+        END IF
+    NEXT i
+    IF LEN(ThisTerm$) > 0 THEN
+        IF INSTR(FullText$, TRIM$(ThisTerm$)) > 0 THEN MULTI_SEARCH = -1
+    END IF
+END SUB

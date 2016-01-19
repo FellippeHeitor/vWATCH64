@@ -70,4 +70,5 @@ To achieve this result, vWATCH64 will parse your .BAS and extract variable names
      - Dragging the scrollbar thumb now updates the screen more often.
      - Can now filter by SCOPE (LOCAL/SHARED)
      - Mouse can be used to select variables in interactive mode.
-     
+     - <Function key> indications on screen are now clickable.
+     - Can now filter multiple items (term1+term2+...) 
