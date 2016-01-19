@@ -401,6 +401,7 @@ SUB PROCESSFILE
     'Processing can proceed.
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
     CLS
+    PRINT: PRINT
     InputFile = FREEFILE
     OPEN FILENAME$ FOR BINARY AS #InputFile
 
@@ -786,7 +787,7 @@ SUB PROCESSFILE
             IF AddedList$ = CHR$(3) THEN
                 'Processing was canceled by user.
                 BEEP
-                PRINT
+                PRINT "No variables selected."
                 PRINT
                 COLOR _RGB32(255, 0, 0)
                 PRINT "Processing canceled."
@@ -796,6 +797,8 @@ SUB PROCESSFILE
                 KILL NEWFILENAME$
                 SLEEP
                 EXIT SUB
+            ELSE
+                PRINT IIFSTR$(TOTALVARIABLES = TotalSelected, "All", STR$(TotalSelected)); " variable"; IIFSTR$(TotalSelected > 1, "s", ""); " selected."
             END IF
         ELSE
             AddedList$ = STRING$(TOTALVARIABLES, 1)
@@ -1562,7 +1565,7 @@ SUB MONITOR_MODE
         GET #FILE, DATABLOCK, VARIABLES()
 
         cursorBlink% = cursorBlink% + 1
-        IF cursorBlink% > 30 THEN cursorBlink% = 0
+        IF cursorBlink% > 50 THEN cursorBlink% = 0
 
         'Update list:
         GOSUB UpdateList
@@ -1672,6 +1675,7 @@ SUB MONITOR_MODE
     CLS , _RGB32(255, 255, 255)
     LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
 
+    'Print list items to the screen:
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         FOR ii = 1 TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
@@ -2103,7 +2107,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
 END SUB
 
 SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
-    'Allows user to mark which of the found variables will be watched.
+    'Allows user to selected which of the found variables will be watched.
     'Shows a UI similar to monitor mode, with extra commands to filter/add.
 
     DIM SB_Ratio AS SINGLE
@@ -2243,7 +2247,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                             END IF
 
                             IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
-                            IF ABS(my - updatedY) > _HEIGHT / 10 THEN
+                            IF ABS(my - updatedY) > (_HEIGHT / _FONTHEIGHT) THEN
                                 'We don't update the screen with every move of the scrollbar thumb,
                                 'because it either slows everything down or flickers. However, it can
                                 'be updated at preset move intervals.
@@ -2323,13 +2327,13 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     'Place a light gray rectangle under the column that can currently be filtered:
     SELECT CASE searchIn
         CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(15))
             columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
         CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(29)) + _PRINTWIDTH(SPACE$(7))
             columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
         CASE SCOPE
-            columnHighlightX = 0
+            columnHighlightX = _PRINTWIDTH(SPACE$(8))
             columnHighlightW = _PRINTWIDTH(SPACE$(7))
     END SELECT
     IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
@@ -2344,19 +2348,30 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     CLS , _RGB32(255, 255, 255)
     LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
 
+    'Get mouse coordinates:
+    DO
+    LOOP WHILE _MOUSEINPUT
+    mx = _MOUSEX: my = _MOUSEY: mb = _MOUSEBUTTON(1)
+
     'Print list items to the screen:
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         FOR ii = 1 TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]"
             printY = ((3 + ii) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
+                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+                _PRINTSTRING (5, printY), v$
+            END IF
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
         FOR i = 1 TO TOTALVARIABLES
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]"
             printY = ((3 + i) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
+                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+                _PRINTSTRING (5, printY), v$
+            END IF
         NEXT i
     END IF
 
@@ -2431,6 +2446,27 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             SB_ThumbH = SB_ThumbH - 2
         END IF
         LINE (_WIDTH - SB_StartX, SB_ThumbY + 3)-STEP(SB_ThumbW, SB_ThumbH - 7), SB_ThumbColor, BF
+    END IF
+    RETURN
+
+    DetectClick:
+    'Place a hover indicator over this item:
+    LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
+    'Select/Clear the item if a mouse click was detected.
+    IF mb THEN
+        'Wait until a mouse up event is received:
+        WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
+        mb = 0
+
+        IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+            IF ASC(AddedList$, i) = 1 THEN
+                ASC(AddedList$, i) = 0
+                TotalSelected = TotalSelected - 1
+            ELSE
+                ASC(AddedList$, i) = 1
+                TotalSelected = TotalSelected + 1
+            END IF
+        END IF
     END IF
     RETURN
 END SUB
