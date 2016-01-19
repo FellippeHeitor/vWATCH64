@@ -36,7 +36,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "0.9b "
+CONST VERSION = "0.10b"
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
@@ -2107,7 +2107,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
 END SUB
 
 SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
-    'Allows user to selected which of the found variables will be watched.
+    'Allows user to select which of the found variables will be watched.
     'Shows a UI similar to monitor mode, with extra commands to filter/add.
 
     DIM SB_Ratio AS SINGLE
@@ -2177,10 +2177,12 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                 IF LEN(Filter$) THEN
                     Filter$ = ""
                 ELSE
+                    CancelButton_Click:
                     AddedList$ = CHR$(3)
                     EXIT DO
                 END IF
             CASE 15360 'F2
+                SelectButton_Click:
                 IF LEN(Filter$) = 0 THEN
                     AddedList$ = STRING$(TOTALVARIABLES, 1)
                     TotalSelected = TOTALVARIABLES
@@ -2193,6 +2195,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     NEXT i
                 END IF
             CASE 15616 'F3
+                ClearButton_Click:
                 IF LEN(Filter$) = 0 THEN
                     AddedList$ = STRING$(TOTALVARIABLES, 0)
                     TotalSelected = 0
@@ -2205,6 +2208,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     NEXT i
                 END IF
             CASE 16128 'F5
+                SaveButton_Click:
                 IF TotalSelected > 0 THEN
                     EXIT DO
                 END IF
@@ -2277,13 +2281,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         IF cursorBlink% > 50 THEN cursorBlink% = 0
 
         'Update list:
-        IF (prevY <> y) OR (prevFilter$ <> Filter$) OR (prevSearchIn <> searchIn) OR (prevAddedList$ <> AddedList$) THEN
-            prevY = y
-            prevFilter$ = Filter$
-            prevFilteredList$ = FilteredList$
-            prevSearchIn = searchIn
-            GOSUB UpdateList
-        END IF
+        GOSUB UpdateList
 
         IF _EXIT THEN
             CLOSE
@@ -2383,10 +2381,21 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     'Top bar:
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, 50), _RGB32(179, 255, 255), BF
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+    cancelButtonText$ = "<ESC = Cancel>"
+    selectButtonText$ = "<F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
+    clearButtonText$ = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
+    saveButtonText$ = IIFSTR$(TotalSelected > 0, "<F5 = Save and continue>", "")
+    keyhelp$ = cancelButtonText$ + " " + selectButtonText$ + " " + clearButtonText$ + " " + saveButtonText$
+    cancelButtonX = (INSTR(keyhelp$, cancelButtonText$) * _FONTWIDTH): cancelButtonW = _PRINTWIDTH(cancelButtonText$)
+    selectButtonX = (INSTR(keyhelp$, selectButtonText$) * _FONTWIDTH): selectButtonW = _PRINTWIDTH(selectButtonText$)
+    clearButtonX = (INSTR(keyhelp$, clearButtonText$) * _FONTWIDTH): clearButtonW = _PRINTWIDTH(clearButtonText$)
+    IF LEN(saveButtonText$) > 0 THEN saveButtonX = (INSTR(keyhelp$, saveButtonText$) * _FONTWIDTH): saveButtonW = _PRINTWIDTH(saveButtonText$) ELSE saveButtonX = 0
+
     totalinfo$ = "INTERACTIVE MODE: " + NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), totalinfo$
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
-    keyhelp$ = "<ESC = Cancel> <F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + "> <F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">" + IIFSTR$(TotalSelected > 0, " <F5 = Save and continue>", "")
+
+    GOSUB CheckButtons
     _PRINTSTRING (5, 3), keyhelp$
     FOR i = 1 TO LEN(keyhelp$)
         IF (ASC(keyhelp$, i) <> 60) AND (ASC(keyhelp$, i) <> 62) THEN
@@ -2430,7 +2439,6 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         SB_ThumbH = (_HEIGHT * SB_Ratio)
     END IF
 
-    'Scrollbar:
     IF ShowScroll THEN
         SB_ThumbY = (y * SB_Ratio)
         LINE (_WIDTH - 30, 0)-STEP(29, _HEIGHT - 1), _RGB32(170, 170, 170), BF
@@ -2469,4 +2477,29 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         END IF
     END IF
     RETURN
+
+    CheckButtons:
+    IF my > _FONTHEIGHT THEN RETURN
+    IF (mx >= cancelButtonX) AND (mx <= cancelButtonX + cancelButtonW) THEN
+        LINE (cancelButtonX - 3, 3)-STEP(cancelButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
+        IF mb THEN GOTO CancelButton_Click
+        RETURN
+    END IF
+    IF (mx >= selectButtonX) AND (mx <= selectButtonX + selectButtonW) THEN
+        LINE (selectButtonX - 3, 3)-STEP(selectButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
+        IF mb THEN GOTO SelectButton_Click
+        RETURN
+    END IF
+    IF (mx >= clearButtonX) AND (mx <= clearButtonX + clearButtonW) THEN
+        LINE (clearButtonX - 3, 3)-STEP(clearButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
+        IF mb THEN GOTO ClearButton_Click
+        RETURN
+    END IF
+    IF (mx >= saveButtonX) AND (mx <= saveButtonX + saveButtonW) THEN
+        LINE (saveButtonX - 3, 3)-STEP(saveButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
+        IF mb THEN GOTO SaveButton_Click
+        RETURN
+    END IF
+    RETURN
 END SUB
+
