@@ -65,3 +65,7 @@ To achieve this result, vWATCH64 will parse your .BAS and extract variable names
      - Simplifies command line swiches: -v, -d, -n, -i, -t, -f16 can be used instead of -verbose, -dontcompile, -noarrays, -interactive, -target and -font16.
      - Rewritten scrolling routine so that it no longer requires an extra 32-bit image to layer the list on top of the main window. ***blazing fast scrolling achieved***
      - For better readability, Lucida Console replaces Courier New, if it's available.
+
+ - Beta 10: (when?)
+     - Dragging the scrollbar thumb now updates the screen more often.
+     - Can now filter by SCOPE (LOCAL/SHARED)

@@ -46,7 +46,8 @@ CONST TIMEOUTLIMIT = 3
 'Filters:
 CONST VARIABLENAMES = 1
 CONST VALUES = 2
-CONST DATATYPES = 3
+CONST SCOPE = 3
+CONST DATATYPES = 4
 
 'Custom data types: -----------------------------------------------------------
 TYPE HEADERTYPE
@@ -128,17 +129,13 @@ SCREEN MAINSCREEN
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
 
-RESTORE MenuDATA
-MAKEMENU
-
 'Parse the command line: ------------------------------------------------------
 'Did the user drag a .BAS file onto this program or enter parameters?
-'Syntax: VWATCH64 [source filename.bas] [destination filename] [-v] [-dontcompile]
-'(-v is for Verbose mode while processing - only works if file names are provided)
+'Syntax: VWATCH64 [source filename.bas] [-options] [-target [newfilename]]
 'If no parameters are passed, vWATCH64 starts in MONITOR MODE
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT > 1 THEN
-        'Set flags based on command line arguments
+        'Set flags based on command line arguments:
         FOR i = 2 TO _COMMANDCOUNT
             SELECT CASE LCASE$(COMMAND$(i))
                 CASE "-verbose", "-v": VERBOSE = -1
@@ -168,6 +165,9 @@ $ELSE
     EXENAME = ""
 $END IF
 
+RESTORE MenuDATA
+MAKEMENU
+
 IF LEN(COMMAND$) THEN
     IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
     NEWFILENAME$ = "": FIRSTPROCESSING = 0
@@ -178,7 +178,7 @@ OpenFileMenu:
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
 _AUTODISPLAY
 
-'Reset flags
+'Reset flags:
 DEFAULTDATATYPE = "SINGLE"
 OPTIONBASE = 0
 VERBOSE = 0
@@ -230,7 +230,7 @@ SUB WAITFORDATA
     'Waits until data is put in a binary file. We monitor the length of
     'the file with LOF(FILE) until it is larger than the
     'previously reported length (PREVLOF), which indicates
-    'new data was PUT/PRINTed
+    'new data was PUT/PRINTed.
     Start# = TIMER
     DO: _LIMIT 30
         FILELENGTH = LOF(FILE)
@@ -280,7 +280,7 @@ SUB PROCESSFILE
     REDIM KeywordList(1) AS STRING
 
     RESTORE KeyWordsDATA
-    'Populate KeywordList() with DATA TYPES
+    'Populate KeywordList() with DATA TYPES:
     DO
         READ ThisKeyword
         IF UCASE$(ThisKeyword) = "END" THEN
@@ -292,7 +292,7 @@ SUB PROCESSFILE
 
     Q$ = CHR$(34)
 
-    'Process dialog
+    'Process dialog:
     DialogX = _WIDTH(MAINSCREEN) / 2 - 200
     DialogY = _HEIGHT(MAINSCREEN) / 2 - 100
     CLS , _RGB32(255, 255, 255)
@@ -343,7 +343,7 @@ SUB PROCESSFILE
         IF k = 78 OR k = 110 THEN EXIT SUB
     END IF
 
-    'Options dialogs, unless already set using command line
+    'Options dialogs, unless already set using command line:
     IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
         CLS , _RGB32(255, 255, 255)
         LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
@@ -408,12 +408,12 @@ SUB PROCESSFILE
     OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
 
     MainModule = -1
-    'Injects the required code into processed file:
+    'Inject the required code into processed file:
     PRINT #OutputFile, "'$INCLUDE:'" + BIFileName + "'"
 
-    'Looks for variables inside the main module and stores information in VARIABLES()
+    'Look for variables inside the main module and stores information in VARIABLES()
     'and LOCALVARIABLES. If SUB or FUNCTION is found, injects CURRENTMODULE verification
-    'code. If SYSTEM is found, injects cleanup procedures (also when main module ends).
+    'code. If SYSTEM is found, injects cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
     PRINT "Parsing .BAS...";
     IF VERBOSE THEN PRINT
@@ -434,17 +434,17 @@ SUB PROCESSFILE
             SLEEP
             EXIT SUB
         END IF
-        IF LEN(caseBkpNextVar$) = 0 THEN 'Reads next line from file unless we're in the middle of processing a line
-            LINE INPUT #InputFile, bkpSourceLine$ 'Reads the next source line
-            caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generates a version without comments or extra spaces
-            SourceLine = UCASE$(caseBkpSourceLine) 'Generates an all upper case version
+        IF LEN(caseBkpNextVar$) = 0 THEN 'Read next line from file unless we're in the middle of processing a line
+            LINE INPUT #InputFile, bkpSourceLine$ 'Read the next source line
+            caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generate a version without comments or extra spaces
+            SourceLine = UCASE$(caseBkpSourceLine) 'Generate an all upper case version
             IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (SEEK(InputFile) / LOF(InputFile)) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
         ELSE
             NextVar$ = UCASE$(caseBkpNextVar$)
         END IF
 
         IF DefiningType THEN
-            'A TYPE ... was found earlier, so until we find an END TYPE, we'll populate UDT()
+            'A TYPE ... was found earlier, so until we find an END TYPE, we'll populate UDT():
             IF LEFT$(SourceLine, 8) = "END TYPE" THEN
                 DefiningType = 0
             ELSE
@@ -481,7 +481,7 @@ SUB PROCESSFILE
                 DefaultTypeUsed = 0
 
                 IF LEN(FoundType) = 0 THEN
-                    FoundType = DEFAULTDATATYPE 'Assumes default data type
+                    FoundType = DEFAULTDATATYPE 'Assume default data type
                     DefaultTypeUsed = -1
                 END IF
 
@@ -523,8 +523,7 @@ SUB PROCESSFILE
                 FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
 
                 IF CHECKLIST(FoundType, KeywordList(), INTERNALKEYWORDS) THEN
-                    'Variable is defined as an internal DATA TYPE
-
+                    'Variable is defined as an internal DATA TYPE.
                     IsArray = 0
                     IF INSTR(NextVar$, "(") THEN IsArray = -1: PARSEARRAY NextVar$, ValidArray%, LowerBoundary%, UpperBoundary%
                     IF IsArray THEN
@@ -560,7 +559,7 @@ SUB PROCESSFILE
                         _DELAY .05
                     END IF
                 ELSE
-                    'Variable is defined as a user defined type
+                    'Variable is defined as a user defined type.
                     IsArray = 0
                     IF INSTR(NextVar$, "(") THEN IsArray = -1: PARSEARRAY NextVar$, ValidArray%, LowerBoundary%, UpperBoundary%
                     IF IsArray THEN
@@ -658,7 +657,7 @@ SUB PROCESSFILE
             END IF
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
-            'User defined types will be added to the DATA TYPE keyword list
+            'User defined types will be added to the DATA TYPE keyword list:
             ThisKeyword = RIGHT$(caseBkpSourceLine, LEN(SourceLine) - 5)
             GOSUB AddThisKeyword
             DefiningType = -1
@@ -1115,7 +1114,7 @@ SUB PROCESSFILE
         ELSE
             PRINT "done."
             IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$) THEN
-                SHELL _DONTWAIT LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
+                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
             ELSE
                 PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
                 PRINT "You will have to compile/run it yourself."
@@ -1449,22 +1448,43 @@ SUB MONITOR_MODE
 
     StartOfLoop# = TIMER
     DO: _LIMIT 60
-        k$ = INKEY$
-        IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
-        IF LEN(k$) > 1 THEN k = ASC(k$, 2) * 256
+        k = _KEYHIT: modKey = k
+        IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+        IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+        IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+        IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
 
-        SELECT CASE k
+        SELECT EVERYCASE k
+            CASE 86, 118 'V
+                IF ctrlDown = -1 THEN
+                    IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$
+                    k = 0
+                END IF
             CASE 32 TO 126 'Printable ASCII characters
-                Filter$ = Filter$ + CHR$(k)
-                y = 0
+                IF searchIn <> SCOPE THEN
+                    Filter$ = Filter$ + CHR$(k)
+                ELSE
+                    IF k = ASC("L") OR k = ASC("l") THEN
+                        Filter$ = "LOCAL"
+                    ELSEIF k = ASC("S") OR k = ASC("s") THEN
+                        Filter$ = "SHARED"
+                    END IF
+                END IF
             CASE 8 'Backspace
-                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-                y = 0
-            CASE 22 'CTRL + V
-                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$: y = 0
-            CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES, VALUES)
-                searchIn = (searchIn) MOD 3 + 1
-                y = 0
+                IF searchIn <> SCOPE THEN
+                    IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
+                ELSE
+                    Filter$ = ""
+                END IF
+            CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
+                IF searchIn = SCOPE THEN Filter$ = ""
+                SELECT CASE searchIn
+                    CASE SCOPE: IF shiftDown = 0 THEN searchIn = DATATYPES ELSE searchIn = VALUES
+                    CASE DATATYPES: IF shiftDown = 0 THEN searchIn = VARIABLENAMES ELSE searchIn = SCOPE
+                    CASE VARIABLENAMES: IF shiftDown = 0 THEN searchIn = VALUES ELSE searchIn = DATATYPES
+                    CASE VALUES: IF shiftDown = 0 THEN searchIn = SCOPE ELSE searchIn = VARIABLENAMES
+                END SELECT
+                IF searchIn = SCOPE THEN Filter$ = ""
             CASE 27 'ESC clears the current search filter or exits the program
                 IF LEN(Filter$) THEN
                     Filter$ = ""
@@ -1494,7 +1514,8 @@ SUB MONITOR_MODE
                     'Clicked inside the scroll bar. Check if click was on the thumb:
                     IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
                         'Clicked on the thumb:
-                        grabbedY = my: starty = y
+                        grabbedY = my: starty = y: updatedY = grabbedY
+                        GOSUB DisplayScrollbar
                         _AUTODISPLAY
                         DO WHILE _MOUSEBUTTON(1)
                             m = _MOUSEINPUT
@@ -1509,6 +1530,15 @@ SUB MONITOR_MODE
                             END IF
 
                             IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
+                            IF ABS(my - updatedY) > _HEIGHT / 10 THEN
+                                'We don't update the screen with every move of the scrollbar thumb,
+                                'because it either slows everything down or flickers. However, it can
+                                'be updated at preset move intervals.
+                                _DISPLAY
+                                GOSUB UpdateList
+                                _AUTODISPLAY
+                                updatedY = my
+                            END IF
                         LOOP
                         grabbedY = -1
                         _DISPLAY
@@ -1599,6 +1629,7 @@ SUB MONITOR_MODE
                 CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$)) THEN Found = -1
                 CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(Filter$)) THEN Found = -1
                 CASE VALUES: IF INSTR(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$)) THEN Found = -1
+                CASE SCOPE: IF INSTR(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$)) THEN Found = -1
             END SELECT
             IF Found THEN
                 FilteredList$ = FilteredList$ + MKL$(i)
@@ -1625,6 +1656,9 @@ SUB MONITOR_MODE
         CASE VALUES
             columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
             columnHighlightW = _WIDTH
+        CASE SCOPE
+            columnHighlightX = 0
+            columnHighlightW = _PRINTWIDTH(SPACE$(7))
     END SELECT
     IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
 
@@ -1661,8 +1695,8 @@ SUB MONITOR_MODE
     'Top bar:
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
     _PRINTSTRING (5, 3), "Now watching: " + RTRIM$(CLIENT.CURRENTMODULE)
-    _PRINTSTRING (5, _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
-    _PRINTSTRING (5, _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(Filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
+    _PRINTSTRING (5, _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES) + IIFSTR$(LEN(FilteredList$), " (showing " + TRIM$(STR$(LEN(FilteredList$) / 4)) + ")", "")
+    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
 
     IF INFOSCREENHEIGHT > 600 THEN
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
@@ -1676,7 +1710,6 @@ SUB MONITOR_MODE
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), t$
             _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
         END IF
     END IF
@@ -2100,22 +2133,42 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     NEXT i
 
     DO: _LIMIT 300
-        k$ = INKEY$
-        IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
-        IF LEN(k$) > 1 THEN k = ASC(k$, 2) * 256
+        k = _KEYHIT: modKey = k
+        IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+        IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+        IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+        IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
 
-        SELECT CASE k
+        SELECT EVERYCASE k
+            CASE 86, 118 'V
+                IF ctrlDown = -1 THEN
+                    IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$
+                    k = 0
+                END IF
             CASE 32 TO 126 'Printable ASCII characters
-                Filter$ = Filter$ + k$
-                y = 0
+                IF searchIn <> SCOPE THEN
+                    Filter$ = Filter$ + CHR$(k)
+                ELSE
+                    IF k = ASC("L") OR k = ASC("l") THEN
+                        Filter$ = "LOCAL"
+                    ELSEIF k = ASC("S") OR k = ASC("s") THEN
+                        Filter$ = "SHARED"
+                    END IF
+                END IF
             CASE 8 'Backspace
-                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-                y = 0
-            CASE 22 'CTRL + V
-                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$: y = 0
-            CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
-                IF searchIn = VARIABLENAMES THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
-                y = 0
+                IF searchIn <> SCOPE THEN
+                    IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
+                ELSE
+                    Filter$ = ""
+                END IF
+            CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
+                IF searchIn = SCOPE THEN Filter$ = ""
+                SELECT CASE searchIn
+                    CASE VARIABLENAMES: IF shiftDown = 0 THEN searchIn = SCOPE ELSE searchIn = DATATYPES
+                    CASE SCOPE: IF shiftDown = 0 THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
+                    CASE DATATYPES: IF shiftDown = 0 THEN searchIn = VARIABLENAMES ELSE searchIn = SCOPE
+                END SELECT
+                IF searchIn = SCOPE THEN Filter$ = ""
             CASE 27 'ESC clears the current search filter or exits interactive mode
                 IF LEN(Filter$) THEN
                     Filter$ = ""
@@ -2174,7 +2227,8 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     'Clicked inside the scroll bar. Check if click was on the thumb:
                     IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
                         'Clicked on the thumb:
-                        grabbedY = my: starty = y
+                        grabbedY = my: starty = y: updatedY = grabbedY
+                        GOSUB DisplayScrollbar
                         _AUTODISPLAY
                         DO WHILE _MOUSEBUTTON(1)
                             m = _MOUSEINPUT
@@ -2189,6 +2243,15 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                             END IF
 
                             IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
+                            IF ABS(my - updatedY) > _HEIGHT / 10 THEN
+                                'We don't update the screen with every move of the scrollbar thumb,
+                                'because it either slows everything down or flickers. However, it can
+                                'be updated at preset move intervals.
+                                _DISPLAY
+                                GOSUB UpdateList
+                                _AUTODISPLAY
+                                updatedY = my
+                            END IF
                         LOOP
                         grabbedY = -1
                         _DISPLAY
@@ -2230,7 +2293,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
 
     EXIT SUB
     UpdateList:
-    'Build a filtered list, if a filter is active
+    'Build a filtered list, if a filter is active:
     i = 0: FilteredList$ = ""
     INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
     IF LEN(Filter$) > 0 THEN
@@ -2241,6 +2304,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             SELECT CASE searchIn
                 CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$)) THEN Found = -1
                 CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(Filter$)) THEN Found = -1
+                CASE SCOPE: IF INSTR(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$)) THEN Found = -1
             END SELECT
             IF Found THEN
                 FilteredList$ = FilteredList$ + MKL$(i)
@@ -2256,7 +2320,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         y = 0
     END IF
 
-    'Place a light gray rectangle under the column that can currently be filtered
+    'Place a light gray rectangle under the column that can currently be filtered:
     SELECT CASE searchIn
         CASE DATATYPES
             columnHighlightX = _PRINTWIDTH(SPACE$(7))
@@ -2264,6 +2328,9 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         CASE VARIABLENAMES
             columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
             columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+        CASE SCOPE
+            columnHighlightX = 0
+            columnHighlightW = _PRINTWIDTH(SPACE$(7))
     END SELECT
     IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
 
@@ -2277,6 +2344,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     CLS , _RGB32(255, 255, 255)
     LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
 
+    'Print list items to the screen:
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         FOR ii = 1 TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
@@ -2302,7 +2370,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     totalinfo$ = "INTERACTIVE MODE: " + NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), totalinfo$
-    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "")) + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "")))
+    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
     keyhelp$ = "<ESC = Cancel> <F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + "> <F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">" + IIFSTR$(TotalSelected > 0, " <F5 = Save and continue>", "")
     _PRINTSTRING (5, 3), keyhelp$
     FOR i = 1 TO LEN(keyhelp$)
@@ -2326,7 +2394,6 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + TOTALVARIABLES) * _FONTHEIGHT) - y), t$
             _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
         END IF
     END IF
