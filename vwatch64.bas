@@ -1,10 +1,10 @@
 'vWATCH64 - A variable watch system for QB64 programs
-'Fellippe Heitor, 2015 - fellippeheitor@gmail.com - @fellippeheitor
-'
+'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
+
 'Use this program when you need runtime verification of variable values
 'in a program. The output will show you in real time variable changes
 'inside your RUNNING program.
-'
+
 'To achieve this result, vWATCH64 will parse your .BAS and extract
 'variable names. With the data gathered, a .BI and a .BM will be
 'generated. A new .BAS file will be output with the appropriate
@@ -12,101 +12,7 @@
 'compiled. If compilation is sucessful, the variable monitor is
 'started and connects to your program output, displaying variable
 'values in real time.
-'
-' - Beta 1: Initial release (December 13th, 2015)
-'
-' - Beta 2: December 14th, 2015
-'     - Added code to look for and parse user defined types. Variables
-'       SHARED as a user defined type can be monitored, unless they
-'       are arrays.
-'     - Fixed FILE being set as FREEFILE, which could conflict
-'       with programs using OPEN "file" AS #1, instead of a variable
-'       and FREEFILE.
-'     - Added a STRIPCOMMENTS function, that, you guessed it,
-'       strips away comments from a source line. I added this after
-'       trying some other people's codes (especially Terry Ritchie's
-'       games) and finding many comments being misinterpreted as
-'       data types.
-'
-' - Beta 3: December 18th, 2015
-'     - Checks to see if client is still sending data, if not, disconnects
-'       (triggers a timeout error).
-'     - Changed variable naming scheme, which allows for vWATCH64 to watch
-'       itself.
-'     - Fixed scroll bar for when there are too many variables on screen.
-'     - Uses a true type font under Windows (Courier New Monospaced).
-'     - Considers that not everyone may have used the IDE and thus not
-'       every keyword will be in CAPITALS.
-'     - Parses COMMAND$ to show only the file name in _TITLE; also, to be able
-'       to use the original path given to place .BI, .BM and the new .BAS.
-'       Output is now quieter while processing, unless -v is used in command
-'       line.
-'     - Connects to an already running client, if compatible - useful for
-'       when vWATCH64 is closed by accident before the client.
-'     - Checks if destination file already exists before processing.
-'     - Checks if source = destination, to avoid overwriting original
-'       source file.
-'     - Looks for type suffixes (sigils - $, %, &, !, etc) and parse them.
-'       (`n and $n are supported, but validity of values won't be checked).
-'     - Can now watch local variables from MODULE level, acessing them through
-'       the SHARED keyword from inside sub vwatch64_VARIABLEWATCH in the .BM
-'     - Looks for variables with no explicit data type (assumes SINGLE
-'       or as otherwise set by DEF)
-'     - Parses lines with more than one variable defined (using commas)
-'
-' - Beta 4: December 20th, 2015
-'     - Deletes vwatch64.dat upon exit (before it was only deleted after client
-'       was intentionally closed it or after the connection timed out.
-'     - Allows user to filter the list of variables by name, type or value.
-'       Just start typing to start filtering. TAB to change fields.
-'     - Allows the user to drag the scrollbar (mousewheel is reportedly broken
-'       under Linux)
-'     - Adjusted scroll increment for long lists.
-'     - Fixed: connects to an already running client, if compatible - useful for
-'       when vWATCH64 is closed by accident before the client.
-'     - Shows the .EXE file name being monitored on the title bar. (Windows only)
-'     - Added automatic compilation under MAC OS X (tested) and under Linux
-'       (expected to work with no changes).
-'     - Fixed: module-level variables defined as a User Defined Type generated
-'       an error. Now they can be watched as well.
-'     - Added support for multiline statements (ending with an underscore).
-'
-' - Beta 5: December 23rd, 2015
-'     - Code is now a bit easier to read. Sections have been moved to SUBs, making
-'       it easier to follow.
-'     - Scroll bar behavior has been completely recoded and now works as expected
-'       (scrollbars only show when the list is too long to fit the program area)
-'     - Static arrays can now be monitored. vWATCH64 will look for unidimensional
-'       arrays and add them to the watch list.
-'     - Lower boundary of arrays is determined based on OPTION BASE, if found in
-'       the source file being processed.
-'     - Command line switches now include -dontcompile and -noarrays
-'
-' - Beta 6: December 25th, 2015
-'     - Now uses Steve's File Selection Utility v1.2 - grab it here:
-'       http://www.qb64.net/forum/index.php?topic=11253.0
-'     - Also uses Terry Ritchie's QB64 Menu and GLInput libraries - grab them here:
-'       https://dl.dropbox.com/u/416997/AllRitchiesQB64Libraries.zip
-'     - Doesn't require command line to set flags anymore. User can answer Y/N
-'       questions before processing of files.
-'
-' - Beta 7: January 13th, 2016
-'     - Fixes an issue that caused arrays DIM'd with a sigil not to be properly
-'       identified.
-'
-' - Beta 8: January 17th, 2016
-'     - Minor change to fix "can't compile" errors, when compilation was actually
-'       successful.
-'
-' - Beta 9: (when?)
-'     - Fixes the window title not being set until process/monitoring started.
-'     - Adds INTERACTIVE MODE (also -interactive command line switch), which
-'       allows the user to choose which variables to export (useful in case TOO
-'       MANY are found).
-'     - Simplifies command line swiches: -v, -d, -n, -i can be used instead of
-'       -verbose, -dontcompile, -noarrays and -interactive.
-'     -
-'
+
 DEFLNG A-Z
 
 $IF WIN THEN
@@ -173,7 +79,6 @@ END TYPE
 
 'Shared variables: ------------------------------------------------------------
 DIM SHARED MAINSCREEN AS LONG
-DIM SHARED INFOSCREEN AS LONG
 DIM SHARED INFOSCREENHEIGHT AS INTEGER
 DIM SHARED FILE AS INTEGER
 DIM SHARED USERQUIT AS _BIT
@@ -199,6 +104,9 @@ DIM SHARED SKIPARRAYS AS _BIT
 DIM SHARED MENU%
 DIM SHARED hWnd&
 DIM SHARED FILENAME$
+DIM SHARED NEWFILENAME$
+DIM SHARED FIRSTPROCESSING AS _BIT
+DIM SHARED NO_TTFONT AS _BIT
 
 DIM OVERLAYSCREEN AS LONG
 DIM TIMEOUT AS _BYTE
@@ -211,25 +119,14 @@ VERBOSE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
 INTERACTIVE = 0
+NO_TTFONT = 0
+FIRSTPROCESSING = -1
 
 'Screen setup: ----------------------------------------------------------------
 MAINSCREEN = _NEWIMAGE(1000, 600, 32)
 SCREEN MAINSCREEN
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
-
-$IF WIN THEN
-    'Under Windows, if Courier font is found, it is used;
-    'Otherwise we stick to _FONT 16 (default):
-    TTFONT = _LOADFONT("C:\windows\fonts\cour.ttf", 14, "MONOSPACE, BOLD")
-    IF TTFONT THEN _FONT TTFONT
-    Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
-    IF Ret > 0 THEN
-        EXENAME = LEFT$(EXENAME_HOLDER$256, Ret)
-    END IF
-$ELSE
-    EXENAME = ""
-$END IF
 
 RESTORE MenuDATA
 MAKEMENU
@@ -248,20 +145,50 @@ IF LEN(COMMAND$) THEN
                 CASE "-dontcompile", "-d": DONTCOMPILE = -1
                 CASE "-noarrays", "-n": SKIPARRAYS = -1
                 CASE "-interactive", "-i": INTERACTIVE = -1
+                CASE "-target", "-t": IF i < _COMMANDCOUNT THEN NEWFILENAME$ = COMMAND$(i + 1): i = i + 1
+                CASE "-font16", "-f16": NO_TTFONT = -1
                 CASE ELSE
                     'Any other arguments are ignored.
             END SELECT
         NEXT i
     END IF
+END IF
 
+$IF WIN THEN
+    'Under Windows, if Lucida Console font is found, it is used;
+    'Otherwise we stick to _FONT 16 (default):
+    IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE, BOLD")
+    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
+
+    Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
+    IF Ret > 0 THEN
+        EXENAME = LEFT$(EXENAME_HOLDER$256, Ret)
+    END IF
+$ELSE
+    EXENAME = ""
+$END IF
+
+IF LEN(COMMAND$) THEN
     IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
+    NEWFILENAME$ = "": FIRSTPROCESSING = 0
 END IF
 
 GOTO MonitorMode
 OpenFileMenu:
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
 _AUTODISPLAY
+
+'Reset flags
+DEFAULTDATATYPE = "SINGLE"
+OPTIONBASE = 0
+VERBOSE = 0
+DONTCOMPILE = 0
+SKIPARRAYS = 0
+INTERACTIVE = 0
+FIRSTPROCESSING = 0
+
 IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE ELSE BEEP
+NEWFILENAME$ = ""
 
 '------------------------------------------------------------------------------
 MonitorMode:
@@ -370,19 +297,21 @@ SUB PROCESSFILE
     DialogY = _HEIGHT(MAINSCREEN) / 2 - 100
     CLS , _RGB32(255, 255, 255)
     LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-
     COLOR _RGB32(0, 0, 0), _RGB32(200, 200, 200)
     _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
     _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-    getfilename% = GLIINPUT(DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2, GLIALPHA + GLINUMERIC + GLIDASH, "New file name: ", TRUE)
-    DO
-        GLICLEAR
-        GLIUPDATE
-        _DISPLAY
-    LOOP UNTIL GLIENTERED(getfilename%)
-    _AUTODISPLAY
-    NEWFILENAME$ = GLIOUTPUT$(getfilename%)
-    GLICLOSE getfilename%, FALSE
+    LINE (DialogX + 400, DialogY + 5 + _FONTHEIGHT)-STEP(_WIDTH - (DialogX + 400), _FONTHEIGHT), _RGB32(255, 255, 255), BF
+    IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
+        getfilename% = GLIINPUT(DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2, GLIALPHA + GLINUMERIC + GLIDASH, "New file name: ", TRUE)
+        DO
+            GLICLEAR
+            GLIUPDATE
+            _DISPLAY
+        LOOP UNTIL GLIENTERED(getfilename%)
+        _AUTODISPLAY
+        NEWFILENAME$ = GLIOUTPUT$(getfilename%)
+        GLICLOSE getfilename%, FALSE
+    END IF
 
     'Check if processing can proceed:
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
@@ -415,7 +344,7 @@ SUB PROCESSFILE
     END IF
 
     'Options dialogs, unless already set using command line
-    IF _COMMANDCOUNT <= 1 THEN
+    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
         CLS , _RGB32(255, 255, 255)
         LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
         _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -428,7 +357,7 @@ SUB PROCESSFILE
         IF k = 78 OR k = 110 THEN SKIPARRAYS = -1 ELSE SKIPARRAYS = 0
     END IF
 
-    IF _COMMANDCOUNT <= 1 THEN
+    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
         CLS , _RGB32(255, 255, 255)
         LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
         _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -441,7 +370,7 @@ SUB PROCESSFILE
         IF k = 78 OR k = 110 THEN DONTCOMPILE = -1 ELSE DONTCOMPILE = 0
     END IF
 
-    IF _COMMANDCOUNT <= 1 THEN
+    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
         CLS , _RGB32(255, 255, 255)
         LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
         _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -455,7 +384,7 @@ SUB PROCESSFILE
     END IF
 
 
-    IF _COMMANDCOUNT <= 1 THEN
+    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
         CLS , _RGB32(255, 255, 255)
         LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
         _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -491,6 +420,20 @@ SUB PROCESSFILE
     row = CSRLIN: col = POS(1)
     MULTILINE = 0
     DO
+        k$ = INKEY$
+        IF k$ = CHR$(27) THEN
+            BEEP
+            PRINT
+            PRINT
+            COLOR _RGB32(255, 0, 0)
+            PRINT "Processing canceled."
+            COLOR _RGB32(0, 0, 0)
+            PRINT "Press any key..."
+            CLOSE
+            KILL NEWFILENAME$
+            SLEEP
+            EXIT SUB
+        END IF
         IF LEN(caseBkpNextVar$) = 0 THEN 'Reads next line from file unless we're in the middle of processing a line
             LINE INPUT #InputFile, bkpSourceLine$ 'Reads the next source line
             caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generates a version without comments or extra spaces
@@ -820,7 +763,11 @@ SUB PROCESSFILE
 
     IF TOTALVARIABLES = 0 THEN
         BEEP
+        PRINT
+        PRINT
+        COLOR _RGB32(255, 0, 0)
         PRINT "There are no watchable variables in the .BAS source."
+        COLOR _RGB32(0, 0, 0)
         PRINT "(watchable variables are those initialized using DIM)"
         PRINT
         PRINT "Press any key to abort processing..."
@@ -952,7 +899,7 @@ SUB PROCESSFILE
     PRINT #BIFile, "    DIM SHARED vwatch64_VARIABLES(1 TO vwatch64_CLIENT.TOTALVARIABLES) AS vwatch64_VARIABLESTYPE"
     tempindex = 0
     FOR i = 1 TO TOTALVARIABLES
-        IF MID$(AddedList$, i, 1) = CHR$(1) THEN
+        IF ASC(AddedList$, i) = 1 THEN
             tempindex = tempindex + 1
             PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + RTRIM$(VARIABLES(i).NAME) + Q$
             PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + RTRIM$(VARIABLES(i).SCOPE) + Q$
@@ -1114,7 +1061,7 @@ SUB PROCESSFILE
     PRINT #BMFile, ""
     tempindex = 0
     FOR i = 1 TO TOTALVARIABLES
-        IF MID$(AddedList$, i, 1) = CHR$(1) THEN
+        IF ASC(AddedList$, i) = 1 THEN
             tempindex = tempindex + 1
             IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
                 SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + RTRIM$(VARIABLES(i).NAME)
@@ -1178,6 +1125,7 @@ SUB PROCESSFILE
             END IF
         END IF
     END IF
+
     EXIT SUB
 
     AddThisKeyword:
@@ -1200,7 +1148,7 @@ END FUNCTION
 '------------------------------------------------------------------------------
 FUNCTION FINDVARIABLES (Text$, AddedList$)
     FOR i = 1 TO TOTALVARIABLES
-        IF TRIM$(VARIABLES(i).NAME) = TRIM$(Text$) AND MID$(AddedList$, i, 1) = CHR$(1) THEN
+        IF TRIM$(VARIABLES(i).NAME) = TRIM$(Text$) AND ASC(AddedList$, i) = 1 THEN
             FINDVARIABLES = i
             EXIT FUNCTION
         END IF
@@ -1469,16 +1417,12 @@ END SUB
 
 '------------------------------------------------------------------------------
 SUB MONITOR_MODE
+    DIM SB_Ratio AS SINGLE
+
     INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
     IF INFOSCREENHEIGHT > 600 THEN
-        INFOSCREEN = _NEWIMAGE(1000, INFOSCREENHEIGHT, 32)
         SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
         SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
-        _DEST INFOSCREEN
-        CLS
-        $IF WIN THEN
-            IF TTFONT THEN _FONT TTFONT
-        $END IF
     END IF
 
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
@@ -1490,10 +1434,12 @@ SUB MONITOR_MODE
 
     WAITFORDATA
 
-    filter$ = ""
+    Filter$ = ""
     searchIn = VARIABLENAMES
     SB_ThumbY = 0
+    grabbedY = -1
     t$ = "(end of list)"
+    _KEYCLEAR
 
     longestVarName = 1
     GET #FILE, DATABLOCK, VARIABLES()
@@ -1505,25 +1451,34 @@ SUB MONITOR_MODE
     DO: _LIMIT 60
         k$ = INKEY$
         IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
+        IF LEN(k$) > 1 THEN k = ASC(k$, 2) * 256
+
         SELECT CASE k
             CASE 32 TO 126 'Printable ASCII characters
-                'CASE 48 TO 57, 65 TO 90, 97 TO 122, ASC("."), ASC("_") 'Numbers, letters, period and underscore
-                filter$ = filter$ + CHR$(k)
+                Filter$ = Filter$ + CHR$(k)
                 y = 0
             CASE 8 'Backspace
-                IF LEN(filter$) THEN filter$ = LEFT$(filter$, LEN(filter$) - 1)
+                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
                 y = 0
             CASE 22 'CTRL + V
-                IF LEN(_CLIPBOARD$) THEN filter$ = filter$ + _CLIPBOARD$: y = 0
+                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$: y = 0
             CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES, VALUES)
                 searchIn = (searchIn) MOD 3 + 1
                 y = 0
             CASE 27 'ESC clears the current search filter or exits the program
-                IF LEN(filter$) THEN
-                    filter$ = ""
+                IF LEN(Filter$) THEN
+                    Filter$ = ""
                 ELSE
                     USERQUIT = -1: EXIT DO
                 END IF
+            CASE 18432 'Up
+                IF INFOSCREENHEIGHT > 600 THEN y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
+            CASE 36096 'Ctrl+Up
+                IF INFOSCREENHEIGHT > 600 THEN y = y - _FONTHEIGHT
+            CASE 20480 'Down
+                IF INFOSCREENHEIGHT > 600 THEN y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
+            CASE 37120 'Ctrl+Down
+                IF INFOSCREENHEIGHT > 600 THEN y = y + _FONTHEIGHT
         END SELECT
 
         IF INFOSCREENHEIGHT > 600 THEN
@@ -1540,29 +1495,35 @@ SUB MONITOR_MODE
                     IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
                         'Clicked on the thumb:
                         grabbedY = my: starty = y
+                        _AUTODISPLAY
                         DO WHILE _MOUSEBUTTON(1)
                             m = _MOUSEINPUT
                             my = _MOUSEY
                             y = starty + ((my - grabbedY) / SB_Ratio)
-                            GOSUB displaypic
+
+                            IF y < 0 THEN y = 0
+                            IF INFOSCREENHEIGHT > 600 THEN
+                                IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
+                            ELSE
+                                y = 0
+                            END IF
+
+                            IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
                         LOOP
+                        grabbedY = -1
+                        _DISPLAY
                     ELSE
                         'Clicked above or below the thumb:
                         IF my < SB_ThumbY THEN
                             m = _MOUSEINPUT
-                            y = y - (_HEIGHT(PIC) * SB_Ratio)
+                            y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
                         ELSE
                             m = _MOUSEINPUT
-                            y = y + ((_HEIGHT(PIC) - y) * SB_Ratio)
+                            y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
                         END IF
                     END IF
                 END IF
             END IF
-
-            IF _KEYDOWN(18432) THEN y = y - _FONTHEIGHT
-            IF _KEYDOWN(20480) THEN y = y + _FONTHEIGHT
-        ELSE
-            IF INFOSCREEN < -1 THEN y = 0: GOSUB displaypic
         END IF
 
         CLS , _RGB32(255, 255, 255)
@@ -1573,80 +1534,15 @@ SUB MONITOR_MODE
         cursorBlink% = cursorBlink% + 1
         IF cursorBlink% > 30 THEN cursorBlink% = 0
 
+        'Update list:
+        GOSUB UpdateList
+
         IF CLIENT.LASTOUTPUT > 0 THEN
             IF TIMER - CLIENT.LASTOUTPUT > 5 THEN TIMEOUT = -1
         ELSE
             IF TIMER - StartOfLoop# > TIMEOUTLIMIT THEN TIMEOUT = -1
         END IF
 
-        'Places a light gray rectangle under the column that can currently be filtered
-        SELECT CASE searchIn
-            CASE DATATYPES
-                columnHighlightX = _PRINTWIDTH(SPACE$(7))
-                columnHighlightY = 55
-                columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
-            CASE VARIABLENAMES
-                columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
-                columnHighlightY = 55
-                columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
-            CASE VALUES
-                columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
-                columnHighlightY = 55
-                columnHighlightW = _WIDTH
-        END SELECT
-        LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, IIF(LEN(filter$), row, CLIENT.TOTALVARIABLES) * _FONTHEIGHT + 8), _RGB32(230, 230, 230), BF
-
-        'Update list:
-        i = 0: row = 0
-        DO
-            i = i + 1
-            IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
-            IF LEN(filter$) THEN
-                Found = 0
-                SELECT CASE searchIn
-                    CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(filter$)) THEN Found = -1
-                    CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(filter$)) THEN Found = -1
-                    CASE VALUES: IF INSTR(UCASE$(VARIABLES(i).VALUE), UCASE$(filter$)) THEN Found = -1
-                END SELECT
-                IF Found THEN
-                    row = row + 1
-                    v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
-                    _PRINTSTRING (5, (3 + row) * _FONTHEIGHT), v$
-                END IF
-            ELSE
-                INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
-                v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
-                _PRINTSTRING (5, (3 + i) * _FONTHEIGHT), v$
-            END IF
-        LOOP
-
-        IF LEN(filter$) AND row = 0 THEN 'A filter is on, but nothing was found
-            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
-            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
-        END IF
-
-        'Top bar:
-        LINE (0, y)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
-        _PRINTSTRING (5, y + 3), "Now running: " + RTRIM$(CLIENT.CURRENTMODULE)
-        _PRINTSTRING (5, y + _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
-        _PRINTSTRING (5, y + _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
-
-        IF INFOSCREENHEIGHT > 600 THEN
-            IF LEN(filter$) AND row > 0 THEN
-                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
-            ELSEIF LEN(filter$) = 0 THEN
-                _PRINTSTRING (5, _HEIGHT(INFOSCREEN) - _FONTHEIGHT), t$
-            END IF
-            GOSUB displaypic
-        ELSE
-            'End of list message:
-            IF LEN(filter$) AND row > 0 THEN
-                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
-            ELSEIF LEN(filter$) = 0 THEN
-                _PRINTSTRING (5, (4 + i) * _FONTHEIGHT), t$
-            END IF
-        END IF
-        _DISPLAY
         IF _EXIT THEN USERQUIT = -1: EXIT DO
     LOOP UNTIL HEADER.CONNECTED = 0 OR TIMEOUT
 
@@ -1655,7 +1551,8 @@ SUB MONITOR_MODE
 
     OVERLAYSCREEN = _NEWIMAGE(500, 300, 32)
     _DEST OVERLAYSCREEN
-    _FONT 16
+    '_FONT 16
+    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
     LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
 
     IF HEADER.CONNECTED = 0 THEN
@@ -1682,44 +1579,142 @@ SUB MONITOR_MODE
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT), EndMessage$
         _DEST MAINSCREEN
         _PUTIMAGE , OVERLAYSCREEN
+        _FREEIMAGE OVERLAYSCREEN
         DO: _LIMIT 30
             IF _EXIT THEN USERQUIT = -1: EXIT DO
         LOOP UNTIL _KEYHIT
     END IF
 
     EXIT SUB
-    displaypic:
+    UpdateList:
+    'Build a filtered list, if a filter is active
+    i = 0: FilteredList$ = ""
+    INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
+    IF LEN(Filter$) > 0 THEN
+        DO
+            i = i + 1
+            IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
+            Found = 0
+            SELECT CASE searchIn
+                CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$)) THEN Found = -1
+                CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(Filter$)) THEN Found = -1
+                CASE VALUES: IF INSTR(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$)) THEN Found = -1
+            END SELECT
+            IF Found THEN
+                FilteredList$ = FilteredList$ + MKL$(i)
+            END IF
+        LOOP
+        IF LEN(FilteredList$) > 0 THEN INFOSCREENHEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 6)
+    END IF
+
     IF y < 0 THEN y = 0
     IF INFOSCREENHEIGHT > 600 THEN
         IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
     ELSE
         y = 0
     END IF
-    _PUTIMAGE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1), INFOSCREEN, MAINSCREEN, (0, y)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1)
 
+    'Place a light gray rectangle under the column that can currently be filtered
+    SELECT CASE searchIn
+        CASE DATATYPES
+            columnHighlightX = _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
+        CASE VARIABLENAMES
+            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+        CASE VALUES
+            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
+            columnHighlightW = _WIDTH
+    END SELECT
+    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
+
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
+    ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
+        columnHightlighH = _FONTHEIGHT
+    ELSE
+        columnHightlighH = (CLIENT.TOTALVARIABLES * _FONTHEIGHT) + 8
+    END IF
+    CLS , _RGB32(255, 255, 255)
+    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
+
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        FOR ii = 1 TO LEN(FilteredList$) / 4
+            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
+            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
+            printY = ((3 + ii) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+        NEXT ii
+    ELSEIF LEN(Filter$) = 0 THEN
+        FOR i = 1 TO CLIENT.TOTALVARIABLES
+            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + RTRIM$(VARIABLES(i).VALUE)
+            printY = ((3 + i) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+        NEXT i
+    END IF
+
+    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
+    END IF
+
+    'Top bar:
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
+    _PRINTSTRING (5, 3), "Now watching: " + RTRIM$(CLIENT.CURRENTMODULE)
+    _PRINTSTRING (5, _FONTHEIGHT + 3), "Total variables:" + STR$(CLIENT.TOTALVARIABLES)
+    _PRINTSTRING (5, _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(Filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "(values)        : ")) + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "values (TAB to change fields)")))
+
+    IF INFOSCREENHEIGHT > 600 THEN
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((4 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), t$
+        END IF
+        GOSUB DisplayScrollbar
+    ELSE
+        'End of list message:
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((4 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), t$
+            _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
+        END IF
+    END IF
+
+    _DISPLAY
+    RETURN
+
+    DisplayScrollbar:
     ShowScroll = 1
-    IF LEN(filter$) AND row > 0 THEN
-        INFOSCREENHEIGHT = _FONTHEIGHT * (row + 6)
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         IF INFOSCREENHEIGHT < 600 THEN
             ShowScroll = 0
         ELSE
-            SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-            SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+            SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
+            SB_ThumbH = (_HEIGHT * SB_Ratio)
         END IF
     ELSE
-        INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
-        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+        SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
+        SB_ThumbH = (_HEIGHT * SB_Ratio)
     END IF
+
     'Scrollbar:
     IF ShowScroll THEN
-        _DEST MAINSCREEN
         SB_ThumbY = (y * SB_Ratio)
-        LINE (_WIDTH(MAINSCREEN) - 30, 0)-STEP(29, _HEIGHT(MAINSCREEN) - 1), _RGB32(170, 170, 170), BF
-        LINE (_WIDTH(MAINSCREEN) - 25, SB_ThumbY + 3)-STEP(19, SB_ThumbH - 7), _RGB32(70, 70, 70), BF
-        _DEST INFOSCREEN
+        LINE (_WIDTH - 30, 0)-STEP(29, _HEIGHT - 1), _RGB32(170, 170, 170), BF
+        IF grabbedY = -1 THEN
+            SB_StartX = 25
+            SB_ThumbW = 19
+            SB_ThumbColor = _RGB32(70, 70, 70)
+        ELSE
+            SB_StartX = 24
+            SB_ThumbW = 17
+            SB_ThumbColor = _RGB32(0, 0, 0)
+            SB_ThumbY = SB_ThumbY + 1
+            SB_ThumbH = SB_ThumbH - 2
+        END IF
+        LINE (_WIDTH - SB_StartX, SB_ThumbY + 3)-STEP(SB_ThumbW, SB_ThumbH - 7), SB_ThumbColor, BF
     END IF
-    _DISPLAY
     RETURN
 
 END SUB
@@ -1774,7 +1769,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
     'save some old values
     LoadFile_DC = _DEFAULTCOLOR: LoadFile_BG = _BACKGROUNDCOLOR
     LoadFile_s = _SOURCE: LoadFile_d = _DEST
-    f = _FONT: _FONT 16
+    'f = _FONT: _FONT 16
     'some variables
 
     LoadFile_BoxColor = &HFFAAAAFF
@@ -1834,6 +1829,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
 
 
     _SOURCE LoadFile_ws: _DEST LoadFile_ws
+    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
     DO
 
         FOR i = 0 TO LoadFile_TypeCount
@@ -1950,12 +1946,12 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
                     DO: LOOP UNTIL INKEY$ = "" 'Clear the keyboard buffer so it doesn't affect the main program.
                     temp$ = LoadFile_Dir$ + temp$
                     COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY: SelectFile$ = temp$ 'Restore our old settings
-                    _FONT f
+                    '_FONT f
                     EXIT SUB 'And leave
                 CASE 27 'If ESC is pressed then...
                     DO: LOOP UNTIL INKEY$ = "" 'Clear the keyboard buffer so it doesn't affect the main program.
                     COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY: SelectFile$ = "" 'Restore our old settings
-                    _FONT f
+                    '_FONT f
                     EXIT SUB 'And leave
                 CASE 32 TO 126
                     temp$ = temp$ + CHR$(a)
@@ -1973,7 +1969,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
             IF _MOUSEBUTTON(2) OR (LoadFile_LMB AND MX > 626 + x AND MX < 638 + x AND MY > 1 + y AND MY < 19 + y AND _MOUSEBUTTON(1)) THEN
                 'restore those old values, and just exit.  Right mouse is an escape
                 COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY: SelectFile$ = ""
-                _FONT f
+                '_FONT f
                 EXIT SUB
             END IF
 
@@ -2070,34 +2066,31 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
     LOOP
     'restore those old values
     COLOR LoadFile_DC, LoadFile_BG: _SOURCE LoadFile_s: _DEST LoadFile_d: PCOPY 1, 0: _DISPLAY
-    _FONT f
+    '_FONT f
 END SUB
 
 SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     'Allows user to mark which of the found variables will be watched.
     'Shows a UI similar to monitor mode, with extra commands to filter/add.
 
+    DIM SB_Ratio AS SINGLE
+
     AddedList$ = STRING$(TOTALVARIABLES, 0) 'Start interactive mode with all variables unselected
     TotalSelected = 0
 
     INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
     IF INFOSCREENHEIGHT > 600 THEN
-        INFOSCREEN = _NEWIMAGE(1000, INFOSCREENHEIGHT, 32)
         SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
         SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
-        _DEST INFOSCREEN
-        CLS
-        $IF WIN THEN
-            IF TTFONT THEN _FONT TTFONT
-        $END IF
     END IF
 
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
     CLS
 
-    filter$ = ""
+    Filter$ = ""
     searchIn = VARIABLENAMES
     SB_ThumbY = 0
+    grabbedY = -1
     t$ = "(end of list)"
     _KEYCLEAR
 
@@ -2106,51 +2099,51 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
     NEXT i
 
-    DO: _LIMIT 60
+    DO: _LIMIT 300
         k$ = INKEY$
         IF LEN(k$) THEN k = ASC(k$) ELSE k = 0
-        IF LEN(k$) = 2 THEN k = ASC(k$, 2) * 256
+        IF LEN(k$) > 1 THEN k = ASC(k$, 2) * 256
+
         SELECT CASE k
             CASE 32 TO 126 'Printable ASCII characters
-                'CASE 48 TO 57, 65 TO 90, 97 TO 122, ASC("."), ASC("_") 'Numbers, letters, period and underscore
-                filter$ = filter$ + k$
+                Filter$ = Filter$ + k$
                 y = 0
             CASE 8 'Backspace
-                IF LEN(filter$) THEN filter$ = LEFT$(filter$, LEN(filter$) - 1)
+                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
                 y = 0
             CASE 22 'CTRL + V
-                IF LEN(_CLIPBOARD$) THEN filter$ = filter$ + _CLIPBOARD$: y = 0
+                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$: y = 0
             CASE 9 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
                 IF searchIn = VARIABLENAMES THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
                 y = 0
             CASE 27 'ESC clears the current search filter or exits interactive mode
-                IF LEN(filter$) THEN
-                    filter$ = ""
+                IF LEN(Filter$) THEN
+                    Filter$ = ""
                 ELSE
                     AddedList$ = CHR$(3)
                     EXIT DO
                 END IF
             CASE 15360 'F2
-                IF LEN(filter$) = 0 THEN
+                IF LEN(Filter$) = 0 THEN
                     AddedList$ = STRING$(TOTALVARIABLES, 1)
                     TotalSelected = TOTALVARIABLES
                 ELSE
-                    FOR i = 1 TO LEN(filteredlist$) / 4
-                        item = CVL(MID$(filteredlist$, i * 4 - 3, 4))
-                        IF MID$(AddedList$, item, 1) = CHR$(0) THEN
-                            MID$(AddedList$, item, 1) = CHR$(1): TotalSelected = TotalSelected + 1
+                    FOR i = 1 TO LEN(FilteredList$) / 4
+                        item = CVL(MID$(FilteredList$, i * 4 - 3, 4))
+                        IF ASC(AddedList$, item) = 0 THEN
+                            ASC(AddedList$, item) = 1: TotalSelected = TotalSelected + 1
                         END IF
                     NEXT i
                 END IF
             CASE 15616 'F3
-                IF LEN(filter$) = 0 THEN
+                IF LEN(Filter$) = 0 THEN
                     AddedList$ = STRING$(TOTALVARIABLES, 0)
                     TotalSelected = 0
                 ELSE
-                    FOR i = 1 TO LEN(filteredlist$) / 4
-                        item = CVL(MID$(filteredlist$, i * 4 - 3, 4))
-                        IF MID$(AddedList$, item, 1) = CHR$(1) THEN
-                            MID$(AddedList$, item, 1) = CHR$(0): TotalSelected = TotalSelected - 1
+                    FOR i = 1 TO LEN(FilteredList$) / 4
+                        item = CVL(MID$(FilteredList$, i * 4 - 3, 4))
+                        IF ASC(AddedList$, item) = 1 THEN
+                            ASC(AddedList$, item) = 0: TotalSelected = TotalSelected - 1
                         END IF
                     NEXT i
                 END IF
@@ -2158,6 +2151,14 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                 IF TotalSelected > 0 THEN
                     EXIT DO
                 END IF
+            CASE 18432 'Up
+                IF INFOSCREENHEIGHT > 600 THEN y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
+            CASE 36096 'Ctrl+Up
+                IF INFOSCREENHEIGHT > 600 THEN y = y - _FONTHEIGHT
+            CASE 20480 'Down
+                IF INFOSCREENHEIGHT > 600 THEN y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
+            CASE 37120 'Ctrl+Down
+                IF INFOSCREENHEIGHT > 600 THEN y = y + _FONTHEIGHT
         END SELECT
 
         IF INFOSCREENHEIGHT > 600 THEN
@@ -2174,150 +2175,195 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
                         'Clicked on the thumb:
                         grabbedY = my: starty = y
+                        _AUTODISPLAY
                         DO WHILE _MOUSEBUTTON(1)
                             m = _MOUSEINPUT
                             my = _MOUSEY
                             y = starty + ((my - grabbedY) / SB_Ratio)
-                            GOSUB displaypic
+
+                            IF y < 0 THEN y = 0
+                            IF INFOSCREENHEIGHT > 600 THEN
+                                IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
+                            ELSE
+                                y = 0
+                            END IF
+
+                            IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
                         LOOP
+                        grabbedY = -1
+                        _DISPLAY
                     ELSE
                         'Clicked above or below the thumb:
                         IF my < SB_ThumbY THEN
                             m = _MOUSEINPUT
-                            y = y - (_HEIGHT(PIC) * SB_Ratio)
+                            y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
                         ELSE
                             m = _MOUSEINPUT
-                            y = y + ((_HEIGHT(PIC) - y) * SB_Ratio)
+                            y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
                         END IF
                     END IF
                 END IF
             END IF
-        ELSE
-            IF _KEYDOWN(18432) THEN y = y - _FONTHEIGHT
-            IF _KEYDOWN(20480) THEN y = y + _FONTHEIGHT
-            IF INFOSCREEN < -1 THEN y = 0: GOSUB displaypic
         END IF
 
-        CLS , _RGB32(255, 255, 255)
-
         cursorBlink% = cursorBlink% + 1
-        IF cursorBlink% > 30 THEN cursorBlink% = 0
-
-        'Places a light gray rectangle under the column that can currently be filtered
-        SELECT CASE searchIn
-            CASE DATATYPES
-                columnHighlightX = _PRINTWIDTH(SPACE$(7))
-                columnHighlightY = 55
-                columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
-            CASE VARIABLENAMES
-                columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
-                columnHighlightY = 55
-                columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
-        END SELECT
-        LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, IIF(LEN(filter$), row, TOTALVARIABLES) * _FONTHEIGHT + 8), _RGB32(230, 230, 230), BF
+        IF cursorBlink% > 50 THEN cursorBlink% = 0
 
         'Update list:
-        i = 0: row = 0: filteredlist$ = ""
+        IF (prevY <> y) OR (prevFilter$ <> Filter$) OR (prevSearchIn <> searchIn) OR (prevAddedList$ <> AddedList$) THEN
+            prevY = y
+            prevFilter$ = Filter$
+            prevFilteredList$ = FilteredList$
+            prevSearchIn = searchIn
+            GOSUB UpdateList
+        END IF
+
+        IF _EXIT THEN
+            CLOSE
+            KILL NEWFILENAME$
+            SYSTEM
+        END IF
+    LOOP
+
+    _AUTODISPLAY
+    COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
+
+    EXIT SUB
+    UpdateList:
+    'Build a filtered list, if a filter is active
+    i = 0: FilteredList$ = ""
+    INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
+    IF LEN(Filter$) > 0 THEN
         DO
             i = i + 1
             IF i > TOTALVARIABLES THEN EXIT DO
-            IF LEN(filter$) THEN
-                Found = 0
-                SELECT CASE searchIn
-                    CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(filter$)) THEN Found = -1
-                    CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(filter$)) THEN Found = -1
-                END SELECT
-                IF Found THEN
-                    row = row + 1
-                    v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(MID$(AddedList$, i, 1) = CHR$(1), "+", " ") + " ]"
-                    _PRINTSTRING (5, (3 + row) * _FONTHEIGHT), v$
-                    filteredlist$ = filteredlist$ + MKL$(i)
-                END IF
-            ELSE
-                INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
-                v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(MID$(AddedList$, i, 1) = CHR$(1), "+", " ") + " ]"
-                _PRINTSTRING (5, (3 + i) * _FONTHEIGHT), v$
+            Found = 0
+            SELECT CASE searchIn
+                CASE VARIABLENAMES: IF INSTR(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$)) THEN Found = -1
+                CASE DATATYPES: IF INSTR(VARIABLES(i).DATATYPE, UCASE$(Filter$)) THEN Found = -1
+            END SELECT
+            IF Found THEN
+                FilteredList$ = FilteredList$ + MKL$(i)
             END IF
         LOOP
+        IF LEN(FilteredList$) > 0 THEN INFOSCREENHEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 6)
+    END IF
 
-        IF LEN(filter$) AND row = 0 THEN 'A filter is on, but nothing was found
-            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
-            _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
-        END IF
-
-        'Top bar:
-        IF y < 0 THEN y = 0
-        IF INFOSCREENHEIGHT > 600 THEN
-            IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-        ELSE
-            y = 0
-        END IF
-        LINE (0, y)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(179, 255, 255), BF
-        LINE (0, y)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
-        totalinfo$ = "INTERACTIVE MODE: " + NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
-        _PRINTSTRING (5, y + _FONTHEIGHT + 3), totalinfo$
-        _PRINTSTRING (5, y + _FONTHEIGHT * 2 + 3), IIFSTR$(LEN(filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "")) + UCASE$(filter$) + IIFSTR$(cursorBlink% > 15, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "")))
-
-        keyhelp$ = "<F2 = Select" + IIFSTR$(LEN(filter$), " filtered", " all") + "> <F3 = Clear" + IIFSTR$(LEN(filter$), " filtered", " all") + ">" + IIFSTR$(TotalSelected > 0, " <F5 = Save and continue>", "") + " <ESC = Cancel>"
-        '_PRINTSTRING (6, y + 4), keyhelp$
-        'COLOR _RGB32(255, 255, 255)
-        _PRINTSTRING (5, y + 3), keyhelp$
-        'COLOR _RGB32(0, 0, 0)
-
-        IF INFOSCREENHEIGHT > 600 THEN
-            IF LEN(filter$) AND row > 0 THEN
-                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
-            ELSEIF LEN(filter$) = 0 THEN
-                _PRINTSTRING (5, _HEIGHT(INFOSCREEN) - _FONTHEIGHT), t$
-            END IF
-            GOSUB displaypic
-        ELSE
-            'End of list message:
-            IF LEN(filter$) AND row > 0 THEN
-                _PRINTSTRING (5, (5 + row) * _FONTHEIGHT), t$ + "(filtered)"
-            ELSEIF LEN(filter$) = 0 THEN
-                _PRINTSTRING (5, (4 + i) * _FONTHEIGHT), t$
-            END IF
-        END IF
-        _DISPLAY
-        IF _EXIT THEN USERQUIT = -1: EXIT DO
-    LOOP
-
-    IF INFOSCREENHEIGHT > 600 THEN _DEST MAINSCREEN
-    _AUTODISPLAY
-
-    EXIT SUB
-    displaypic:
     IF y < 0 THEN y = 0
     IF INFOSCREENHEIGHT > 600 THEN
         IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
     ELSE
         y = 0
     END IF
-    _PUTIMAGE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1), INFOSCREEN, MAINSCREEN, (0, y)-STEP(_WIDTH(MAINSCREEN) - 1, _HEIGHT(MAINSCREEN) - 1)
 
+    'Place a light gray rectangle under the column that can currently be filtered
+    SELECT CASE searchIn
+        CASE DATATYPES
+            columnHighlightX = _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
+        CASE VARIABLENAMES
+            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+    END SELECT
+    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
+
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
+    ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
+        columnHightlighH = _FONTHEIGHT
+    ELSE
+        columnHightlighH = (TOTALVARIABLES * _FONTHEIGHT) + 8
+    END IF
+    CLS , _RGB32(255, 255, 255)
+    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
+
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        FOR ii = 1 TO LEN(FilteredList$) / 4
+            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
+            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]"
+            printY = ((3 + ii) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+        NEXT ii
+    ELSEIF LEN(Filter$) = 0 THEN
+        FOR i = 1 TO TOTALVARIABLES
+            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + SPACE$(3) + "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]"
+            printY = ((3 + i) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+        NEXT i
+    END IF
+
+    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
+    END IF
+
+    'Top bar:
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, 50), _RGB32(179, 255, 255), BF
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+    totalinfo$ = "INTERACTIVE MODE: " + NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
+    _PRINTSTRING (5, (_FONTHEIGHT + 3)), totalinfo$
+    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter " + IIFSTR$(searchIn = VARIABLENAMES, "(variable names): ", IIFSTR$(searchIn = DATATYPES, "(data types)    : ", "")) + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Start typing to filter " + IIFSTR$(searchIn = VARIABLENAMES, "variable names (TAB to change fields)", IIFSTR$(searchIn = DATATYPES, "data types (TAB to change fields)", "")))
+    keyhelp$ = "<ESC = Cancel> <F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + "> <F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">" + IIFSTR$(TotalSelected > 0, " <F5 = Save and continue>", "")
+    _PRINTSTRING (5, 3), keyhelp$
+    FOR i = 1 TO LEN(keyhelp$)
+        IF (ASC(keyhelp$, i) <> 60) AND (ASC(keyhelp$, i) <> 62) THEN
+            ASC(keyhelp$, i) = 32
+        END IF
+    NEXT i
+    COLOR _RGB32(255, 255, 0)
+    _PRINTSTRING (5, 2), keyhelp$
+    COLOR _RGB32(0, 0, 0)
+
+    IF INFOSCREENHEIGHT > 600 THEN
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((4 + TOTALVARIABLES) * _FONTHEIGHT) - y), t$
+        END IF
+        GOSUB DisplayScrollbar
+    ELSE
+        'End of list message:
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((4 + TOTALVARIABLES) * _FONTHEIGHT) - y), t$
+            _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
+        END IF
+    END IF
+
+    _DISPLAY
+    RETURN
+
+    DisplayScrollbar:
     ShowScroll = 1
-    IF LEN(filter$) AND row > 0 THEN
-        INFOSCREENHEIGHT = _FONTHEIGHT * (row + 6)
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         IF INFOSCREENHEIGHT < 600 THEN
             ShowScroll = 0
         ELSE
-            SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-            SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+            SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
+            SB_ThumbH = (_HEIGHT * SB_Ratio)
         END IF
     ELSE
-        INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
-        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio)
+        SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
+        SB_ThumbH = (_HEIGHT * SB_Ratio)
     END IF
+
     'Scrollbar:
     IF ShowScroll THEN
-        _DEST MAINSCREEN
         SB_ThumbY = (y * SB_Ratio)
-        LINE (_WIDTH(MAINSCREEN) - 30, 0)-STEP(29, _HEIGHT(MAINSCREEN) - 1), _RGB32(170, 170, 170), BF
-        LINE (_WIDTH(MAINSCREEN) - 25, SB_ThumbY + 3)-STEP(19, SB_ThumbH - 7), _RGB32(70, 70, 70), BF
-        _DEST INFOSCREEN
+        LINE (_WIDTH - 30, 0)-STEP(29, _HEIGHT - 1), _RGB32(170, 170, 170), BF
+        IF grabbedY = -1 THEN
+            SB_StartX = 25
+            SB_ThumbW = 19
+            SB_ThumbColor = _RGB32(70, 70, 70)
+        ELSE
+            SB_StartX = 24
+            SB_ThumbW = 17
+            SB_ThumbColor = _RGB32(0, 0, 0)
+            SB_ThumbY = SB_ThumbY + 1
+            SB_ThumbH = SB_ThumbH - 2
+        END IF
+        LINE (_WIDTH - SB_StartX, SB_ThumbY + 3)-STEP(SB_ThumbW, SB_ThumbH - 7), SB_ThumbColor, BF
     END IF
-    _DISPLAY
     RETURN
 END SUB
