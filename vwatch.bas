@@ -2077,7 +2077,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
                             LoadFile_ext$ = RIGHT$(LoadFile_nam$, LEN(LoadFile_Label(i)))
                             IF UCASE$(LoadFile_ext$) = UCASE$(LoadFile_Label(i)) THEN
                                 LoadFile_Count(i) = LoadFile_Count(i) + 1
-                                LoadFile_DirList(i, LoadFile_Count(i)) = LEFT$(LoadFile_nam$, LEN(LoadFile_nam$) - LEN(LoadFile_Label(i)))
+                                LoadFile_DirList(i, LoadFile_Count(i)) = LoadFile_nam$
                                 EXIT FOR
                             ELSEIF LoadFile_Label(i) = ".*" THEN
                                 LoadFile_Count(i) = LoadFile_Count(i) + 1
@@ -2116,7 +2116,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
 
         _PRINTSTRING (628, 2), "X"
         IF selection > 0 THEN
-            IF LoadFile_Label(row) <> ".*" AND LoadFile_Label(row) <> "DIR" THEN temp$ = LoadFile_DirList(row, selection) + LoadFile_Label(row) ELSE temp$ = LoadFile_DirList(row, selection)
+            temp$ = LoadFile_DirList(row, selection)
             IF LoadFile_DirList(row, selection) = "" THEN temp$ = ""
             selection = 0
         END IF
@@ -2250,7 +2250,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
             _DISPLAY
         LOOP UNTIL change
         IF click THEN 'we clicked something besides a scroll bar
-            IF LoadFile_Label(row) <> ".*" AND LoadFile_Label(row) <> "DIR" THEN temp1$ = LoadFile_DirList(row, selection) + LoadFile_Label(row) ELSE temp1$ = LoadFile_DirList(row, selection)
+            temp1$ = LoadFile_DirList(row, selection)
             IF temp$ = temp1$ THEN
                 'We picked one!
                 SELECT CASE LoadFile_Label(row)
