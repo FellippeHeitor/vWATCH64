@@ -14,9 +14,7 @@
 'values in real time.
 
 DEFLNG A-Z
-
-_CONTROLCHR OFF
-RESTORE_LIBRARY
+$RESIZE:ON
 
 $IF WIN THEN
     DECLARE LIBRARY
@@ -44,7 +42,7 @@ CONST VERSION = ".910b"
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
 
-CONST TIMEOUTLIMIT = 1000
+CONST TIMEOUTLIMIT = 200
 
 'Breakpoint control:
 CONST CONTINUE = 1
@@ -56,6 +54,11 @@ CONST VARIABLENAMES = 1
 CONST VALUES = 2
 CONST SCOPE = 3
 CONST DATATYPES = 4
+CONST CODE = 5
+CONST LINENUMBERS = 6
+
+'Screen:
+CONST SCREEN_TOPBAR = 50
 
 'Custom data types: -----------------------------------------------------------
 TYPE HEADERTYPE
@@ -107,17 +110,22 @@ DIM SHARED DEFAULTDATATYPE AS STRING * 20
 DIM SHARED EXENAME AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
-DIM SHARED INFOSCREENHEIGHT AS INTEGER
+DIM SHARED PAGE_HEIGHT AS INTEGER
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LF AS _BYTE
+DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
 DIM SHARED MAINSCREEN AS LONG
 DIM SHARED MENU%
 DIM SHARED NEWFILENAME$
 DIM SHARED NO_PING AS INTEGER
+DIM SHARED SB_TRACK AS INTEGER
+DIM SHARED SCREEN_WIDTH AS INTEGER
+DIM SHARED SCREEN_HEIGHT AS INTEGER
 DIM SHARED SET_OPTIONBASE AS INTEGER
 DIM SHARED SOURCEFILE AS STRING
 DIM SHARED TITLESTRING AS STRING
+DIM SHARED TOTALBREAKPOINTS AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
 DIM SHARED TTFONT AS LONG
 DIM SHARED hWnd&
@@ -144,6 +152,7 @@ DIM SHARED STEPMODE AS _BIT
 DIM SHARED SKIPARRAYS AS _BIT
 DIM SHARED TIMED_OUT AS _BIT
 DIM SHARED USERQUIT AS _BIT
+DIM SHARED CLOSE_SESSION AS _BIT
 DIM SHARED VERBOSE AS _BIT
 
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
@@ -161,9 +170,15 @@ SKIPARRAYS = 0
 INTERACTIVE = 0
 NO_TTFONT = 0
 FIRSTPROCESSING = -1
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 600
+LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
+SB_TRACK = LIST_AREA - 48
+
+RESTORE_LIBRARY
 
 'Screen setup: ----------------------------------------------------------------
-MAINSCREEN = _NEWIMAGE(1000, 600, 32)
+MAINSCREEN = _NEWIMAGE(SCREEN_WIDTH, SCREEN_HEIGHT, 32)
 SCREEN MAINSCREEN
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
@@ -214,7 +229,9 @@ END IF
 
 GOTO MainLoop
 OpenFileMenu:
+_RESIZE OFF
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
+_RESIZE ON
 _AUTODISPLAY
 
 'Reset flags:
@@ -232,17 +249,14 @@ NEWFILENAME$ = ""
 '------------------------------------------------------------------------------
 MainLoop:
 '------------------------------------------------------------------------------
-TITLESTRING = "vWATCH64 - v" + VERSION
-_TITLE TITLESTRING
-COLOR _RGB32(0, 0, 0), _RGB32(255, 255, 255)
-CLS
-
-SETUP_CONNECTION
-IF MENU% = 101 THEN GOTO OpenFileMenu
-BREAKPOINT_MODE
+DO
+    TITLESTRING = "vWATCH64 - v" + VERSION
+    _TITLE TITLESTRING
+    SETUP_CONNECTION
+    IF MENU% = 101 THEN GOTO OpenFileMenu
+    SOURCE_VIEW
+LOOP UNTIL USERQUIT
 '------------------------------------------------------------------------------
-
-IF NOT USERQUIT THEN GOTO MainLoop
 SYSTEM
 
 FileError:
@@ -261,8 +275,1160 @@ DATA END
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
 '------------------------------------------------------------------------------
-'$INCLUDE:'menu.bi'
-'$INCLUDE:'glinput.bi'
+SUB SOURCE_VIEW
+    'Allows setting breakpoints and stepping through code
+    DIM SB_Ratio AS SINGLE
+    DIM SourceLine AS STRING
+    DIM ListEnd_Label AS STRING
+    STATIC SearchIn
+
+    TOTALBREAKPOINTS = 0
+    BREAKPOINT.ACTION = 0 'Start paused; execution starts with F5 or F8.
+    PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+    CLS , _RGB32(255, 255, 255)
+
+    Filter$ = ""
+    IF SearchIn = 0 THEN SearchIn = CODE
+    SB_ThumbY = 0
+    grabbedY = -1
+    ListEnd_Label = "(end of source file)"
+    STEPMODE = -1
+    TRACE = -1
+    _KEYCLEAR
+    TIMED_OUT = 0
+    CLOSE_SESSION = 0
+
+    DO: _LIMIT 500
+        GOSUB ProcessInput
+        GET #FILE, CLIENTBLOCK, CLIENT
+        IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1: TRACE = -1
+        PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+        GOSUB UpdateList
+        IF _EXIT THEN USERQUIT = -1
+        SEND_PING
+    LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT OR CLOSE_SESSION
+
+    EndMessage:
+    _AUTODISPLAY
+    IF USERQUIT THEN EXIT SUB
+
+    IF CLOSE_SESSION THEN
+        HEADER.CONNECTED = 0
+        PUT #FILE, HEADERBLOCK, HEADER
+        CLOSE #FILE
+        ON ERROR GOTO FileError
+        KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+        EXIT SUB
+    END IF
+
+    OVERLAYSCREEN = _NEWIMAGE(SCREEN_WIDTH \ 2, SCREEN_HEIGHT \ 2, 32)
+    _DEST OVERLAYSCREEN
+
+    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
+    LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
+
+    IF HEADER.CONNECTED = 0 THEN
+        EndMessage$ = "Connection closed by client."
+    ELSEIF TIMED_OUT THEN
+        EndMessage$ = "Connection timed out."
+    END IF
+
+    IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
+        BEEP
+        _KEYCLEAR
+        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), EndMessage$
+        EndMessage$ = "Press any key to continue..."
+        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT + 1), EndMessage$
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT), EndMessage$
+        _DEST MAINSCREEN
+        _PUTIMAGE , OVERLAYSCREEN
+        _FREEIMAGE OVERLAYSCREEN
+        DO: _LIMIT 30
+            WHILE _MOUSEINPUT: mb = _MOUSEBUTTON(1): WEND
+            IF mb THEN EXIT DO
+            IF _EXIT THEN USERQUIT = -1: EXIT DO
+        LOOP UNTIL _KEYHIT
+    END IF
+    EXIT SUB
+
+    ProcessInput:
+    k = _KEYHIT: modKey = k
+    IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+    IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+    IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+    IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
+
+    DO
+        prevy = y
+        y = y + (_MOUSEWHEEL * ((_HEIGHT - 50) / 5))
+        IF y <> prevy THEN TRACE = 0
+        mx = _MOUSEX
+        my = _MOUSEY
+        mb = _MOUSEBUTTON(1)
+    LOOP WHILE _MOUSEINPUT
+
+    SELECT EVERYCASE k
+        CASE 32 TO 126 'Printable ASCII characters
+            SELECT CASE SearchIn
+                CASE CODE
+                    Filter$ = Filter$ + CHR$(k)
+                CASE LINENUMBERS
+                    IF (k >= 48 AND k <= 57) OR (k = 45 AND INSTR(Filter$, "-") = 0) THEN Filter$ = Filter$ + CHR$(k)
+            END SELECT
+        CASE 8 'Backspace
+            IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
+        CASE 9
+            IF SearchIn = CODE THEN SearchIn = LINENUMBERS ELSE SearchIn = CODE
+            IF LEN(Filter$) > 0 AND VAL(Filter$) = 0 AND SearchIn = LINENUMBERS THEN Filter$ = ""
+        CASE 27 'ESC clears the current search filter or exits interactive mode
+            IF LEN(Filter$) THEN
+                Filter$ = ""
+            ELSE
+                ExitButton_Click:
+                CLOSE_SESSION = -1
+            END IF
+        CASE 18432 'Up
+            IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ((_HEIGHT - 50) * SB_Ratio)
+            TRACE = 0
+        CASE 20480 'Down
+            IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ((_HEIGHT - 50) * SB_Ratio)
+            TRACE = 0
+        CASE 16128 'F5
+            RunButton_Click:
+            STEPMODE = 0
+            TRACE = 1
+            BREAKPOINT.ACTION = CONTINUE
+            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+        CASE 16384 'F6
+            WindowButton_Click:
+            IF CLIENT.TOTALVARIABLES > 0 THEN
+                _KEYCLEAR
+                GET #FILE, DATABLOCK, VARIABLES()
+                VARIABLE_VIEW
+                TRACE = -1
+            END IF
+        CASE 16896 'F8
+            StepButton_Click:
+            STEPMODE = -1
+            TRACE = -1
+            BREAKPOINT.ACTION = NEXTSTEP
+            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+        CASE 17152 'F9
+            ToggleButton_Click:
+            IF shiftDown = -1 THEN GOTO ClearButton_CLICK
+            IF STEPMODE = -1 THEN
+                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                ELSE
+                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                END IF
+            END IF
+        CASE 17408 'F10
+            ClearButton_CLICK:
+            TOTALBREAKPOINTS = 0
+            BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+    END SELECT
+
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF mb THEN
+            IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
+                TRACE = 0
+                'Clicked inside the scroll bar. Check if click was on the thumb:
+                IF my > SCREEN_TOPBAR + SB_ThumbY + 24 AND my < SCREEN_TOPBAR + SB_ThumbY + 24 + SB_ThumbH THEN
+                    'Clicked on the thumb:
+                    grabbedY = my: starty = y
+                    DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+                    DO WHILE _MOUSEBUTTON(1): _LIMIT 500
+                        WHILE _MOUSEINPUT: WEND
+                        my = _MOUSEY
+                        y = starty + ((my - grabbedY) / SB_Ratio)
+
+                        CHECK_SCREEN_LIMITS y
+                        IF prevy <> y THEN
+                            DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my: prevy = y
+                            GOSUB UpdateList
+                        END IF
+                        SEND_PING
+                        _DISPLAY
+                    LOOP
+                    grabbedY = -1
+                ELSEIF my > SCREEN_TOPBAR AND my <= SCREEN_TOPBAR + 20 THEN
+                    'Up arrow
+                    IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (LIST_AREA / 10)
+                    _DELAY .1
+                ELSEIF my > SCREEN_HEIGHT - 21 THEN
+                    'Down arrow
+                    IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (LIST_AREA / 10)
+                    _DELAY .1
+                ELSE
+                    'Clicked above or below the thumb:
+                    IF my < SCREEN_TOPBAR + 25 + SB_ThumbY AND my > SCREEN_TOPBAR + 21 THEN
+                        y = y - ((LIST_AREA / 6) / SB_Ratio)
+                        _DELAY .1
+                    ELSEIF my > SCREEN_TOPBAR + 25 + SB_ThumbY + SB_ThumbH AND my < SCREEN_HEIGHT - 21 THEN
+                        y = y + ((LIST_AREA / 6) / SB_Ratio)
+                        _DELAY .1
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+    RETURN
+
+    UpdateList:
+    CHECK_RESIZE
+    CLS , _RGB32(255, 255, 255)
+    cursorBlink% = cursorBlink% + 1
+    IF cursorBlink% > 50 THEN cursorBlink% = 0
+
+    'Build a filtered list, if a filter is active:
+    i = 0: FilteredList$ = ""
+    PAGE_HEIGHT = _FONTHEIGHT * (CLIENT.TOTALSOURCELINES + 3)
+    IF LEN(Filter$) > 0 THEN
+        DO
+            i = i + 1
+            IF i > CLIENT.TOTALSOURCELINES THEN EXIT DO
+            IF SearchIn = CODE THEN Found = MULTI_SEARCH(UCASE$(GETLINE$(i)), UCASE$(Filter$))
+            IF SearchIn = LINENUMBERS THEN Found = INTERVAL_SEARCH(Filter$, i)
+            IF Found THEN
+                FilteredList$ = FilteredList$ + MKL$(i)
+            END IF
+        LOOP
+        IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
+    END IF
+
+    'Scroll to the next line of code that will be run
+    IF TRACE THEN
+        CurrentLineY = (CLIENT.LINENUMBER - 1) * _FONTHEIGHT
+        IF CurrentLineY > y + LIST_AREA - _FONTHEIGHT THEN
+            y = (CurrentLineY - LIST_AREA) + SCREEN_TOPBAR
+        ELSEIF CurrentLineY < y THEN
+            y = CurrentLineY - SCREEN_TOPBAR
+        END IF
+    END IF
+
+    CHECK_SCREEN_LIMITS y
+
+    CLS , _RGB32(255, 255, 255)
+    'Print list items to the screen:
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
+            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
+            SourceLine = GETLINE$(i)
+            printY = (SCREEN_TOPBAR + 3 + ((ii - 1) * _FONTHEIGHT)) - y
+            IF printY > SCREEN_HEIGHT THEN EXIT FOR
+            IF (printY >= (SCREEN_TOPBAR - _FONTHEIGHT)) AND printY < SCREEN_HEIGHT THEN
+                'Print only inside the program area
+                GOSUB ColorizeBreakpoint
+                IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
+                _PRINTSTRING (5, printY), v$
+                COLOR _RGB32(0, 0, 0)
+            END IF
+        NEXT ii
+    ELSEIF LEN(Filter$) = 0 THEN
+        FOR i = ((y \ _FONTHEIGHT) + 1) TO CLIENT.TOTALSOURCELINES
+            SourceLine = GETLINE$(i)
+            printY = (SCREEN_TOPBAR + 3 + ((i - 1) * _FONTHEIGHT)) - y
+            IF printY > SCREEN_HEIGHT THEN EXIT FOR
+            'IF (printY >= SCREEN_TOPBAR - _FONTHEIGHT) AND printY < SCREEN_HEIGHT THEN
+            'Print only inside the program area
+            GOSUB ColorizeBreakpoint
+            IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+            v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
+            _PRINTSTRING (5, printY), v$
+            COLOR _RGB32(0, 0, 0)
+            'END IF
+        NEXT i
+    END IF
+
+    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
+        _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
+        _PRINTSTRING (5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to reset filter)"
+    END IF
+
+    'Top bar:
+    '  SOURCE VIEW: <F5 = Run> <F6 = View Variables> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
+    '  Breakpoints 0 * Next line: ####
+    '  Filter (code):
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(179, 255, 255), BF
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+    ModeTitle$ = "SOURCE VIEW: "
+    _PRINTSTRING (5, 3), ModeTitle$
+    TopLine$ = "Breakpoints: " + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER))
+    _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
+    TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
+
+    'Top buttons:
+    TotalButtons = 5
+    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
+    Buttons(1).CAPTION = "<F5 = Run>"
+    Buttons(2).CAPTION = "<F6 = View Variables>"
+    Buttons(3).CAPTION = "<F8 = Step>"
+    IF STEPMODE THEN
+        Buttons(4).CAPTION = "<F9 = Toggle Breakpoint>"
+        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(4).CAPTION = "<F10 = Clear Breakpoints>"
+    ELSE
+        Buttons(4).CAPTION = ""
+    END IF
+    Buttons(5).CAPTION = "<ESC = Exit>"
+
+    ButtonLine$ = ""
+    FOR cb = 1 TO TotalButtons
+        c$ = TRIM$(Buttons(cb).CAPTION)
+        ButtonLine$ = ButtonLine$ + IIFSTR$(LEN(c$), c$ + " ", "")
+    NEXT cb
+
+    FOR cb = 1 TO TotalButtons
+        Buttons(cb).X = INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION)) * _FONTWIDTH + _PRINTWIDTH(ModeTitle$)
+        Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+    NEXT cb
+
+    GOSUB CheckButtons
+
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+    FOR i = 1 TO LEN(ButtonLine$)
+        IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
+            ASC(ButtonLine$, i) = 32
+        END IF
+    NEXT i
+    COLOR _RGB32(255, 255, 0)
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 2), ButtonLine$
+    COLOR _RGB32(0, 0, 0)
+
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((4 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), ListEnd_Label
+        END IF
+        DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+    ELSE
+        'End of list message:
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, PAGE_HEIGHT - _FONTHEIGHT - y), ListEnd_Label
+        END IF
+    END IF
+
+    _DISPLAY
+    RETURN
+
+    ColorizeBreakpoint:
+    'Colorize the line if it's the next to be run and if a breakpoint is set
+    IF CLIENT.LINENUMBER = i THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
+    END IF
+    IF ASC(BREAKPOINTLIST, i) = 1 THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
+        COLOR _RGB32(255, 255, 255)
+    END IF
+    RETURN
+
+    DetectClick:
+    'Select/Clear the item if a mouse click was detected.
+    IF mb THEN
+        'Wait until a mouse up event is received:
+        WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
+        mb = 0
+
+        IF LEN(STRIPCOMMENTS$(SourceLine)) = 0 THEN
+        ELSEIF STEPMODE = 0 THEN
+            GOTO StepButton_Click
+        ELSE
+            IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+                'Toggle breakpoint:
+                IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                    ASC(BREAKPOINTLIST, i) = 0
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                ELSE
+                    ASC(BREAKPOINTLIST, i) = 1
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                END IF
+            END IF
+        END IF
+    END IF
+    RETURN
+
+    CheckButtons:
+    IF my > _FONTHEIGHT THEN RETURN
+    'Hover highlight:
+    FOR cb = 1 TO UBOUND(Buttons)
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+        END IF
+    NEXT cb
+
+    IF mb THEN
+        FOR cb = 1 TO UBOUND(Buttons)
+            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
+                mb = 0
+                SELECT CASE cb
+                    CASE 1: GOTO RunButton_Click
+                    CASE 2: GOTO WindowButton_Click
+                    CASE 3: GOTO StepButton_Click
+                    CASE 4: GOTO ToggleButton_Click
+                    CASE 5: GOTO ExitButton_Click
+                    CASE ELSE: BEEP
+                END SELECT
+                RETURN
+            END IF
+        NEXT cb
+    END IF
+    RETURN
+END SUB
+
+SUB VARIABLE_VIEW
+    DIM SB_Ratio AS SINGLE
+    DIM SourceLine AS STRING
+    DIM ListEnd_Label AS STRING
+    STATIC Filter$
+    STATIC SearchIn
+
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+    CLS , _RGB32(255, 255, 255)
+
+    IF SearchIn = 0 THEN SearchIn = VARIABLENAMES
+    SB_ThumbY = 0
+    grabbedY = -1
+    ListEnd_Label = "(end of list)"
+    _KEYCLEAR
+    longestVarName = 1
+
+    FOR i = 1 TO CLIENT.TOTALVARIABLES
+        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
+    NEXT i
+
+    DO: _LIMIT 500
+        GOSUB ProcessInput
+
+        SEND_PING
+
+        GET #FILE, CLIENTBLOCK, CLIENT
+        GET #FILE, DATABLOCK, VARIABLES()
+
+        IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
+
+        GOSUB UpdateList
+
+        IF _EXIT THEN USERQUIT = -1
+    LOOP UNTIL USERQUIT OR CLOSE_SESSION
+
+    EXIT SUB
+    ProcessInput:
+    k = _KEYHIT: modKey = k
+    IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+    IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+    IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+    IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
+
+    DO
+        y = y + (_MOUSEWHEEL * ((_HEIGHT - 50) / 5))
+        mx = _MOUSEX
+        my = _MOUSEY
+        mb = _MOUSEBUTTON(1)
+    LOOP WHILE _MOUSEINPUT
+
+    SELECT EVERYCASE k
+        CASE 86, 118 'V
+            IF ctrlDown = -1 THEN
+                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$
+                k = 0
+            END IF
+        CASE 32 TO 126 'Printable ASCII characters
+            IF SearchIn <> SCOPE THEN
+                Filter$ = Filter$ + CHR$(k)
+            ELSE
+                IF k = ASC("L") OR k = ASC("l") THEN
+                    Filter$ = "LOCAL"
+                ELSEIF k = ASC("S") OR k = ASC("s") THEN
+                    Filter$ = "SHARED"
+                END IF
+            END IF
+        CASE 8 'Backspace
+            IF SearchIn <> SCOPE THEN
+                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
+            ELSE
+                Filter$ = ""
+            END IF
+        CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
+            IF SearchIn = SCOPE THEN Filter$ = ""
+            SELECT CASE SearchIn
+                CASE SCOPE: IF shiftDown = 0 THEN SearchIn = DATATYPES ELSE SearchIn = VALUES
+                CASE DATATYPES: IF shiftDown = 0 THEN SearchIn = VARIABLENAMES ELSE SearchIn = SCOPE
+                CASE VARIABLENAMES: IF shiftDown = 0 THEN SearchIn = VALUES ELSE SearchIn = DATATYPES
+                CASE VALUES: IF shiftDown = 0 THEN SearchIn = SCOPE ELSE SearchIn = VARIABLENAMES
+            END SELECT
+            IF SearchIn = SCOPE THEN Filter$ = ""
+        CASE 27 'ESC clears the current search filter or exits MONITOR_MODE
+            IF LEN(Filter$) THEN
+                Filter$ = ""
+            ELSE
+                ExitButton_Click:
+                CLOSE_SESSION = -1
+            END IF
+        CASE 18432 'Up
+            IF PAGE_HEIGHT > LIST_AREA THEN
+                IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ((_HEIGHT - 50) * SB_Ratio)
+            END IF
+        CASE 20480 'Down
+            IF PAGE_HEIGHT > LIST_AREA THEN
+                IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ((_HEIGHT - 50) * SB_Ratio)
+            END IF
+        CASE 16128 'F5
+            RunButton_Click:
+            STEPMODE = 0
+            BREAKPOINT.ACTION = CONTINUE
+            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+        CASE 16384 'F6
+            WindowButton_Click:
+            _KEYCLEAR
+            EXIT SUB
+        CASE 16896 'F8
+            StepButton_Click:
+            STEPMODE = -1
+            BREAKPOINT.ACTION = NEXTSTEP
+            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+        CASE 17152 'F9
+            ToggleButton_Click:
+            IF shiftDown = -1 THEN GOTO ClearButton_CLICK
+            IF STEPMODE = -1 THEN
+                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                ELSE
+                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                END IF
+                PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+            END IF
+        CASE 17408 'F10
+            ClearButton_CLICK:
+            TOTALBREAKPOINTS = 0
+            BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+            PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+    END SELECT
+
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF mb THEN
+            IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
+                'Clicked inside the scroll bar. Check if click was on the thumb:
+                IF my > SCREEN_TOPBAR + SB_ThumbY + 24 AND my < SCREEN_TOPBAR + SB_ThumbY + 24 + SB_ThumbH THEN
+                    'Clicked on the thumb:
+                    grabbedY = my: starty = y
+                    DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+                    DO WHILE _MOUSEBUTTON(1): _LIMIT 500
+                        WHILE _MOUSEINPUT: WEND
+                        my = _MOUSEY
+                        y = starty + ((my - grabbedY) / SB_Ratio)
+
+                        CHECK_SCREEN_LIMITS y
+                        IF prevY <> y THEN
+                            DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my: prevY = y
+                            GOSUB UpdateList
+                        END IF
+                        SEND_PING
+                        _DISPLAY
+                    LOOP
+                    grabbedY = -1
+                ELSEIF my > SCREEN_TOPBAR AND my <= SCREEN_TOPBAR + 20 THEN
+                    'Up arrow
+                    IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (LIST_AREA / 10)
+                    _DELAY .1
+                ELSEIF my > SCREEN_HEIGHT - 21 THEN
+                    'Down arrow
+                    IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (LIST_AREA / 10)
+                    _DELAY .1
+                ELSE
+                    'Clicked above or below the thumb:
+                    IF my < SCREEN_TOPBAR + 25 + SB_ThumbY AND my > SCREEN_TOPBAR + 21 THEN
+                        y = y - ((LIST_AREA / 6) / SB_Ratio)
+                        _DELAY .1
+                    ELSEIF my > SCREEN_TOPBAR + 25 + SB_ThumbY + SB_ThumbH AND my < SCREEN_HEIGHT - 21 THEN
+                        y = y + ((LIST_AREA / 6) / SB_Ratio)
+                        _DELAY .1
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+    RETURN
+
+    UpdateList:
+    CHECK_RESIZE
+    CLS , _RGB32(255, 255, 255)
+    cursorBlink% = cursorBlink% + 1
+    IF cursorBlink% > 50 THEN cursorBlink% = 0
+
+    'Build a filtered list, if a filter is active
+    i = 0: FilteredList$ = ""
+    PAGE_HEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 3)
+    IF LEN(Filter$) > 0 THEN
+        DO
+            i = i + 1
+            IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
+            Found = 0
+            SELECT CASE SearchIn
+                CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
+                CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
+                CASE VALUES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$))
+                CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
+            END SELECT
+            IF Found THEN
+                FilteredList$ = FilteredList$ + MKL$(i)
+            END IF
+        LOOP
+        IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
+    END IF
+
+    'Get mouse coordinates:
+    DO
+    LOOP WHILE _MOUSEINPUT
+    mx = _MOUSEX: my = _MOUSEY: mb = _MOUSEBUTTON(1)
+
+    CHECK_SCREEN_LIMITS y
+
+    'Place a light gray rectangle under the column that can currently be filtered
+    SELECT CASE SearchIn
+        CASE DATATYPES
+            columnHighlightX = _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
+        CASE VARIABLENAMES
+            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+        CASE VALUES
+            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
+            columnHighlightW = _WIDTH
+        CASE SCOPE
+            columnHighlightX = 0
+            columnHighlightW = _PRINTWIDTH(SPACE$(7))
+    END SELECT
+    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
+
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
+    ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
+        columnHightlighH = _FONTHEIGHT
+    ELSE
+        columnHightlighH = (CLIENT.TOTALVARIABLES * _FONTHEIGHT) + 8
+    END IF
+    CLS , _RGB32(255, 255, 255)
+    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
+
+    'Print list items to the screen:
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        FOR ii = 1 TO LEN(FilteredList$) / 4
+            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
+            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
+            printY = ((3 + ii) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+        NEXT ii
+    ELSEIF LEN(Filter$) = 0 THEN
+        FOR i = 1 TO CLIENT.TOTALVARIABLES
+            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
+            printY = ((3 + i) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+        NEXT i
+    END IF
+
+    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
+    END IF
+
+    'Top bar:
+    '  VARIABLE VIEW: <F5 = Run> <F6 = View Source> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
+    '  Next line: [*] ####
+    '  Filter:                                                              Total variables: 10 (showing 7)
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+    ModeTitle$ = "VARIABLE VIEW: "
+    _PRINTSTRING (5, 3), ModeTitle$
+    TopLine$ = "Now watching: " + TRIM$(CLIENT.CURRENTMODULE)
+    _PRINTSTRING (_WIDTH - 3 - _PRINTWIDTH(TopLine$), 3), TopLine$
+    TopLine$ = "Total variables:" + STR$(CLIENT.TOTALVARIABLES) + IIFSTR$(LEN(FilteredList$), " (showing " + TRIM$(STR$(LEN(FilteredList$) / 4)) + ")", "")
+    _PRINTSTRING (_WIDTH - 5 - _PRINTWIDTH(TopLine$), (_FONTHEIGHT * 2 + 3)), TopLine$
+    TopLine$ = "Next line: "
+    _PRINTSTRING (3, _FONTHEIGHT + 3), TopLine$
+    tl.x = 3 + _PRINTWIDTH(TopLine$)
+    IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+        LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
+        COLOR _RGB32(255, 255, 255)
+    END IF
+    SourceLine = TRIM$(GETLINE$(CLIENT.LINENUMBER))
+    TopLine$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1, CHR$(7), " ") + "]" + CHR$(16) + " " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + "    " + SourceLine
+    _PRINTSTRING (tl.x, _FONTHEIGHT + 3), TopLine$
+    COLOR _RGB32(0, 0, 0)
+    TopLine$ = "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
+
+    'Top buttons:
+    TotalButtons = 5
+    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
+    Buttons(1).CAPTION = "<F5 = Run>"
+    Buttons(2).CAPTION = "<F6 = View Source>"
+    Buttons(3).CAPTION = "<F8 = Step>"
+    IF STEPMODE THEN
+        Buttons(4).CAPTION = "<F9 = Toggle Breakpoint>"
+        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(4).CAPTION = "<F10 = Clear Breakpoints>"
+    ELSE
+        Buttons(4).CAPTION = ""
+    END IF
+    Buttons(5).CAPTION = "<ESC = Exit>"
+
+    ButtonLine$ = ""
+    FOR cb = 1 TO TotalButtons
+        c$ = TRIM$(Buttons(cb).CAPTION)
+        ButtonLine$ = ButtonLine$ + IIFSTR$(LEN(c$), c$ + " ", "")
+    NEXT cb
+
+    FOR cb = 1 TO TotalButtons
+        Buttons(cb).X = INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION)) * _FONTWIDTH + _PRINTWIDTH(ModeTitle$)
+        Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+    NEXT cb
+
+    GOSUB CheckButtons
+
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+    FOR i = 1 TO LEN(ButtonLine$)
+        IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
+            ASC(ButtonLine$, i) = 32
+        END IF
+    NEXT i
+    COLOR _RGB32(255, 255, 0)
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 2), ButtonLine$
+    COLOR _RGB32(0, 0, 0)
+
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((4 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+        END IF
+        DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+    ELSE
+        'End of list message:
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((5 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+        END IF
+    END IF
+
+    _DISPLAY
+    RETURN
+
+    CheckButtons:
+    IF my > _FONTHEIGHT THEN RETURN
+    'Hover highlight:
+    FOR cb = 1 TO UBOUND(Buttons)
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+        END IF
+    NEXT cb
+
+    IF mb THEN
+        FOR cb = 1 TO UBOUND(Buttons)
+            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
+                mb = 0
+                SELECT CASE cb
+                    CASE 1: GOTO RunButton_Click
+                    CASE 2: GOTO WindowButton_Click
+                    CASE 3: GOTO StepButton_Click
+                    CASE 4: GOTO ToggleButton_Click
+                    CASE 5: GOTO ExitButton_Click
+                    CASE ELSE: BEEP
+                END SELECT
+                RETURN
+            END IF
+        NEXT cb
+    END IF
+    RETURN
+
+END SUB
+
+SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
+    'Allows user to select which of the found variables will be watched.
+    'Shows a UI similar to monitor mode, with extra commands to filter/add.
+
+    DIM SB_Ratio AS SINGLE
+    DIM ListEnd_Label AS STRING
+    AddedList$ = STRING$(TOTALVARIABLES, 0) 'Start interactive mode with all variables unselected
+    TotalSelected = 0
+
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+    CLS
+
+    Filter$ = ""
+    searchIn = VARIABLENAMES
+    SB_ThumbY = 0
+    grabbedY = -1
+    ListEnd_Label = "(end of list)"
+    _KEYCLEAR
+
+    longestVarName = 1
+    FOR i = 1 TO TOTALVARIABLES
+        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
+    NEXT i
+
+    DO: _LIMIT 500
+        GOSUB ProcessInput
+        GOSUB UpdateList
+
+        IF _EXIT THEN
+            CLOSE
+            KILL NEWFILENAME$
+            SYSTEM
+        END IF
+    LOOP
+
+    _AUTODISPLAY
+    COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
+
+    EXIT SUB
+    ProcessInput:
+    k = _KEYHIT: modKey = k
+    IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+    IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+    IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+    IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
+
+    DO
+        y = y + (_MOUSEWHEEL * (LIST_AREA / 3))
+        mx = _MOUSEX
+        my = _MOUSEY
+        mb = _MOUSEBUTTON(1)
+    LOOP WHILE _MOUSEINPUT
+
+    SELECT EVERYCASE k
+        CASE 86, 118 'V
+            IF ctrlDown = -1 THEN
+                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$
+                k = 0
+            END IF
+        CASE 32 TO 126 'Printable ASCII characters
+            IF searchIn <> SCOPE THEN
+                Filter$ = Filter$ + CHR$(k)
+            ELSE
+                IF k = ASC("L") OR k = ASC("l") THEN
+                    Filter$ = "LOCAL"
+                ELSEIF k = ASC("S") OR k = ASC("s") THEN
+                    Filter$ = "SHARED"
+                END IF
+            END IF
+        CASE 8 'Backspace
+            IF searchIn <> SCOPE THEN
+                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
+            ELSE
+                Filter$ = ""
+            END IF
+        CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
+            IF searchIn = SCOPE THEN Filter$ = ""
+            SELECT CASE searchIn
+                CASE VARIABLENAMES: IF shiftDown = 0 THEN searchIn = SCOPE ELSE searchIn = DATATYPES
+                CASE SCOPE: IF shiftDown = 0 THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
+                CASE DATATYPES: IF shiftDown = 0 THEN searchIn = VARIABLENAMES ELSE searchIn = SCOPE
+            END SELECT
+            IF searchIn = SCOPE THEN Filter$ = ""
+        CASE 27 'ESC clears the current search filter or exits interactive mode
+            IF LEN(Filter$) THEN
+                Filter$ = ""
+            ELSE
+                CancelButton_Click:
+                AddedList$ = CHR$(3)
+                _AUTODISPLAY
+                COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
+                EXIT SUB
+            END IF
+        CASE 18432 'Up
+            IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (LIST_AREA / 10)
+        CASE 20480 'Down
+            IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (LIST_AREA / 10)
+        CASE 15360 'F2
+            SelectButton_Click:
+            IF LEN(Filter$) = 0 THEN
+                AddedList$ = STRING$(TOTALVARIABLES, 1)
+                TotalSelected = TOTALVARIABLES
+            ELSE
+                FOR i = 1 TO LEN(FilteredList$) / 4
+                    item = CVL(MID$(FilteredList$, i * 4 - 3, 4))
+                    IF ASC(AddedList$, item) = 0 THEN
+                        ASC(AddedList$, item) = 1: TotalSelected = TotalSelected + 1
+                    END IF
+                NEXT i
+            END IF
+        CASE 15616 'F3
+            ClearButton_Click:
+            IF LEN(Filter$) = 0 THEN
+                AddedList$ = STRING$(TOTALVARIABLES, 0)
+                TotalSelected = 0
+            ELSE
+                FOR i = 1 TO LEN(FilteredList$) / 4
+                    item = CVL(MID$(FilteredList$, i * 4 - 3, 4))
+                    IF ASC(AddedList$, item) = 1 THEN
+                        ASC(AddedList$, item) = 0: TotalSelected = TotalSelected - 1
+                    END IF
+                NEXT i
+            END IF
+        CASE 16128 'F5
+            SaveButton_Click:
+            IF TotalSelected > 0 THEN
+                _AUTODISPLAY
+                COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
+                EXIT SUB
+            END IF
+    END SELECT
+
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF mb THEN
+            IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
+                'Clicked inside the scroll bar. Check if click was on the thumb:
+                IF my > SCREEN_TOPBAR + SB_ThumbY + 24 AND my < SCREEN_TOPBAR + SB_ThumbY + 24 + SB_ThumbH THEN
+                    'Clicked on the thumb:
+                    grabbedY = my: starty = y
+                    DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+                    DO WHILE _MOUSEBUTTON(1): _LIMIT 500
+                        WHILE _MOUSEINPUT: WEND
+                        my = _MOUSEY
+                        y = starty + ((my - grabbedY) / SB_Ratio)
+
+                        CHECK_SCREEN_LIMITS y
+                        IF prevY <> y THEN
+                            DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my: prevY = y
+                            GOSUB UpdateList
+                        END IF
+                        'SEND_PING
+                        _DISPLAY
+                    LOOP
+                    grabbedY = -1
+                ELSEIF my > SCREEN_TOPBAR AND my <= SCREEN_TOPBAR + 20 THEN
+                    'Up arrow
+                    IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (LIST_AREA / 10)
+                    _DELAY .1
+                ELSEIF my > SCREEN_HEIGHT - 21 THEN
+                    'Down arrow
+                    IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (LIST_AREA / 10)
+                    _DELAY .1
+                ELSE
+                    'Clicked above or below the thumb:
+                    IF my < SCREEN_TOPBAR + 25 + SB_ThumbY AND my > SCREEN_TOPBAR + 21 THEN
+                        y = y - ((LIST_AREA / 6) / SB_Ratio)
+                        _DELAY .1
+                    ELSEIF my > SCREEN_TOPBAR + 25 + SB_ThumbY + SB_ThumbH AND my < SCREEN_HEIGHT - 21 THEN
+                        y = y + ((LIST_AREA / 6) / SB_Ratio)
+                        _DELAY .1
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+    RETURN
+
+    UpdateList:
+    CHECK_RESIZE
+    cursorBlink% = cursorBlink% + 1
+    IF cursorBlink% > 50 THEN cursorBlink% = 0
+    'Build a filtered list, if a filter is active:
+    i = 0: FilteredList$ = ""
+    PAGE_HEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 3)
+    IF LEN(Filter$) > 0 THEN
+        DO
+            i = i + 1
+            IF i > TOTALVARIABLES THEN EXIT DO
+            Found = 0
+            SELECT CASE searchIn
+                CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
+                CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
+                CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
+            END SELECT
+            IF Found THEN
+                FilteredList$ = FilteredList$ + MKL$(i)
+            END IF
+        LOOP
+        IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
+    END IF
+
+    CHECK_SCREEN_LIMITS y
+
+    'Place a light gray rectangle under the column that can currently be filtered:
+    SELECT CASE searchIn
+        CASE DATATYPES
+            columnHighlightX = _PRINTWIDTH(SPACE$(15))
+            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
+        CASE VARIABLENAMES
+            columnHighlightX = _PRINTWIDTH(SPACE$(29)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+        CASE SCOPE
+            columnHighlightX = _PRINTWIDTH(SPACE$(8))
+            columnHighlightW = _PRINTWIDTH(SPACE$(7))
+    END SELECT
+    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
+
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
+    ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
+        columnHightlighH = _FONTHEIGHT
+    ELSE
+        columnHightlighH = (TOTALVARIABLES * _FONTHEIGHT) + 8
+    END IF
+    CLS , _RGB32(255, 255, 255)
+    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
+
+    'Get mouse coordinates:
+    DO
+    LOOP WHILE _MOUSEINPUT
+    mx = _MOUSEX: my = _MOUSEY: mb = _MOUSEBUTTON(1)
+
+    'Print list items to the screen:
+    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+        FOR ii = 1 TO LEN(FilteredList$) / 4
+            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
+            printY = ((3 + ii) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
+                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+                _PRINTSTRING (5, printY), v$
+            END IF
+        NEXT ii
+    ELSEIF LEN(Filter$) = 0 THEN
+        FOR i = 1 TO TOTALVARIABLES
+            printY = ((3 + i) * _FONTHEIGHT) - y
+            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
+                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+                _PRINTSTRING (5, printY), v$
+            END IF
+        NEXT i
+    END IF
+
+    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
+        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
+    END IF
+
+    'Top bar:
+    '  INTERACTIVE MODE: <F2 = Select all> <F3 = Clear all> <F5 = Save and continue> <ESC = Cancel>
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(179, 255, 255), BF
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+    ModeTitle$ = "INTERACTIVE MODE: "
+    _PRINTSTRING (5, 3), ModeTitle$
+    totalinfo$ = NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
+    _PRINTSTRING (5, (_FONTHEIGHT + 3)), totalinfo$
+    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
+
+
+    'Top buttons:
+    TotalButtons = 5
+    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
+    Buttons(1).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
+    Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
+    Buttons(3).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and continue>", "")
+    Buttons(4).CAPTION = "<ESC = Cancel>"
+
+    ButtonLine$ = ""
+    FOR cb = 1 TO TotalButtons
+        c$ = TRIM$(Buttons(cb).CAPTION)
+        ButtonLine$ = ButtonLine$ + IIFSTR$(LEN(c$), c$ + " ", "")
+    NEXT cb
+
+    FOR cb = 1 TO TotalButtons
+        Buttons(cb).X = INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION)) * _FONTWIDTH + _PRINTWIDTH(ModeTitle$)
+        Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+    NEXT cb
+
+    GOSUB CheckButtons
+
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+    FOR i = 1 TO LEN(ButtonLine$)
+        IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
+            ASC(ButtonLine$, i) = 32
+        END IF
+    NEXT i
+    COLOR _RGB32(255, 255, 0)
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 2), ButtonLine$
+    COLOR _RGB32(0, 0, 0)
+
+
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((5 + TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+        END IF
+        DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+    ELSE
+        'End of list message:
+        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+        ELSEIF LEN(Filter$) = 0 THEN
+            _PRINTSTRING (5, ((5 + TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+        END IF
+    END IF
+
+    _DISPLAY
+    RETURN
+
+    DetectClick:
+    'Place a hover indicator over this item:
+    LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
+    'Select/Clear the item if a mouse click was detected.
+    IF mb THEN
+        'Wait until a mouse up event is received:
+        WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
+        mb = 0
+
+        IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+            IF ASC(AddedList$, i) = 1 THEN
+                ASC(AddedList$, i) = 0
+                TotalSelected = TotalSelected - 1
+            ELSE
+                ASC(AddedList$, i) = 1
+                TotalSelected = TotalSelected + 1
+            END IF
+        END IF
+    END IF
+    RETURN
+
+    CheckButtons:
+    IF my > _FONTHEIGHT THEN RETURN
+    'Hover highlight:
+    FOR cb = 1 TO UBOUND(Buttons)
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+        END IF
+    NEXT cb
+
+    IF mb THEN
+        FOR cb = 1 TO UBOUND(Buttons)
+            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
+                mb = 0
+                SELECT CASE cb
+                    CASE 1: GOTO SelectButton_Click
+                    CASE 2: GOTO ClearButton_Click
+                    CASE 3: GOTO SaveButton_Click
+                    CASE 4: GOTO CancelButton_Click
+                    CASE ELSE: BEEP
+                END SELECT
+                RETURN
+            END IF
+        NEXT cb
+    END IF
+    RETURN
+END SUB
 
 '------------------------------------------------------------------------------
 SUB PROCESSFILE
@@ -330,7 +1496,6 @@ SUB PROCESSFILE
             GLIUPDATE
             _DISPLAY
         LOOP UNTIL GLIENTERED(getfilename%)
-        _AUTODISPLAY
         NEWFILENAME$ = GLIOUTPUT$(getfilename%)
         GLICLOSE getfilename%, FALSE
     END IF
@@ -348,6 +1513,7 @@ SUB PROCESSFILE
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Source file = destination file. Can't proceed."
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Press any key to continue..."
         BEEP
+        _DISPLAY
         SLEEP
         EXIT SUB
     END IF
@@ -359,6 +1525,7 @@ SUB PROCESSFILE
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Overwrite (Y/N)?"
         LINE (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3 + _FONTHEIGHT - 1)-STEP(_PRINTWIDTH(NOPATH$(NEWFILENAME$)), 0), _RGB32(0, 0, 0)
         BEEP
+        _DISPLAY
         DO
             k = _KEYHIT
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
@@ -373,6 +1540,7 @@ SUB PROCESSFILE
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Include arrays (Y/N)?"
         _KEYCLEAR
+        _DISPLAY
         DO
             k = _KEYHIT
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
@@ -386,6 +1554,7 @@ SUB PROCESSFILE
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Attempt to compile in the end (Y/N)?"
         _KEYCLEAR
+        _DISPLAY
         DO
             k = _KEYHIT
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
@@ -399,6 +1568,7 @@ SUB PROCESSFILE
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Use interactive mode (Y/N)?"
         _KEYCLEAR
+        _DISPLAY
         DO
             k = _KEYHIT
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
@@ -413,6 +1583,7 @@ SUB PROCESSFILE
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Show processing details (Y/N)?"
         _KEYCLEAR
+        _DISPLAY
         DO
             k = _KEYHIT
         LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
@@ -421,6 +1592,7 @@ SUB PROCESSFILE
 
 
     'Processing can proceed.
+    _AUTODISPLAY
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
     CLS
     PRINT: PRINT
@@ -479,7 +1651,6 @@ SUB PROCESSFILE
                 IF LEN(SourceLine) = 0 THEN
                 ELSEIF LEFT$(SourceLine, 1) = "$" THEN
                 ELSEIF LEFT$(SourceLine, 4) = "DIM " THEN
-                ELSEIF LEFT$(SourceLine, 4) = "REM " THEN
                 ELSEIF LEFT$(SourceLine, 5) = "DATA " THEN
                 ELSEIF LEFT$(SourceLine, 5) = "CASE " THEN
                 ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
@@ -824,15 +1995,15 @@ SUB PROCESSFILE
             LOCATE bkpy%, bkpx%
             IF AddedList$ = CHR$(3) THEN
                 'Processing was canceled by user.
-                BEEP
-                PRINT "No variables selected."
                 PRINT
                 COLOR _RGB32(255, 0, 0)
                 PRINT "Processing canceled."
                 COLOR _RGB32(0, 0, 0)
                 PRINT
-                _DELAY .05
-                TotalSelected = 0
+                CLOSE
+                KILL NEWFILENAME$
+                _DELAY 1
+                EXIT SUB
             ELSE
                 PRINT IIFSTR$(TOTALVARIABLES = TotalSelected, "All", STR$(TotalSelected)); " variable"; IIFSTR$(TotalSelected > 1, "s", ""); " selected."
             END IF
@@ -882,7 +2053,7 @@ SUB PROCESSFILE
     PRINT #BIFile, "    CONST vwatch64_VERSION = " + Q$ + VERSION + Q$
     PRINT #BIFile, "    CONST vwatch64_INTERVAL = .1"
     PRINT #BIFile, "    CONST vwatch64_CHECKSUM = " + Q$ + CHECKSUM + Q$
-    PRINT #BIFile, "    CONST vwatch64_TIMEOUTLIMIT =" + IIFSTR$(TIMEOUTLIMIT \ 2 > 500, STR$(TIMEOUTLIMIT \ 2), STR$(500))
+    PRINT #BIFile, "    CONST vwatch64_TIMEOUTLIMIT = 500"
     PRINT #BIFile, ""
     PRINT #BIFile, "    'Breakpoint control:"
     PRINT #BIFile, "    CONST vwatch64_CONTINUE = 1"
@@ -1154,7 +2325,12 @@ SUB PROCESSFILE
         PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
         PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
         PRINT #BMFile, "        vwatch64_NO_PING = vwatch64_NO_PING + 1"
-        PRINT #BMFile, "        IF vwatch64_NO_PING > vwatch64_TIMEOUTLIMIT THEN vwatch64_HEADER.CONNECTED = 0: CLOSE: EXIT SUB"
+        PRINT #BMFile, "        IF vwatch64_NO_PING > vwatch64_TIMEOUTLIMIT THEN"
+        PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
+        PRINT #BMFile, "            CLOSE"
+        PRINT #BMFile, "            VWATCH64_STARTTIMERS"
+        PRINT #BMFile, "            EXIT SUB"
+        PRINT #BMFile, "        END IF"
         PRINT #BMFile, "    ELSE"
         PRINT #BMFile, "        vwatch64_NO_PING = 0"
         PRINT #BMFile, "    END IF"
@@ -1191,6 +2367,7 @@ SUB PROCESSFILE
     PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
     PRINT #BMFile, "        FirstRunDone = -1"
     PRINT #BMFile, "        VWATCH64_STOPTIMERS"
+    PRINT #BMFile, "        vwatch64_VARIABLEWATCH"
     PRINT #BMFile, "        DO: _LIMIT 500"
     PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #BMFile, "            GOSUB vwatch64_PING"
@@ -1218,9 +2395,15 @@ SUB PROCESSFILE
     PRINT #BMFile, "    vwatch64_PING:"
     PRINT #BMFile, "    'Check if connection is still alive on host's end"
     PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE: EXIT SUB"
     PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
     PRINT #BMFile, "        vwatch64_NO_PING = vwatch64_NO_PING + 1"
-    PRINT #BMFile, "        IF vwatch64_NO_PING > vwatch64_TIMEOUTLIMIT THEN vwatch64_HEADER.CONNECTED = 0: CLOSE: EXIT SUB"
+    PRINT #BMFile, "        IF vwatch64_NO_PING > vwatch64_TIMEOUTLIMIT THEN"
+    PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
+    PRINT #BMFile, "            CLOSE"
+    PRINT #BMFile, "            VWATCH64_STARTTIMERS"
+    PRINT #BMFile, "            EXIT SUB"
+    PRINT #BMFile, "        END IF"
     PRINT #BMFile, "    ELSE"
     PRINT #BMFile, "        vwatch64_NO_PING = 0"
     PRINT #BMFile, "    END IF"
@@ -1294,7 +2477,6 @@ FUNCTION FINDVARIABLES (Text$, AddedList$)
     NEXT i
 END FUNCTION
 
-
 '------------------------------------------------------------------------------
 FUNCTION STRIPCOMMENTS$ (Text AS STRING)
     DIM OpenQuotation AS _BYTE
@@ -1302,7 +2484,14 @@ FUNCTION STRIPCOMMENTS$ (Text AS STRING)
     DIM TextRebuilt AS STRING
     DIM i AS INTEGER
 
+    IF LEFT$(Text, 1) = "'" THEN EXIT FUNCTION
+    IF LEFT$(Text, 4) = "REM " THEN EXIT FUNCTION
+
     FOR i = 1 TO LEN(Text)
+        IF i > 1 AND (UCASE$(MID$(Text, i, 5)) = " REM " OR UCASE$(MID$(Text, i, 5)) = ":REM ") AND OpenQuotation = 0 THEN
+            STRIPCOMMENTS$ = TextRebuilt
+            EXIT FUNCTION
+        END IF
         SELECT CASE MID$(Text, i, 1)
             CASE "'"
                 IF NOT OpenQuotation THEN
@@ -1470,13 +2659,7 @@ END FUNCTION
 SUB SETUP_CONNECTION
     _KEYCLEAR 'Clears the keyboard buffer
 
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
-    t$ = "Waiting for a connection..."
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
-    t$ = "Launch the program that will be monitored now"
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT * 2), t$
-    t$ = "ESC to quit"
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
 
     CLOSE
     FILE = FREEFILE
@@ -1494,6 +2677,8 @@ SUB SETUP_CONNECTION
 
     'Wait for a connection:
     x = _EXIT
+    GOSUB UpdateScreen
+    _AUTODISPLAY
     SHOWMENU
     DO: _LIMIT 30
         GET #FILE, HEADERBLOCK, HEADER
@@ -1502,6 +2687,7 @@ SUB SETUP_CONNECTION
         k$ = INKEY$
         IF k$ = CHR$(27) THEN USERQUIT = -1
         IF _EXIT THEN USERQUIT = -1
+        'IF _RESIZE THEN GOSUB UpdateScreen
     LOOP UNTIL USERQUIT OR HEADER.CONNECTED = -1 OR MENU% = 102
     HIDEMENU
 
@@ -1582,362 +2768,22 @@ SUB SETUP_CONNECTION
 
     TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
     _TITLE TITLESTRING
+
+    UpdateScreen:
+    CHECK_RESIZE
+    CLS , _RGB32(255, 255, 255)
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
+    t$ = "Waiting for a connection..."
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
+    t$ = "Launch the program that will be monitored now"
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT * 2), t$
+    t$ = "ESC to quit"
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
+    _DISPLAY
+    RETURN
 END SUB
 
 '------------------------------------------------------------------------------
-SUB MONITOR_MODE
-    DIM SB_Ratio AS SINGLE
-    DIM SourceLine AS STRING
-
-    INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
-    IF INFOSCREENHEIGHT > 600 THEN
-        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
-    END IF
-
-    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-    CLS , _RGB32(255, 255, 255)
-
-    Filter$ = ""
-    searchIn = VARIABLENAMES
-    SB_ThumbY = 0
-    grabbedY = -1
-    t$ = "(end of list)"
-    _KEYCLEAR
-    longestVarName = 1
-
-    FOR i = 1 TO CLIENT.TOTALVARIABLES
-        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
-    NEXT i
-
-    DO: _LIMIT 500
-        GOSUB ProcessInput
-
-        'Check if the connection is still alive on the client's end
-        GET #FILE, HEADERBLOCK, HEADER
-        IF HEADER.CLIENT_PING = 0 THEN
-            NO_PING = NO_PING + 1
-            IF NO_PING > TIMEOUTLIMIT THEN
-                TIMED_OUT = -1
-                EXIT DO
-            END IF
-        ELSE
-            NO_PING = 0
-            HEADER.CLIENT_PING = 0
-            PUT #FILE, HEADERBLOCK, HEADER
-        END IF
-
-        'Inform the client we're still alive and kicking.
-        HEADER.HOST_PING = -1
-        PUT #FILE, HEADERBLOCK, HEADER
-
-        GET #FILE, CLIENTBLOCK, CLIENT
-        GET #FILE, DATABLOCK, VARIABLES()
-        GOSUB UpdateList
-
-        IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL USERQUIT
-
-    EXIT SUB
-    ProcessInput:
-    k = _KEYHIT: modKey = k
-    IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
-    IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
-    IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
-    IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
-
-    SELECT EVERYCASE k
-        CASE 86, 118 'V
-            IF ctrlDown = -1 THEN
-                IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$
-                k = 0
-            END IF
-        CASE 32 TO 126 'Printable ASCII characters
-            IF searchIn <> SCOPE THEN
-                Filter$ = Filter$ + CHR$(k)
-            ELSE
-                IF k = ASC("L") OR k = ASC("l") THEN
-                    Filter$ = "LOCAL"
-                ELSEIF k = ASC("S") OR k = ASC("s") THEN
-                    Filter$ = "SHARED"
-                END IF
-            END IF
-        CASE 8 'Backspace
-            IF searchIn <> SCOPE THEN
-                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-            ELSE
-                Filter$ = ""
-            END IF
-        CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
-            IF searchIn = SCOPE THEN Filter$ = ""
-            SELECT CASE searchIn
-                CASE SCOPE: IF shiftDown = 0 THEN searchIn = DATATYPES ELSE searchIn = VALUES
-                CASE DATATYPES: IF shiftDown = 0 THEN searchIn = VARIABLENAMES ELSE searchIn = SCOPE
-                CASE VARIABLENAMES: IF shiftDown = 0 THEN searchIn = VALUES ELSE searchIn = DATATYPES
-                CASE VALUES: IF shiftDown = 0 THEN searchIn = SCOPE ELSE searchIn = VARIABLENAMES
-            END SELECT
-            IF searchIn = SCOPE THEN Filter$ = ""
-        CASE 27 'ESC clears the current search filter or exits MONITOR_MODE
-            IF LEN(Filter$) THEN
-                Filter$ = ""
-            END IF
-        CASE 18432 'Up
-            IF INFOSCREENHEIGHT > 600 THEN
-                IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            END IF
-        CASE 20480 'Down
-            IF INFOSCREENHEIGHT > 600 THEN
-                IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            END IF
-        CASE 16128 'F5
-            STEPMODE = 0
-            BREAKPOINT.ACTION = CONTINUE
-            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
-        CASE 16384 'F6
-            ExitButton_Click:
-            _KEYCLEAR
-            EXIT SUB
-        CASE 16896 'F8
-            StepButton_Click:
-            STEPMODE = -1
-            BREAKPOINT.ACTION = NEXTSTEP
-            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
-    END SELECT
-
-    IF INFOSCREENHEIGHT > 600 THEN
-        DO
-            y = y + (_WHEEL * (_HEIGHT(MAINSCREEN) / 5))
-            mx = _MOUSEX
-            my = _MOUSEY
-            mb = _MOUSEBUTTON(1)
-        LOOP WHILE _MOUSEINPUT
-
-        IF mb THEN
-            IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
-                'Clicked inside the scroll bar. Check if click was on the thumb:
-                IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
-                    'Clicked on the thumb:
-                    grabbedY = my: starty = y: updatedY = grabbedY
-                    GOSUB DisplayScrollbar
-                    _AUTODISPLAY
-                    DO WHILE _MOUSEBUTTON(1)
-                        m = _MOUSEINPUT
-                        my = _MOUSEY
-                        y = starty + ((my - grabbedY) / SB_Ratio)
-
-                        IF y < 0 THEN y = 0
-                        IF INFOSCREENHEIGHT > 600 THEN
-                            IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-                        ELSE
-                            y = 0
-                        END IF
-
-                        IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
-                        IF ABS(my - updatedY) > _HEIGHT / 10 THEN
-                            'We don't update the screen with every move of the scrollbar thumb,
-                            'because it either slows everything down or flickers. However, it can
-                            'be updated at preset move intervals.
-                            _DISPLAY
-                            GOSUB UpdateList
-                            _AUTODISPLAY
-                            updatedY = my
-                        END IF
-                    LOOP
-                    grabbedY = -1
-                    _DISPLAY
-                ELSE
-                    'Clicked above or below the thumb:
-                    IF my < SB_ThumbY THEN
-                        m = _MOUSEINPUT
-                        y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                    ELSE
-                        m = _MOUSEINPUT
-                        y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                    END IF
-                END IF
-            END IF
-        END IF
-    END IF
-    RETURN
-
-    UpdateList:
-    CLS , _RGB32(255, 255, 255)
-    cursorBlink% = cursorBlink% + 1
-    IF cursorBlink% > 50 THEN cursorBlink% = 0
-
-    'Build a filtered list, if a filter is active
-    i = 0: FilteredList$ = ""
-    INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALVARIABLES + 6)
-    IF LEN(Filter$) > 0 THEN
-        DO
-            i = i + 1
-            IF i > CLIENT.TOTALVARIABLES THEN EXIT DO
-            Found = 0
-            SELECT CASE searchIn
-                CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
-                CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
-                CASE VALUES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$))
-                CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
-            END SELECT
-            IF Found THEN
-                FilteredList$ = FilteredList$ + MKL$(i)
-            END IF
-        LOOP
-        IF LEN(FilteredList$) > 0 THEN INFOSCREENHEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 6)
-    END IF
-
-    'Get mouse coordinates:
-    DO
-    LOOP WHILE _MOUSEINPUT
-    mx = _MOUSEX: my = _MOUSEY: mb = _MOUSEBUTTON(1)
-
-    IF y < 0 THEN y = 0
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-    ELSE
-        y = 0
-    END IF
-
-    'Place a light gray rectangle under the column that can currently be filtered
-    SELECT CASE searchIn
-        CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(7))
-            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
-        CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
-        CASE VALUES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
-            columnHighlightW = _WIDTH
-        CASE SCOPE
-            columnHighlightX = 0
-            columnHighlightW = _PRINTWIDTH(SPACE$(7))
-    END SELECT
-    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
-
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
-    ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
-        columnHightlighH = _FONTHEIGHT
-    ELSE
-        columnHightlighH = (CLIENT.TOTALVARIABLES * _FONTHEIGHT) + 8
-    END IF
-    CLS , _RGB32(255, 255, 255)
-    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
-
-    'Print list items to the screen:
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        FOR ii = 1 TO LEN(FilteredList$) / 4
-            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
-            printY = ((3 + ii) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
-        NEXT ii
-    ELSEIF LEN(Filter$) = 0 THEN
-        FOR i = 1 TO CLIENT.TOTALVARIABLES
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
-            printY = ((3 + i) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
-        NEXT i
-    END IF
-
-    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
-        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
-        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
-    END IF
-
-    'Top bar:
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
-    TopLine$ = "Now watching: " + TRIM$(CLIENT.CURRENTMODULE)
-    _PRINTSTRING (_WIDTH - 5 - _PRINTWIDTH(TopLine$), 3), TopLine$
-    stepButtonText$ = "<F8 = Enter BREAKPOINT MODE>"
-    stepButtonW = _PRINTWIDTH(stepButtonText$): stepButtonX = _WIDTH - stepButtonW - 40
-
-    TopLine$ = "Total variables:" + STR$(CLIENT.TOTALVARIABLES) + IIFSTR$(LEN(FilteredList$), " (showing " + TRIM$(STR$(LEN(FilteredList$) / 4)) + ")", "")
-    _PRINTSTRING (5, _FONTHEIGHT + 3), TopLine$
-    TopLine$ = "Next line: " + CHR$(16) + GETLINE$(CLIENT.LINENUMBER)
-    IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
-        LINE (250 + _PRINTWIDTH("Next line: "), _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
-        COLOR _RGB32(255, 255, 255)
-    END IF
-    _PRINTSTRING (250, _FONTHEIGHT + 3), TopLine$
-    COLOR _RGB32(0, 0, 0)
-    TopLine$ = IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
-    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
-
-    GOSUB CheckButtons
-    _PRINTSTRING (stepButtonX, 3), stepButtonText$
-    FOR i = 1 TO LEN(stepButtonText$)
-        IF (ASC(stepButtonText$, i) <> 60) AND (ASC(stepButtonText$, i) <> 62) THEN
-            ASC(stepButtonText$, i) = 32
-        END IF
-    NEXT i
-    COLOR _RGB32(255, 255, 0)
-    _PRINTSTRING (stepButtonX, 2), stepButtonText$
-    COLOR _RGB32(0, 0, 0)
-
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), t$
-        END IF
-        GOSUB DisplayScrollbar
-    ELSE
-        'End of list message:
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
-        END IF
-    END IF
-
-    _DISPLAY
-    RETURN
-
-    DisplayScrollbar:
-    ShowScroll = 1
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        IF INFOSCREENHEIGHT < 600 THEN
-            ShowScroll = 0
-        ELSE
-            SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
-            SB_ThumbH = (_HEIGHT * SB_Ratio)
-        END IF
-    ELSE
-        SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT * SB_Ratio)
-    END IF
-
-    'Scrollbar:
-    IF ShowScroll THEN
-        SB_ThumbY = (y * SB_Ratio)
-        LINE (_WIDTH - 30, 0)-STEP(29, _HEIGHT - 1), _RGB32(170, 170, 170), BF
-        IF grabbedY = -1 THEN
-            SB_StartX = 25
-            SB_ThumbW = 19
-            SB_ThumbColor = _RGB32(70, 70, 70)
-        ELSE
-            SB_StartX = 24
-            SB_ThumbW = 17
-            SB_ThumbColor = _RGB32(0, 0, 0)
-            SB_ThumbY = SB_ThumbY + 1
-            SB_ThumbH = SB_ThumbH - 2
-        END IF
-        LINE (_WIDTH - SB_StartX, SB_ThumbY + 3)-STEP(SB_ThumbW, SB_ThumbH - 7), SB_ThumbColor, BF
-    END IF
-    RETURN
-
-    CheckButtons:
-    IF my > _FONTHEIGHT THEN RETURN
-    IF (mx >= stepButtonX) AND (mx <= stepButtonX + stepButtonW) THEN
-        LINE (stepButtonX - 3, 3)-STEP(stepButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
-        IF mb THEN GOTO StepButton_Click
-        RETURN
-    END IF
-    RETURN
-END SUB
-
 SUB PARSEARRAY (ArrayName$, Valid%, LowerBoundary%, UpperBoundary%)
     DIM Position AS INTEGER
     DIM Char AS STRING
@@ -1984,6 +2830,7 @@ SUB PARSEARRAY (ArrayName$, Valid%, LowerBoundary%, UpperBoundary%)
     NEXT i
 END SUB
 
+'------------------------------------------------------------------------------
 FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
     'save some old values
     LoadFile_DC = _DEFAULTCOLOR: LoadFile_BG = _BACKGROUNDCOLOR
@@ -2045,7 +2892,6 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
         CLOSE #1
         KILL "TempDirList.txt"
     END IF
-
 
     _SOURCE LoadFile_ws: _DEST LoadFile_ws
     IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
@@ -2288,403 +3134,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
     '_FONT f
 END SUB
 
-SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
-    'Allows user to select which of the found variables will be watched.
-    'Shows a UI similar to monitor mode, with extra commands to filter/add.
-
-    DIM SB_Ratio AS SINGLE
-
-    AddedList$ = STRING$(TOTALVARIABLES, 0) 'Start interactive mode with all variables unselected
-    TotalSelected = 0
-
-    INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
-    IF INFOSCREENHEIGHT > 600 THEN
-        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
-    END IF
-
-    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-    CLS
-
-    Filter$ = ""
-    searchIn = VARIABLENAMES
-    SB_ThumbY = 0
-    grabbedY = -1
-    t$ = "(end of list)"
-    _KEYCLEAR
-
-    longestVarName = 1
-    FOR i = 1 TO TOTALVARIABLES
-        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
-    NEXT i
-
-    DO: _LIMIT 500
-        k = _KEYHIT: modKey = k
-        IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
-        IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
-        IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
-        IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
-
-        SELECT EVERYCASE k
-            CASE 86, 118 'V
-                IF ctrlDown = -1 THEN
-                    IF LEN(_CLIPBOARD$) THEN Filter$ = Filter$ + _CLIPBOARD$
-                    k = 0
-                END IF
-            CASE 32 TO 126 'Printable ASCII characters
-                IF searchIn <> SCOPE THEN
-                    Filter$ = Filter$ + CHR$(k)
-                ELSE
-                    IF k = ASC("L") OR k = ASC("l") THEN
-                        Filter$ = "LOCAL"
-                    ELSEIF k = ASC("S") OR k = ASC("s") THEN
-                        Filter$ = "SHARED"
-                    END IF
-                END IF
-            CASE 8 'Backspace
-                IF searchIn <> SCOPE THEN
-                    IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-                ELSE
-                    Filter$ = ""
-                END IF
-            CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
-                IF searchIn = SCOPE THEN Filter$ = ""
-                SELECT CASE searchIn
-                    CASE VARIABLENAMES: IF shiftDown = 0 THEN searchIn = SCOPE ELSE searchIn = DATATYPES
-                    CASE SCOPE: IF shiftDown = 0 THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
-                    CASE DATATYPES: IF shiftDown = 0 THEN searchIn = VARIABLENAMES ELSE searchIn = SCOPE
-                END SELECT
-                IF searchIn = SCOPE THEN Filter$ = ""
-            CASE 27 'ESC clears the current search filter or exits interactive mode
-                IF LEN(Filter$) THEN
-                    Filter$ = ""
-                ELSE
-                    CancelButton_Click:
-                    AddedList$ = CHR$(3)
-                    EXIT DO
-                END IF
-            CASE 15360 'F2
-                SelectButton_Click:
-                IF LEN(Filter$) = 0 THEN
-                    AddedList$ = STRING$(TOTALVARIABLES, 1)
-                    TotalSelected = TOTALVARIABLES
-                ELSE
-                    FOR i = 1 TO LEN(FilteredList$) / 4
-                        item = CVL(MID$(FilteredList$, i * 4 - 3, 4))
-                        IF ASC(AddedList$, item) = 0 THEN
-                            ASC(AddedList$, item) = 1: TotalSelected = TotalSelected + 1
-                        END IF
-                    NEXT i
-                END IF
-            CASE 15616 'F3
-                ClearButton_Click:
-                IF LEN(Filter$) = 0 THEN
-                    AddedList$ = STRING$(TOTALVARIABLES, 0)
-                    TotalSelected = 0
-                ELSE
-                    FOR i = 1 TO LEN(FilteredList$) / 4
-                        item = CVL(MID$(FilteredList$, i * 4 - 3, 4))
-                        IF ASC(AddedList$, item) = 1 THEN
-                            ASC(AddedList$, item) = 0: TotalSelected = TotalSelected - 1
-                        END IF
-                    NEXT i
-                END IF
-            CASE 16128 'F5
-                SaveButton_Click:
-                IF TotalSelected > 0 THEN
-                    EXIT DO
-                END IF
-            CASE 18432 'Up
-                IF INFOSCREENHEIGHT > 600 THEN
-                    IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                END IF
-            CASE 20480 'Down
-                IF INFOSCREENHEIGHT > 600 THEN
-                    IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                END IF
-        END SELECT
-
-        IF INFOSCREENHEIGHT > 600 THEN
-            DO
-                y = y + (_MOUSEWHEEL * (_HEIGHT(MAINSCREEN) / 5))
-                mx = _MOUSEX
-                my = _MOUSEY
-                mb = _MOUSEBUTTON(1)
-            LOOP WHILE _MOUSEINPUT
-
-            IF mb THEN
-                IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
-                    'Clicked inside the scroll bar. Check if click was on the thumb:
-                    IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
-                        'Clicked on the thumb:
-                        grabbedY = my: starty = y: updatedY = grabbedY
-                        GOSUB DisplayScrollbar
-                        _AUTODISPLAY
-                        DO WHILE _MOUSEBUTTON(1)
-                            m = _MOUSEINPUT
-                            my = _MOUSEY
-                            y = starty + ((my - grabbedY) / SB_Ratio)
-
-                            IF y < 0 THEN y = 0
-                            IF INFOSCREENHEIGHT > 600 THEN
-                                IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-                            ELSE
-                                y = 0
-                            END IF
-
-                            IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
-                            IF ABS(my - updatedY) > (_HEIGHT / _FONTHEIGHT) THEN
-                                'We don't update the screen with every move of the scrollbar thumb,
-                                'because it either slows everything down or flickers. However, it can
-                                'be updated at preset move intervals.
-                                _DISPLAY
-                                GOSUB UpdateList
-                                _AUTODISPLAY
-                                updatedY = my
-                            END IF
-                        LOOP
-                        grabbedY = -1
-                        _DISPLAY
-                    ELSE
-                        'Clicked above or below the thumb:
-                        IF my < SB_ThumbY THEN
-                            m = _MOUSEINPUT
-                            y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                        ELSE
-                            m = _MOUSEINPUT
-                            y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                        END IF
-                    END IF
-                END IF
-            END IF
-        END IF
-
-        cursorBlink% = cursorBlink% + 1
-        IF cursorBlink% > 50 THEN cursorBlink% = 0
-
-        'Update list:
-        GOSUB UpdateList
-
-        IF _EXIT THEN
-            CLOSE
-            KILL NEWFILENAME$
-            SYSTEM
-        END IF
-    LOOP
-
-    _AUTODISPLAY
-    COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
-
-    EXIT SUB
-    UpdateList:
-    'Build a filtered list, if a filter is active:
-    i = 0: FilteredList$ = ""
-    INFOSCREENHEIGHT = _FONTHEIGHT * (TOTALVARIABLES + 6)
-    IF LEN(Filter$) > 0 THEN
-        DO
-            i = i + 1
-            IF i > TOTALVARIABLES THEN EXIT DO
-            Found = 0
-            SELECT CASE searchIn
-                CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
-                CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
-                CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
-            END SELECT
-            IF Found THEN
-                FilteredList$ = FilteredList$ + MKL$(i)
-            END IF
-        LOOP
-        IF LEN(FilteredList$) > 0 THEN INFOSCREENHEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 6)
-    END IF
-
-    IF y < 0 THEN y = 0
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-    ELSE
-        y = 0
-    END IF
-
-    'Place a light gray rectangle under the column that can currently be filtered:
-    SELECT CASE searchIn
-        CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(15))
-            columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
-        CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(29)) + _PRINTWIDTH(SPACE$(7))
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
-        CASE SCOPE
-            columnHighlightX = _PRINTWIDTH(SPACE$(8))
-            columnHighlightW = _PRINTWIDTH(SPACE$(7))
-    END SELECT
-    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
-
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
-    ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
-        columnHightlighH = _FONTHEIGHT
-    ELSE
-        columnHightlighH = (TOTALVARIABLES * _FONTHEIGHT) + 8
-    END IF
-    CLS , _RGB32(255, 255, 255)
-    LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
-
-    'Get mouse coordinates:
-    DO
-    LOOP WHILE _MOUSEINPUT
-    mx = _MOUSEX: my = _MOUSEY: mb = _MOUSEBUTTON(1)
-
-    'Print list items to the screen:
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        FOR ii = 1 TO LEN(FilteredList$) / 4
-            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            printY = ((3 + ii) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
-                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
-                _PRINTSTRING (5, printY), v$
-            END IF
-        NEXT ii
-    ELSEIF LEN(Filter$) = 0 THEN
-        FOR i = 1 TO TOTALVARIABLES
-            printY = ((3 + i) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
-                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
-                _PRINTSTRING (5, printY), v$
-            END IF
-        NEXT i
-    END IF
-
-    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
-        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
-        _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to clear)"
-    END IF
-
-    'Top bar:
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, 50), _RGB32(179, 255, 255), BF
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
-    cancelButtonText$ = "<ESC = Cancel>"
-    selectButtonText$ = "<F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
-    clearButtonText$ = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
-    saveButtonText$ = IIFSTR$(TotalSelected > 0, "<F5 = Save and continue>", "")
-    ButtonLine$ = cancelButtonText$ + " " + selectButtonText$ + " " + clearButtonText$ + " " + saveButtonText$
-    cancelButtonX = (INSTR(ButtonLine$, cancelButtonText$) * _FONTWIDTH): cancelButtonW = _PRINTWIDTH(cancelButtonText$)
-    selectButtonX = (INSTR(ButtonLine$, selectButtonText$) * _FONTWIDTH): selectButtonW = _PRINTWIDTH(selectButtonText$)
-    clearButtonX = (INSTR(ButtonLine$, clearButtonText$) * _FONTWIDTH): clearButtonW = _PRINTWIDTH(clearButtonText$)
-    IF LEN(saveButtonText$) > 0 THEN saveButtonX = (INSTR(ButtonLine$, saveButtonText$) * _FONTWIDTH): saveButtonW = _PRINTWIDTH(saveButtonText$) ELSE saveButtonX = 0
-
-    totalinfo$ = "INTERACTIVE MODE: " + NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
-    _PRINTSTRING (5, (_FONTHEIGHT + 3)), totalinfo$
-    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
-
-    GOSUB CheckButtons
-    _PRINTSTRING (5, 3), ButtonLine$
-    FOR i = 1 TO LEN(ButtonLine$)
-        IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
-            ASC(ButtonLine$, i) = 32
-        END IF
-    NEXT i
-    COLOR _RGB32(255, 255, 0)
-    _PRINTSTRING (5, 2), ButtonLine$
-    COLOR _RGB32(0, 0, 0)
-
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + TOTALVARIABLES) * _FONTHEIGHT) - y), t$
-        END IF
-        GOSUB DisplayScrollbar
-    ELSE
-        'End of list message:
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
-        END IF
-    END IF
-
-    _DISPLAY
-    RETURN
-
-    DisplayScrollbar:
-    ShowScroll = 1
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        IF INFOSCREENHEIGHT < 600 THEN
-            ShowScroll = 0
-        ELSE
-            SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
-            SB_ThumbH = (_HEIGHT * SB_Ratio)
-        END IF
-    ELSE
-        SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT * SB_Ratio)
-    END IF
-
-    IF ShowScroll THEN
-        SB_ThumbY = (y * SB_Ratio)
-        LINE (_WIDTH - 30, 0)-STEP(29, _HEIGHT - 1), _RGB32(170, 170, 170), BF
-        IF grabbedY = -1 THEN
-            SB_StartX = 25
-            SB_ThumbW = 19
-            SB_ThumbColor = _RGB32(70, 70, 70)
-        ELSE
-            SB_StartX = 24
-            SB_ThumbW = 17
-            SB_ThumbColor = _RGB32(0, 0, 0)
-            SB_ThumbY = SB_ThumbY + 1
-            SB_ThumbH = SB_ThumbH - 2
-        END IF
-        LINE (_WIDTH - SB_StartX, SB_ThumbY + 3)-STEP(SB_ThumbW, SB_ThumbH - 7), SB_ThumbColor, BF
-    END IF
-    RETURN
-
-    DetectClick:
-    'Place a hover indicator over this item:
-    LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
-    'Select/Clear the item if a mouse click was detected.
-    IF mb THEN
-        'Wait until a mouse up event is received:
-        WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
-        mb = 0
-
-        IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
-            IF ASC(AddedList$, i) = 1 THEN
-                ASC(AddedList$, i) = 0
-                TotalSelected = TotalSelected - 1
-            ELSE
-                ASC(AddedList$, i) = 1
-                TotalSelected = TotalSelected + 1
-            END IF
-        END IF
-    END IF
-    RETURN
-
-    CheckButtons:
-    IF my > _FONTHEIGHT THEN RETURN
-    IF (mx >= cancelButtonX) AND (mx <= cancelButtonX + cancelButtonW) THEN
-        LINE (cancelButtonX - 3, 3)-STEP(cancelButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
-        IF mb THEN GOTO CancelButton_Click
-        RETURN
-    END IF
-    IF (mx >= selectButtonX) AND (mx <= selectButtonX + selectButtonW) THEN
-        LINE (selectButtonX - 3, 3)-STEP(selectButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
-        IF mb THEN GOTO SelectButton_Click
-        RETURN
-    END IF
-    IF (mx >= clearButtonX) AND (mx <= clearButtonX + clearButtonW) THEN
-        LINE (clearButtonX - 3, 3)-STEP(clearButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
-        IF mb THEN GOTO ClearButton_Click
-        RETURN
-    END IF
-    IF (mx >= saveButtonX) AND (mx <= saveButtonX + saveButtonW) THEN
-        LINE (saveButtonX - 3, 3)-STEP(saveButtonW, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
-        IF mb THEN GOTO SaveButton_Click
-        RETURN
-    END IF
-    RETURN
-END SUB
-
+'------------------------------------------------------------------------------
 FUNCTION MULTI_SEARCH (FullText$, SearchString$)
     'Returns -1 if any of the search items in SearchString can be found
     'in FullText$. Returns 0 if no search terms are found.
@@ -2708,6 +3158,7 @@ FUNCTION MULTI_SEARCH (FullText$, SearchString$)
     END IF
 END SUB
 
+'------------------------------------------------------------------------------
 SUB RESTORE_LIBRARY
     'Restores "timers.h" in the same folder as vWATCH64 is (hopefully
     'it's also the folder QB64 is). The file "timers.h" needs to be
@@ -2736,6 +3187,7 @@ SUB RESTORE_LIBRARY
     CLOSE #LibOutput
 END SUB
 
+'------------------------------------------------------------------------------
 FUNCTION ADLER32$ (DataArray$)
     'This function comes from Videogamer555. Read the original topic below:
     'http://www.qb64.net/forum/index.php?topic=2804.msg24245#msg24245
@@ -2760,445 +3212,7 @@ FUNCTION ADLER32$ (DataArray$)
     ADLER32$ = A32$
 END FUNCTION
 
-SUB BREAKPOINT_MODE
-    'Allows setting breakpoints and stepping through code
-    DIM SB_Ratio AS SINGLE
-    DIM SourceLine AS STRING
-
-    TotalBreakpoints = 0
-    BREAKPOINT.ACTION = NEXTSTEP 'Start paused; execution starts with F5 or F8.
-    PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
-
-    INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALSOURCELINES + 6)
-    IF INFOSCREENHEIGHT > 600 THEN
-        SB_Ratio = _HEIGHT(MAINSCREEN) / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT(MAINSCREEN) * SB_Ratio) - 6
-    END IF
-
-    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-    CLS , _RGB32(255, 255, 255)
-
-    Filter$ = ""
-    SB_ThumbY = 0
-    grabbedY = -1
-    t$ = "(end of source file)"
-    STEPMODE = -1
-    UpdateNextStep = -1
-    _KEYCLEAR
-    TIMED_OUT = 0
-
-    DO: _LIMIT 500
-        GOSUB GetInput
-        'Check if the connection is still alive on the client's end
-        GET #FILE, HEADERBLOCK, HEADER
-        IF HEADER.CLIENT_PING = 0 THEN
-            NO_PING = NO_PING + 1
-            IF NO_PING > TIMEOUTLIMIT THEN
-                BEEP
-                CLOSE
-                EXIT DO
-            END IF
-        ELSE
-            NO_PING = 0
-            HEADER.CLIENT_PING = 0
-            PUT #FILE, HEADERBLOCK, HEADER
-        END IF
-
-        'Inform the client we're still alive and kicking.
-        HEADER.HOST_PING = -1
-        PUT #FILE, HEADERBLOCK, HEADER
-
-        GET #FILE, CLIENTBLOCK, CLIENT
-        IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = 1
-        PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
-
-        GOSUB UpdateList
-        IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT
-
-    IF NOT USERQUIT THEN GOSUB EndMessage
-    EXIT SUB
-    EndMessage:
-    OVERLAYSCREEN = _NEWIMAGE(500, 300, 32)
-    _DEST OVERLAYSCREEN
-
-    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
-    LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
-
-    IF HEADER.CONNECTED = 0 THEN
-        EndMessage$ = "Connection closed by client."
-    ELSEIF TIMED_OUT THEN
-        EndMessage$ = "Connection timed out."
-    END IF
-
-    CLOSE
-    ON ERROR GOTO FileError
-    KILL PATHONLY$(EXENAME) + "vwatch64.dat"
-
-    IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
-        BEEP
-        _KEYCLEAR
-        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
-        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), EndMessage$
-        EndMessage$ = "Press any key to continue..."
-        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT + 1), EndMessage$
-        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT), EndMessage$
-        _DEST MAINSCREEN
-        _PUTIMAGE , OVERLAYSCREEN
-        _FREEIMAGE OVERLAYSCREEN
-        DO: _LIMIT 30
-            IF _EXIT THEN USERQUIT = -1: EXIT DO
-        LOOP UNTIL _KEYHIT
-    END IF
-    RETURN
-
-    GetInput:
-    k = _KEYHIT: modKey = k
-    IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
-    IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
-    IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
-    IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
-
-    SELECT EVERYCASE k
-        CASE 32 TO 126 'Printable ASCII characters
-            Filter$ = Filter$ + CHR$(k)
-        CASE 8 'Backspace
-            IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-        CASE 27 'ESC clears the current search filter or exits interactive mode
-            IF LEN(Filter$) THEN
-                Filter$ = ""
-            ELSE
-                ExitButton_Click:
-                USERQUIT = -1
-            END IF
-        CASE 18432 'Up
-            IF INFOSCREENHEIGHT > 600 THEN
-                IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            END IF
-        CASE 20480 'Down
-            IF INFOSCREENHEIGHT > 600 THEN
-                IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-            END IF
-        CASE 16128 'F5
-            RunButton_Click:
-            STEPMODE = 0
-            BREAKPOINT.ACTION = CONTINUE
-            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
-        CASE 16384 'F6
-            WindowButton_Click:
-            _KEYCLEAR
-            MONITOR_MODE
-        CASE 16896 'F8
-            StepButton_Click:
-            STEPMODE = -1
-            UpdateNextStep = -1
-            BREAKPOINT.ACTION = NEXTSTEP
-            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
-        CASE 17152 'F9
-            ToggleButton_Click:
-            IF STEPMODE = -1 THEN
-                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
-                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
-                    TotalBreakpoints = TotalBreakpoints - 1
-                ELSE
-                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
-                    TotalBreakpoints = TotalBreakpoints + 1
-                END IF
-            END IF
-    END SELECT
-
-    IF INFOSCREENHEIGHT > 600 THEN
-        DO
-            y = y + (_MOUSEWHEEL * (_HEIGHT(MAINSCREEN) / 5))
-            mx = _MOUSEX
-            my = _MOUSEY
-            mb = _MOUSEBUTTON(1)
-        LOOP WHILE _MOUSEINPUT
-
-        IF mb THEN
-            IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
-                'Clicked inside the scroll bar. Check if click was on the thumb:
-                IF my > SB_ThumbY AND my < SB_ThumbY + SB_ThumbH THEN
-                    'Clicked on the thumb:
-                    grabbedY = my: starty = y: updatedY = grabbedY
-                    GOSUB DisplayScrollbar
-                    _AUTODISPLAY
-                    DO WHILE _MOUSEBUTTON(1)
-                        m = _MOUSEINPUT
-                        my = _MOUSEY
-                        y = starty + ((my - grabbedY) / SB_Ratio)
-
-                        IF y < 0 THEN y = 0
-                        IF INFOSCREENHEIGHT > 600 THEN
-                            IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-                        ELSE
-                            y = 0
-                        END IF
-
-                        IF prevY <> y THEN GOSUB DisplayScrollbar: prevY = y
-                        IF ABS(my - updatedY) > (_HEIGHT / _FONTHEIGHT) THEN
-                            'We don't update the screen with every move of the scrollbar thumb,
-                            'because it either slows everything down or flickers. However, it can
-                            'be updated at preset move intervals.
-                            _DISPLAY
-                            GOSUB UpdateList
-                            _AUTODISPLAY
-                            updatedY = my
-                        END IF
-                    LOOP
-                    grabbedY = -1
-                    _DISPLAY
-                ELSE
-                    'Clicked above or below the thumb:
-                    IF my < SB_ThumbY THEN
-                        m = _MOUSEINPUT
-                        y = y - (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                    ELSE
-                        m = _MOUSEINPUT
-                        y = y + (_HEIGHT(MAINSCREEN) * SB_Ratio)
-                    END IF
-                END IF
-            END IF
-        END IF
-    END IF
-    RETURN
-
-    UpdateList:
-    CLS , _RGB32(255, 255, 255)
-    cursorBlink% = cursorBlink% + 1
-    IF cursorBlink% > 50 THEN cursorBlink% = 0
-
-    'Build a filtered list, if a filter is active:
-    i = 0: FilteredList$ = ""
-    INFOSCREENHEIGHT = _FONTHEIGHT * (CLIENT.TOTALSOURCELINES + 6)
-    IF LEN(Filter$) > 0 THEN
-        DO
-            i = i + 1
-            IF i > CLIENT.TOTALSOURCELINES THEN EXIT DO
-            Found = MULTI_SEARCH(UCASE$(GETLINE$(i)), UCASE$(Filter$))
-            IF Found THEN
-                FilteredList$ = FilteredList$ + MKL$(i)
-            END IF
-        LOOP
-        IF LEN(FilteredList$) > 0 THEN INFOSCREENHEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 6)
-    END IF
-
-    'Scroll to the line currently being run
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF (STEPMODE = 0) OR (STEPMODE = -1 AND UpdateNextStep = -1) THEN
-            IF UpdateNextStep = -1 THEN UpdateNextStep = 0
-            CurrentLineY = ((3 + CLIENT.LINENUMBER) * _FONTHEIGHT) - y - (_FONTHEIGHT * 2)
-            IF (CurrentLineY < (50 - _FONTHEIGHT)) THEN
-                y = ((3 + CLIENT.LINENUMBER) * _FONTHEIGHT) - (_HEIGHT / 2) - (_FONTHEIGHT * 2)
-            ELSEIF (CurrentLineY > _HEIGHT) THEN
-                y = ((3 + CLIENT.LINENUMBER) * _FONTHEIGHT) - (_HEIGHT / 2) - (_FONTHEIGHT * 2)
-            END IF
-        END IF
-    END IF
-
-    IF y < 0 THEN y = 0
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF y > INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN) THEN y = INFOSCREENHEIGHT - _HEIGHT(MAINSCREEN)
-    ELSE
-        y = 0
-    END IF
-
-    'Get mouse coordinates:
-    DO
-    LOOP WHILE _MOUSEINPUT
-    mx = _MOUSEX: my = _MOUSEY: mb = _MOUSEBUTTON(1)
-
-    CLS , _RGB32(255, 255, 255)
-    'Print list items to the screen:
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        FOR ii = 1 TO LEN(FilteredList$) / 4
-            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            SourceLine = GETLINE$(i)
-            printY = ((3 + ii) * _FONTHEIGHT) - y
-            IF printY > _HEIGHT THEN EXIT FOR
-            IF printY < 50 - _FONTHEIGHT THEN GOTO SkipPrint1
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
-                GOSUB ColorizeBreakpoint
-                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-                _PRINTSTRING (5, printY), v$
-                COLOR _RGB32(0, 0, 0)
-            END IF
-            SkipPrint1:
-        NEXT ii
-    ELSEIF LEN(Filter$) = 0 THEN
-        FOR i = 1 TO CLIENT.TOTALSOURCELINES
-            SourceLine = GETLINE$(i)
-            printY = ((3 + i) * _FONTHEIGHT) - y
-            IF printY > _HEIGHT THEN EXIT FOR
-            IF printY < 50 - _FONTHEIGHT THEN GOTO SkipPrint2
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
-                GOSUB ColorizeBreakpoint
-                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-                _PRINTSTRING (5, printY), v$
-                COLOR _RGB32(0, 0, 0)
-            END IF
-            SkipPrint2:
-        NEXT i
-    END IF
-
-    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
-        _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
-        _PRINTSTRING (5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to reset filter)"
-    END IF
-
-    'Top bar:
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, 50), _RGB32(179, 255, 255), BF
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN) - 31, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
-    TopLine$ = "BREAKPOINT MODE: " + NOPATH$(FILENAME$) + " - Breakpoints set: " + TRIM$(STR$(TotalBreakpoints))
-    _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
-    TopLine$ = IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
-    _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
-
-    'Top buttons:
-    TotalButtons = 5
-    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
-    Buttons(1).CAPTION = "<F5 = Run>"
-    Buttons(2).CAPTION = "<F6 = Variables>"
-    Buttons(3).CAPTION = "<F8 = Step>"
-    Buttons(4).CAPTION = IIFSTR$(STEPMODE, "<F9 = Toggle breakpoint>", "")
-    Buttons(5).CAPTION = "<ESC = Exit>"
-
-    ButtonLine$ = ""
-    FOR cb = 1 TO TotalButtons
-        c$ = TRIM$(Buttons(cb).CAPTION)
-        ButtonLine$ = ButtonLine$ + IIFSTR$(LEN(c$), c$ + " ", "")
-    NEXT cb
-
-    FOR cb = 1 TO TotalButtons
-        Buttons(cb).X = INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION)) * _FONTWIDTH
-        Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
-    NEXT cb
-
-    GOSUB CheckButtons
-
-    _PRINTSTRING (5, 3), ButtonLine$
-    FOR i = 1 TO LEN(ButtonLine$)
-        IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
-            ASC(ButtonLine$, i) = 32
-        END IF
-    NEXT i
-    COLOR _RGB32(255, 255, 0)
-    _PRINTSTRING (5, 2), ButtonLine$
-    COLOR _RGB32(0, 0, 0)
-
-    IF INFOSCREENHEIGHT > 600 THEN
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), t$
-        END IF
-        GOSUB DisplayScrollbar
-    ELSE
-        'End of list message:
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), t$ + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, INFOSCREENHEIGHT - _FONTHEIGHT - y), t$
-        END IF
-    END IF
-
-    _DISPLAY
-    RETURN
-
-    DisplayScrollbar:
-    ShowScroll = 1
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        IF INFOSCREENHEIGHT < 600 THEN
-            ShowScroll = 0
-        ELSE
-            SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
-            SB_ThumbH = (_HEIGHT * SB_Ratio)
-        END IF
-    ELSE
-        SB_Ratio = _HEIGHT / INFOSCREENHEIGHT
-        SB_ThumbH = (_HEIGHT * SB_Ratio)
-    END IF
-
-    IF ShowScroll THEN
-        SB_ThumbY = (y * SB_Ratio)
-        LINE (_WIDTH - 30, 0)-STEP(29, _HEIGHT - 1), _RGB32(170, 170, 170), BF
-        IF grabbedY = -1 THEN
-            SB_StartX = 25
-            SB_ThumbW = 19
-            SB_ThumbColor = _RGB32(70, 70, 70)
-        ELSE
-            SB_StartX = 24
-            SB_ThumbW = 17
-            SB_ThumbColor = _RGB32(0, 0, 0)
-            SB_ThumbY = SB_ThumbY + 1
-            SB_ThumbH = SB_ThumbH - 2
-        END IF
-        LINE (_WIDTH - SB_StartX, SB_ThumbY + 3)-STEP(SB_ThumbW, SB_ThumbH - 7), SB_ThumbColor, BF
-    END IF
-    RETURN
-
-    ColorizeBreakpoint:
-    'Colorize the line if it's the next to be run and if a breakpoint is set
-    IF CLIENT.LINENUMBER = i THEN
-        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
-    END IF
-    IF ASC(BREAKPOINTLIST, i) = 1 THEN
-        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
-        COLOR _RGB32(255, 255, 255)
-    END IF
-    RETURN
-
-    DetectClick:
-    'Select/Clear the item if a mouse click was detected.
-    IF mb THEN
-        'Wait until a mouse up event is received:
-        WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
-        mb = 0
-
-        'Toggle breakpoint:
-        IF LEN(SourceLine) = 0 THEN
-        ELSEIF STEPMODE = 0 THEN
-        ELSE
-            IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
-                IF ASC(BREAKPOINTLIST, i) = 1 THEN
-                    ASC(BREAKPOINTLIST, i) = 0
-                    TotalBreakpoints = TotalBreakpoints - 1
-                ELSE
-                    ASC(BREAKPOINTLIST, i) = 1
-                    TotalBreakpoints = TotalBreakpoints + 1
-                END IF
-            END IF
-        END IF
-    END IF
-    RETURN
-
-    CheckButtons:
-    IF my > _FONTHEIGHT THEN RETURN
-    FOR cb = 1 TO UBOUND(Buttons)
-        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 230), BF
-            IF mb THEN
-                WHILE _MOUSEBUTTON(1): mi = _MOUSEINPUT: WEND
-                SELECT CASE cb
-                    CASE 1: GOTO RunButton_Click
-                    CASE 2: GOTO WindowButton_Click
-                    CASE 3: GOTO StepButton_Click
-                    CASE 4: GOTO ToggleButton_Click
-                    CASE 5: GOTO ExitButton_Click
-                END SELECT
-            END IF
-            RETURN
-        END IF
-    NEXT cb
-    RETURN
-END SUB
-
+'------------------------------------------------------------------------------
 FUNCTION GETLINE$ (TargetLine AS LONG)
     DIM LineLength AS LONG
 
@@ -3214,3 +3228,128 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
 
     GETLINE$ = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LineLength)
 END FUNCTION
+
+'------------------------------------------------------------------------------
+SUB SEND_PING
+    'Check if the connection is still alive on the client's end
+    GET #FILE, HEADERBLOCK, HEADER
+    IF HEADER.CLIENT_PING = 0 THEN
+        IF HAS_INPUT(GETLINE$(CLIENT.LINENUMBER)) = 0 THEN NO_PING = NO_PING + 1
+        IF NO_PING > TIMEOUTLIMIT THEN
+            TIMED_OUT = -1
+        END IF
+    ELSE
+        NO_PING = 0
+        HEADER.CLIENT_PING = 0
+        PUT #FILE, HEADERBLOCK, HEADER
+    END IF
+
+    'Inform the client we're still alive and kicking.
+    HEADER.HOST_PING = -1
+    PUT #FILE, HEADERBLOCK, HEADER
+END SUB
+
+'------------------------------------------------------------------------------
+FUNCTION HAS_INPUT (Text$)
+    T$ = UCASE$(TRIM$(STRIPCOMMENTS$(Text$)))
+    IF LEFT$(T$, 6) = "INPUT " THEN HAS_INPUT = -1: EXIT FUNCTION
+    IF LEFT$(T$, 11) = "LINE INPUT " THEN HAS_INPUT = -1: EXIT FUNCTION
+
+    InputFound = INSTR(T$, " INPUT ")
+    IF InputFound = 0 THEN InputFound = INSTR(T$, ":INPUT ")
+    IF InputFound = 0 THEN EXIT FUNCTION
+
+    'Checks if the INPUT statement outside quotation marks or comments
+    FOR i = 1 TO InputFound - 1
+        IF ASC(T$, i) = 34 THEN
+            OpenQuotation = NOT OpenQuotation
+        END IF
+    NEXT i
+    IF NOT OpenQuotation THEN HAS_INPUT = -1
+END FUNCTION
+
+'------------------------------------------------------------------------------
+FUNCTION INTERVAL_SEARCH (Filter$, i)
+    'Filter must contain a valid numeric string (####) or
+    'a valid interval (####-####).
+
+    Separator = INSTR(Filter$, "-")
+    IF Separator = 0 AND VAL(Filter$) = i THEN INTERVAL_SEARCH = -1: EXIT FUNCTION
+
+    v1 = VAL(LEFT$(Filter$, Separator - 1))
+    v2 = VAL(RIGHT$(Filter$, Separator + 1))
+    IF v1 > v2 THEN SWAP v1, v2
+
+    IF i >= v1 AND i <= v2 THEN INTERVAL_SEARCH = -1
+END FUNCTION
+
+'------------------------------------------------------------------------------
+SUB DISPLAYSCROLLBAR (y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio AS SINGLE, mx, my)
+    IF PAGE_HEIGHT <= LIST_AREA THEN EXIT SUB
+
+    SB_Ratio = LIST_AREA / PAGE_HEIGHT
+    SB_ThumbH = SB_TRACK * SB_Ratio
+    IF SB_ThumbH < 20 THEN SB_ThumbH = 20
+
+    SB_ThumbY = (SB_TRACK - SB_ThumbH) * (y / (PAGE_HEIGHT - LIST_AREA))
+
+    'Draw scrollbar
+    LINE (_WIDTH - 30, SCREEN_TOPBAR + 1)-STEP(29, LIST_AREA), _RGB32(170, 170, 170), BF
+
+    'Draw buttons
+    IF mx > _WIDTH - 30 AND my > SCREEN_TOPBAR + 1 THEN
+        'Highlight arrows if hovererd
+        IF my <= SCREEN_TOPBAR + 21 THEN
+            LINE (_WIDTH - 30, SCREEN_TOPBAR + 1)-STEP(29, 20), _RGBA32(230, 230, 230, 235), BF
+        ELSEIF my >= SCREEN_HEIGHT - 21 THEN
+            LINE (_WIDTH - 30, SCREEN_HEIGHT - 21)-STEP(29, 20), _RGBA32(230, 230, 230, 235), BF
+        END IF
+    END IF
+    _PRINTSTRING (_WIDTH - 20, SCREEN_TOPBAR + 5), CHR$(24)
+    _PRINTSTRING (_WIDTH - 20, SCREEN_HEIGHT - _FONTHEIGHT - 5), CHR$(25)
+
+    IF grabbedY = -1 THEN
+        SB_StartX = 25
+        SB_ThumbW = 19
+        SB_ThumbColor = _RGB32(70, 70, 70)
+    ELSE
+        SB_StartX = 24
+        SB_ThumbW = 17
+        SB_ThumbColor = _RGB32(0, 0, 0)
+        SB_ThumbY = SB_ThumbY + 1
+        SB_ThumbH = SB_ThumbH - 2
+    END IF
+
+    'Draw thumb
+    LINE (_WIDTH - SB_StartX, SB_ThumbY + SCREEN_TOPBAR + 24)-STEP(SB_ThumbW, SB_ThumbH), SB_ThumbColor, BF
+END SUB
+
+'------------------------------------------------------------------------------
+SUB CHECK_SCREEN_LIMITS (y)
+    IF y < 0 THEN y = 0
+    IF PAGE_HEIGHT > LIST_AREA THEN
+        IF y > PAGE_HEIGHT - LIST_AREA THEN y = PAGE_HEIGHT - LIST_AREA
+    ELSE
+        y = 0
+    END IF
+END SUB
+
+'------------------------------------------------------------------------------
+SUB CHECK_RESIZE
+    IF NOT _RESIZE THEN EXIT SUB
+    new_w% = _RESIZEWIDTH
+    IF new_w% < 800 THEN new_w% = 800
+    new_h% = _RESIZEHEIGHT
+    IF new_h% < SCREEN_TOPBAR * 2 THEN new_h% = SCREEN_TOPBAR * 2
+
+    SCREEN_WIDTH = new_w%
+    SCREEN_HEIGHT = new_h%
+    WIDTH SCREEN_WIDTH \ _FONTWIDTH, SCREEN_HEIGHT \ _FONTHEIGHT
+    LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
+    SB_TRACK = LIST_AREA - 48
+END SUB
+
+'------------------------------------------------------------------------------
+'$INCLUDE:'menu.bi'
+'$INCLUDE:'glinput.bi'
+
