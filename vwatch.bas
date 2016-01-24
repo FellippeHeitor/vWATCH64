@@ -403,7 +403,6 @@ SUB SOURCE_VIEW
         CASE 16128 'F5
             RunButton_Click:
             STEPMODE = 0
-            TRACE = 1
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
         CASE 16384 'F6
@@ -412,12 +411,10 @@ SUB SOURCE_VIEW
                 _KEYCLEAR
                 GET #FILE, DATABLOCK, VARIABLES()
                 VARIABLE_VIEW
-                TRACE = -1
             END IF
         CASE 16896 'F8
             StepButton_Click:
             STEPMODE = -1
-            TRACE = -1
             BREAKPOINT.ACTION = NEXTSTEP
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
         CASE 17152 'F9
@@ -512,7 +509,7 @@ SUB SOURCE_VIEW
         IF CurrentLineY > y + LIST_AREA - _FONTHEIGHT THEN
             y = (CurrentLineY - LIST_AREA) + SCREEN_TOPBAR
         ELSEIF CurrentLineY < y THEN
-            y = CurrentLineY - SCREEN_TOPBAR
+            y = CurrentLineY - SCREEN_TOPBAR + (_FONTHEIGHT * 3)
         END IF
     END IF
 
@@ -557,7 +554,7 @@ SUB SOURCE_VIEW
     END IF
 
     'Top bar:
-    '  SOURCE VIEW: <F5 = Run> <F6 = View Variables> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
+    '  SOURCE VIEW: <F5 = Run> <Trace ???> <F6 = View Variables> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
     '  Breakpoints 0 * Next line: ####
     '  Filter (code):
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(179, 255, 255), BF
@@ -573,15 +570,16 @@ SUB SOURCE_VIEW
     TotalButtons = 5
     REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
     Buttons(1).CAPTION = "<F5 = Run>"
-    Buttons(2).CAPTION = "<F6 = View Variables>"
-    Buttons(3).CAPTION = "<F8 = Step>"
+    Buttons(2).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>")
+    Buttons(3).CAPTION = "<F6 = View Variables>"
+    Buttons(4).CAPTION = "<F8 = Step>"
     IF STEPMODE THEN
-        Buttons(4).CAPTION = "<F9 = Toggle Breakpoint>"
+        Buttons(5).CAPTION = "<F9 = Toggle Breakpoint>"
         IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(4).CAPTION = "<F10 = Clear Breakpoints>"
     ELSE
-        Buttons(4).CAPTION = ""
+        Buttons(5).CAPTION = ""
     END IF
-    Buttons(5).CAPTION = "<ESC = Exit>"
+    Buttons(6).CAPTION = "<ESC = Exit>"
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -677,10 +675,11 @@ SUB SOURCE_VIEW
                 mb = 0
                 SELECT CASE cb
                     CASE 1: GOTO RunButton_Click
-                    CASE 2: GOTO WindowButton_Click
-                    CASE 3: GOTO StepButton_Click
-                    CASE 4: GOTO ToggleButton_Click
-                    CASE 5: GOTO ExitButton_Click
+                    CASE 2: TRACE = NOT TRACE
+                    CASE 3: GOTO WindowButton_Click
+                    CASE 4: GOTO StepButton_Click
+                    CASE 5: GOTO ToggleButton_Click
+                    CASE 6: GOTO ExitButton_Click
                     CASE ELSE: BEEP
                 END SELECT
                 RETURN
