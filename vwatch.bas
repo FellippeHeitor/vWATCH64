@@ -567,7 +567,7 @@ SUB SOURCE_VIEW
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
-    TotalButtons = 5
+    TotalButtons = 6
     REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
     Buttons(1).CAPTION = "<F5 = Run>"
     Buttons(2).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>")
@@ -2364,9 +2364,15 @@ SUB PROCESSFILE
     PRINT #BMFile, "    'On the first time this procedure is called, execution is halted,"
     PRINT #BMFile, "    'until the user presses F5 or F8 in vWATCH64"
     PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
+    PRINT #BMFile, "        'It is safe to change the client's title at this point because"
+    PRINT #BMFile, "        'it's the first line to be run so no _TITLE has yet been set."
+    PRINT #BMFile, "        '(if the client never sets a title, this will stick there though)"
+    PRINT #BMFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
     PRINT #BMFile, "        FirstRunDone = -1"
     PRINT #BMFile, "        VWATCH64_STOPTIMERS"
-    PRINT #BMFile, "        vwatch64_VARIABLEWATCH"
+    IF TotalSelected > 0 THEN
+        PRINT #BMFile, "        vwatch64_VARIABLEWATCH"
+    END IF
     PRINT #BMFile, "        DO: _LIMIT 500"
     PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #BMFile, "            GOSUB vwatch64_PING"
@@ -2380,7 +2386,7 @@ SUB PROCESSFILE
     PRINT #BMFile, "        VWATCH64_STOPTIMERS"
     PRINT #BMFile, "        StepMode = -1"
     IF TotalSelected > 0 THEN
-        PRINT #BIFile, "        vwatch64_VARIABLEWATCH"
+        PRINT #BMFile, "        vwatch64_VARIABLEWATCH"
     END IF
     PRINT #BMFile, "        DO: _LIMIT 500"
     PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
