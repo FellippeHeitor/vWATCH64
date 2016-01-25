@@ -58,6 +58,8 @@ CONST CODE = 5
 CONST LINENUMBERS = 6
 
 'Screen:
+CONST DEFAULT_WIDTH = 1000
+CONST DEFAULT_HEIGHT = 600
 CONST SCREEN_TOPBAR = 50
 
 'Custom data types: -----------------------------------------------------------
@@ -170,16 +172,13 @@ SKIPARRAYS = 0
 INTERACTIVE = 0
 NO_TTFONT = 0
 FIRSTPROCESSING = -1
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 600
-LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
-SB_TRACK = LIST_AREA - 48
 
 RESTORE_LIBRARY
 
 'Screen setup: ----------------------------------------------------------------
-MAINSCREEN = _NEWIMAGE(SCREEN_WIDTH, SCREEN_HEIGHT, 32)
+MAINSCREEN = _NEWIMAGE(DEFAULT_WIDTH, DEFAULT_HEIGHT, 32)
 SCREEN MAINSCREEN
+CHECK_RESIZE DEFAULT_WIDTH, DEFAULT_HEIGHT
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
 
@@ -229,7 +228,9 @@ END IF
 
 GOTO MainLoop
 OpenFileMenu:
+IF SCREEN_WIDTH < DEFAULT_WIDTH OR SCREEN_HEIGHT < DEFAULT_HEIGHT THEN CHECK_RESIZE DEFAULT_WIDTH, DEFAULT_HEIGHT
 _RESIZE OFF
+CLS , _RGB32(255, 255, 255)
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
 _RESIZE ON
 _AUTODISPLAY
@@ -243,7 +244,7 @@ SKIPARRAYS = 0
 INTERACTIVE = 0
 FIRSTPROCESSING = 0
 
-IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE ELSE BEEP
+IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE
 NEWFILENAME$ = ""
 
 '------------------------------------------------------------------------------
@@ -500,7 +501,7 @@ SUB SOURCE_VIEW
     RETURN
 
     UpdateList:
-    CHECK_RESIZE
+    CHECK_RESIZE 0, 0
     CLS , _RGB32(255, 255, 255)
     cursorBlink% = cursorBlink% + 1
     IF cursorBlink% > 50 THEN cursorBlink% = 0
@@ -579,7 +580,10 @@ SUB SOURCE_VIEW
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     ModeTitle$ = "SOURCE VIEW: "
     _PRINTSTRING (5, 3), ModeTitle$
-    TopLine$ = "Breakpoints: " + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER))
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (4, 2), ModeTitle$
+    COLOR _RGB32(0, 0, 0)
+    TopLine$ = "Breakpoints: " + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + "(" + TRIM$(CLIENT.CURRENTMODULE) + ")"
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
     TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -588,8 +592,8 @@ SUB SOURCE_VIEW
     TotalButtons = 6: b = 1
     REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
     Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
     Buttons(b).CAPTION = "<F6 = View Variables>": b = b + 1
+    Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
     Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
         IF LEN(FilteredList$) > 0 THEN
@@ -655,7 +659,7 @@ SUB SOURCE_VIEW
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, PAGE_HEIGHT - _FONTHEIGHT - y), ListEnd_Label
+            _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT) - y), ListEnd_Label
         END IF
     END IF
 
@@ -714,8 +718,8 @@ SUB SOURCE_VIEW
                 mb = 0
                 SELECT CASE cb
                     CASE 1: GOTO RunButton_Click
-                    CASE 2: TRACE = NOT TRACE
-                    CASE 3: GOTO WindowButton_Click
+                    CASE 2: GOTO WindowButton_Click
+                    CASE 3: TRACE = NOT TRACE
                     CASE 4: GOTO StepButton_Click
                     CASE 5
                         IF LEN(FilteredList$) THEN BeingViewed = LEN(FilteredList$) / 4 ELSE BeingViewed = CLIENT.TOTALSOURCELINES
@@ -911,7 +915,7 @@ SUB VARIABLE_VIEW
     RETURN
 
     UpdateList:
-    CHECK_RESIZE
+    CHECK_RESIZE 0, 0
     CLS , _RGB32(255, 255, 255)
     cursorBlink% = cursorBlink% + 1
     IF cursorBlink% > 50 THEN cursorBlink% = 0
@@ -959,7 +963,7 @@ SUB VARIABLE_VIEW
             columnHighlightX = 0
             columnHighlightW = _PRINTWIDTH(SPACE$(7))
     END SELECT
-    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
+    columnHighlightY = 51
 
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
@@ -1000,7 +1004,10 @@ SUB VARIABLE_VIEW
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     ModeTitle$ = "VARIABLE VIEW: "
     _PRINTSTRING (5, 3), ModeTitle$
-    TopLine$ = "Now watching: " + TRIM$(CLIENT.CURRENTMODULE)
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (4, 2), ModeTitle$
+    COLOR _RGB32(0, 0, 0)
+    TopLine$ = TRIM$(CLIENT.CURRENTMODULE)
     _PRINTSTRING (_WIDTH - 3 - _PRINTWIDTH(TopLine$), 3), TopLine$
     TopLine$ = "Total variables:" + STR$(CLIENT.TOTALVARIABLES) + IIFSTR$(LEN(FilteredList$), " (showing " + TRIM$(STR$(LEN(FilteredList$) / 4)) + ")", "")
     _PRINTSTRING (_WIDTH - 5 - _PRINTWIDTH(TopLine$), (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -1280,7 +1287,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     RETURN
 
     UpdateList:
-    CHECK_RESIZE
+    CHECK_RESIZE 0, 0
     cursorBlink% = cursorBlink% + 1
     IF cursorBlink% > 50 THEN cursorBlink% = 0
     'Build a filtered list, if a filter is active:
@@ -1317,7 +1324,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             columnHighlightX = _PRINTWIDTH(SPACE$(6))
             columnHighlightW = _PRINTWIDTH(SPACE$(7))
     END SELECT
-    IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
+    columnHighlightY = 51
 
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
@@ -1369,6 +1376,9 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     ModeTitle$ = "INTERACTIVE MODE: "
     _PRINTSTRING (5, 3), ModeTitle$
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (4, 2), ModeTitle$
+    COLOR _RGB32(0, 0, 0)
     totalinfo$ = NOPATH$(FILENAME$) + " - Variables found: " + TRIM$(STR$(TOTALVARIABLES)) + "   Selected: " + TRIM$(STR$(TotalSelected))
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), totalinfo$
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), IIFSTR$(LEN(Filter$), "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), ""), "Filter: " + IIFSTR$(cursorBlink% > 25, CHR$(179), ""))
@@ -1671,7 +1681,7 @@ SUB PROCESSFILE
     'and LOCALVARIABLES. If SUB or FUNCTION is found, injects CURRENTMODULE verification
     'code. If SYSTEM is found, injects cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
-    PRINT "Parsing .BAS...";
+    PRINT "Parsing .BAS and injecting breakpoint control code...";
     IF VERBOSE THEN PRINT
     row = CSRLIN: col = POS(1)
     TotalSourceLines = 0
@@ -2044,6 +2054,7 @@ SUB PROCESSFILE
             bkpx% = POS(1): bkpy% = CSRLIN
             BackupScreen = _COPYIMAGE(0)
             INTERACTIVE_MODE VARIABLES(), AddedList$, TotalSelected
+            CLS , _RGB32(230, 230, 230)
             _PUTIMAGE (0, 0), BackupScreen
             _FREEIMAGE BackupScreen
             LOCATE bkpy%, bkpx%
@@ -2768,7 +2779,6 @@ SUB SETUP_CONNECTION
         PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.CLIENT_ID + CHR$(34)
         PRINT "Reported version: "; HEADER.VERSION
         PRINT "Press any key to go back..."
-        CLOSE #FILE
         SLEEP
         GOTO StartSetup
     END IF
@@ -2791,7 +2801,7 @@ SUB SETUP_CONNECTION
     LOOP UNTIL LEN(TRIM$(CLIENT.CHECKSUM)) > 0
 
     'No CHECKSUM received = connection closed.
-    IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN BEEP: EXIT SUB
+    IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN BEEP: GOTO StartSetup
 
     REDIM VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
@@ -2832,7 +2842,7 @@ SUB SETUP_CONNECTION
     _TITLE TITLESTRING
 
     UpdateScreen:
-    CHECK_RESIZE
+    CHECK_RESIZE 0, 0
     CLS , _RGB32(255, 255, 255)
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
     t$ = "Waiting for a connection..."
@@ -3399,12 +3409,16 @@ SUB CHECK_SCREEN_LIMITS (y)
 END SUB
 
 '------------------------------------------------------------------------------
-SUB CHECK_RESIZE
-    IF NOT _RESIZE THEN EXIT SUB
-    new_w% = _RESIZEWIDTH
-    IF new_w% < 800 THEN new_w% = 800
-    new_h% = _RESIZEHEIGHT
-    IF new_h% < SCREEN_TOPBAR * 2 THEN new_h% = SCREEN_TOPBAR * 2
+SUB CHECK_RESIZE (new_w%, new_h%)
+    IF _RESIZE = 0 THEN
+        IF new_w% + new_h% = 0 THEN EXIT SUB
+    ELSE
+        new_w% = _RESIZEWIDTH
+        new_h% = _RESIZEHEIGHT
+    END IF
+
+    IF new_w% < DEFAULT_WIDTH THEN new_w% = DEFAULT_WIDTH
+    IF new_h% < SCREEN_TOPBAR * 3 THEN new_h% = SCREEN_TOPBAR * 3
 
     SCREEN_WIDTH = new_w%
     SCREEN_HEIGHT = new_h%
