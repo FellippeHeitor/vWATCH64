@@ -292,7 +292,11 @@ SUB SOURCE_VIEW
     DO: _LIMIT 500
         GOSUB ProcessInput
         GET #FILE, CLIENTBLOCK, CLIENT
-        IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1: TRACE = -1
+        IF CLIENT.LINENUMBER <> prev_LineNumber AND ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+            STEPMODE = -1
+            TRACE = -1
+            prev_LineNumber = CLIENT.LINENUMBER
+        END IF
         PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
         GOSUB UpdateList
         IF _EXIT THEN USERQUIT = -1
@@ -571,7 +575,7 @@ SUB SOURCE_VIEW
     COLOR _RGB32(255, 255, 255)
     _PRINTSTRING (4, 2), ModeTitle$
     COLOR _RGB32(0, 0, 0)
-    TopLine$ = "Breakpoints: " + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + "(" + TRIM$(CLIENT.CURRENTMODULE) + ")"
+    TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + TRIM$(CLIENT.CURRENTMODULE) + ")"
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
     TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -639,7 +643,7 @@ SUB SOURCE_VIEW
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), ListEnd_Label
+            _PRINTSTRING (5, ((5 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), ListEnd_Label
         END IF
         DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
     ELSE
@@ -647,7 +651,7 @@ SUB SOURCE_VIEW
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT) - y), ListEnd_Label
+            _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT * 2) - y), ListEnd_Label
         END IF
     END IF
 
@@ -702,8 +706,11 @@ SUB SOURCE_VIEW
     IF mb THEN
         FOR cb = 1 TO UBOUND(Buttons)
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
-                mb = 0
+                WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+                mb = 0: mx = _MOUSEX: my = _MOUSEY
+                'Check if the user moved the mouse out of the button before releasing it (=cancel)
+                IF my > _FONTHEIGHT THEN RETURN
+                IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 SELECT CASE cb
                     CASE 1: GOTO RunButton_Click
                     CASE 2: GOTO WindowButton_Click
@@ -1054,7 +1061,7 @@ SUB VARIABLE_VIEW
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((4 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+            _PRINTSTRING (5, ((5 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
         END IF
         DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
     ELSE
@@ -1062,7 +1069,7 @@ SUB VARIABLE_VIEW
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((5 + CLIENT.TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+            _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT * 2) - y), ListEnd_Label
         END IF
     END IF
 
@@ -1081,7 +1088,7 @@ SUB VARIABLE_VIEW
     IF mb THEN
         FOR cb = 1 TO UBOUND(Buttons)
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
+                WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
                 mb = 0
                 SELECT CASE cb
                     CASE 1: GOTO RunButton_Click
@@ -1418,7 +1425,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
         ELSEIF LEN(Filter$) = 0 THEN
-            _PRINTSTRING (5, ((5 + TOTALVARIABLES) * _FONTHEIGHT) - y), ListEnd_Label
+            _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT * 2) - y), ListEnd_Label
         END IF
     END IF
 
