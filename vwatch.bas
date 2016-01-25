@@ -30,7 +30,7 @@ CONST VERSION = ".950b"
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
 
-CONST TIMEOUTLIMIT = 200
+CONST TIMEOUTLIMIT = 3 'SECONDS
 
 'Breakpoint control:
 CONST CONTINUE = 1
@@ -102,13 +102,13 @@ DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
 DIM SHARED PAGE_HEIGHT AS INTEGER
 DIM SHARED INTERNALKEYWORDS AS INTEGER
+DIM SHARED LAST_PING#
 DIM SHARED LF AS _BYTE
 DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
 DIM SHARED MAINSCREEN AS LONG
 DIM SHARED MENU%
 DIM SHARED NEWFILENAME$
-DIM SHARED NO_PING AS INTEGER
 DIM SHARED SB_TRACK AS INTEGER
 DIM SHARED SCREEN_WIDTH AS INTEGER
 DIM SHARED SCREEN_HEIGHT AS INTEGER
@@ -2106,7 +2106,7 @@ SUB PROCESSFILE
     PRINT #BIFile, "    CONST vwatch64_VERSION = " + Q$ + VERSION + Q$
     PRINT #BIFile, "    CONST vwatch64_INTERVAL = .1"
     PRINT #BIFile, "    CONST vwatch64_CHECKSUM = " + Q$ + CHECKSUM + Q$
-    PRINT #BIFile, "    CONST vwatch64_TIMEOUTLIMIT = 500"
+    PRINT #BIFile, "    CONST vwatch64_TIMEOUTLIMIT =" + STR$(TIMEOUTLIMIT)
     PRINT #BIFile, ""
     PRINT #BIFile, "    'Breakpoint control:"
     PRINT #BIFile, "    CONST vwatch64_CONTINUE = 1"
@@ -2159,7 +2159,7 @@ SUB PROCESSFILE
     PRINT #BIFile, "    DIM SHARED vwatch64_LOF AS LONG"
     PRINT #BIFile, "    DIM SHARED vwatch64_TIMER AS INTEGER"
     PRINT #BIFile, "    DIM SHARED vwatch64_USERQUIT AS _BIT"
-    PRINT #BIFile, "    DIM SHARED vwatch64_NO_PING AS INTEGER"
+    PRINT #BIFile, "    DIM SHARED vwatch64_LAST_PING#"
     PRINT #BIFile, ""
     IF TotalSelected > 0 THEN
         PRINT #BIFile, "    DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
@@ -2256,6 +2256,7 @@ SUB PROCESSFILE
     PRINT #BMFile, "        EXIT SUB"
     PRINT #BMFile, "    ELSE"
     PRINT #BMFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
     PRINT #BMFile, "    END IF"
     PRINT #BMFile, "END SUB"
     PRINT #BMFile, ""
@@ -2377,15 +2378,14 @@ SUB PROCESSFILE
         PRINT #BMFile, ""
         PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
         PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-        PRINT #BMFile, "        vwatch64_NO_PING = vwatch64_NO_PING + 1"
-        PRINT #BMFile, "        IF vwatch64_NO_PING > vwatch64_TIMEOUTLIMIT THEN"
+        PRINT #BMFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
         PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
         PRINT #BMFile, "            CLOSE"
         PRINT #BMFile, "            VWATCH64_STARTTIMERS"
         PRINT #BMFile, "            EXIT SUB"
         PRINT #BMFile, "        END IF"
         PRINT #BMFile, "    ELSE"
-        PRINT #BMFile, "        vwatch64_NO_PING = 0"
+        PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
         PRINT #BMFile, "    END IF"
         PRINT #BMFile, "    vwatch64_HEADER.HOST_PING = 0"
         PRINT #BMFile, "    vwatch64_HEADER.CLIENT_PING = -1"
@@ -2456,15 +2456,14 @@ SUB PROCESSFILE
     PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE: EXIT SUB"
     PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-    PRINT #BMFile, "        vwatch64_NO_PING = vwatch64_NO_PING + 1"
-    PRINT #BMFile, "        IF vwatch64_NO_PING > vwatch64_TIMEOUTLIMIT THEN"
+    PRINT #BMFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
     PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
     PRINT #BMFile, "            CLOSE"
     PRINT #BMFile, "            VWATCH64_STARTTIMERS"
     PRINT #BMFile, "            EXIT SUB"
     PRINT #BMFile, "        END IF"
     PRINT #BMFile, "    ELSE"
-    PRINT #BMFile, "        vwatch64_NO_PING = 0"
+    PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
     PRINT #BMFile, "    END IF"
     PRINT #BMFile, "    vwatch64_HEADER.HOST_PING = 0"
     PRINT #BMFile, "    vwatch64_HEADER.CLIENT_PING = -1"
@@ -3294,12 +3293,12 @@ SUB SEND_PING
     'Check if the connection is still alive on the client's end
     GET #FILE, HEADERBLOCK, HEADER
     IF HEADER.CLIENT_PING = 0 THEN
-        IF HAS_INPUT(GETLINE$(CLIENT.LINENUMBER)) = 0 THEN NO_PING = NO_PING + 1
-        IF NO_PING > TIMEOUTLIMIT THEN
+        IF HAS_INPUT(GETLINE$(CLIENT.LINENUMBER)) THEN LAST_PING# = TIMER
+        IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
             TIMED_OUT = -1
         END IF
     ELSE
-        NO_PING = 0
+        LAST_PING# = TIMER
         HEADER.CLIENT_PING = 0
         PUT #FILE, HEADERBLOCK, HEADER
     END IF
