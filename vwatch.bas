@@ -88,9 +88,10 @@ TYPE UDTTYPE
     DATATYPE AS STRING * 20
 END TYPE
 
-TYPE TOP_BUTTONSTYPE
+TYPE BUTTONSTYPE
     CAPTION AS STRING * 120
     X AS INTEGER
+    Y AS INTEGER
     W AS INTEGER
 END TYPE
 
@@ -177,7 +178,7 @@ _TITLE TITLESTRING
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT > 1 THEN
         'Set flags based on command line arguments:
-        FOR i = 2 TO _COMMANDCOUNT
+        FOR i = 1 TO _COMMANDCOUNT
             SELECT CASE LCASE$(COMMAND$(i))
                 CASE "-verbose", "-v": VERBOSE = -1
                 CASE "-dontcompile", "-d": DONTCOMPILE = -1
@@ -189,6 +190,8 @@ IF LEN(COMMAND$) THEN
                     'Any other arguments are ignored.
             END SELECT
         NEXT i
+    ELSEIF _COMMANDCOUNT = 1 THEN
+        IF LCASE$(COMMAND$(1)) = "-font16" OR LCASE$(COMMAND$(1)) = "-f16" THEN NO_TTFONT = -1
     END IF
 END IF
 
@@ -210,8 +213,13 @@ RESTORE MenuDATA
 MAKEMENU
 
 IF LEN(COMMAND$) THEN
-    IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
-    NEWFILENAME$ = "": FIRSTPROCESSING = 0
+    IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
+        NEWFILENAME$ = "": FIRSTPROCESSING = 0
+    ELSEIF _COMMANDCOUNT > 1 THEN
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
+        NEWFILENAME$ = "": FIRSTPROCESSING = 0
+    END IF
 END IF
 
 GOTO MainLoop
@@ -219,6 +227,7 @@ OpenFileMenu:
 IF SCREEN_WIDTH < DEFAULT_WIDTH OR SCREEN_HEIGHT < DEFAULT_HEIGHT THEN CHECK_RESIZE DEFAULT_WIDTH, DEFAULT_HEIGHT
 _RESIZE OFF
 CLS , _RGB32(255, 255, 255)
+_PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
 _RESIZE ON
 _AUTODISPLAY
@@ -529,14 +538,16 @@ SUB SOURCE_VIEW
     CLS , _RGB32(255, 255, 255)
     'Print list items to the screen:
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
+        ListStart = ((y \ _FONTHEIGHT) + 1)
+        ListEnd = LEN(FilteredList$) / 4
+        FOR ii = ListStart TO ListEnd
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
             SourceLine = GETLINE$(i)
             printY = (SCREEN_TOPBAR + 3 + ((ii - 1) * _FONTHEIGHT)) - y
             IF printY > SCREEN_HEIGHT THEN EXIT FOR
             IF (printY >= (SCREEN_TOPBAR - _FONTHEIGHT)) AND printY < SCREEN_HEIGHT THEN
                 'Print only inside the program area
-                GOSUB ColorizeBreakpoint
+                GOSUB ColorizeList
                 IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
                 v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                 _PRINTSTRING (5, printY), v$
@@ -544,13 +555,14 @@ SUB SOURCE_VIEW
             END IF
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
-        FOR i = ((y \ _FONTHEIGHT) + 1) TO CLIENT.TOTALSOURCELINES
+        ListStart = ((y \ _FONTHEIGHT) + 1)
+        ListEnd = CLIENT.TOTALSOURCELINES
+        FOR i = ListStart TO ListEnd
             SourceLine = GETLINE$(i)
             printY = (SCREEN_TOPBAR + 3 + ((i - 1) * _FONTHEIGHT)) - y
             IF printY > SCREEN_HEIGHT THEN EXIT FOR
-            'IF (printY >= SCREEN_TOPBAR - _FONTHEIGHT) AND printY < SCREEN_HEIGHT THEN
             'Print only inside the program area
-            GOSUB ColorizeBreakpoint
+            GOSUB ColorizeList
             IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
             v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
             _PRINTSTRING (5, printY), v$
@@ -582,9 +594,9 @@ SUB SOURCE_VIEW
 
     'Top buttons:
     TotalButtons = 6: b = 1
-    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
+    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    Buttons(b).CAPTION = "<F6 = View Variables>": b = b + 1
+    Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
     Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
     Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
@@ -658,11 +670,12 @@ SUB SOURCE_VIEW
     _DISPLAY
     RETURN
 
-    ColorizeBreakpoint:
-    'Colorize the line if it's the next to be run and if a breakpoint is set
+    ColorizeList:
+    'Colorize the line if it's the next to be run...
     IF CLIENT.LINENUMBER = i THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
     END IF
+    '...and if a breakpoint is set
     IF ASC(BREAKPOINTLIST, i) = 1 THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
         COLOR _RGB32(255, 255, 255)
@@ -1017,9 +1030,9 @@ SUB VARIABLE_VIEW
 
     'Top buttons:
     TotalButtons = 5
-    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
+    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     Buttons(1).CAPTION = "<F5 = Run>"
-    Buttons(2).CAPTION = "<F6 = View Source>"
+    Buttons(2).CAPTION = "<F6 = Source>"
     Buttons(3).CAPTION = "<F8 = Step>"
     IF STEPMODE THEN
         Buttons(4).CAPTION = "<F9 = Toggle Breakpoint>"
@@ -1074,7 +1087,7 @@ SUB VARIABLE_VIEW
     ColorizeSelection:
     'Indicate that this variable is used in the current source line
     vs$ = TRIM$(VARIABLES(i).NAME)
-    IF INSTR(VARIABLES(i).NAME, "(") THEN vs$ = LEFT$(VARIABLES(i).NAME, INSTR(VARIABLES(i).NAME, "(") - 1)
+    IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
     IF FIND_KEYWORD(SourceLine, vs$, FoundAt) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
     END IF
@@ -1382,7 +1395,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
 
     'Top buttons:
     TotalButtons = 5
-    REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
+    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     Buttons(1).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
     IF TotalSelected > 0 THEN
         Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
@@ -3319,15 +3332,20 @@ FUNCTION FIND_KEYWORD (Text$, SearchTerm$, SearchTermFound)
     SEP$ = " =<>+-/\^:;,*()!#$%&`"
     T$ = UCASE$(TRIM$(STRIPCOMMENTS$(Text$)))
     S$ = UCASE$(TRIM$(SearchTerm$))
-    L = LEN(S$)
+    T.L = LEN(Text$) - LEN(LTRIM$(Text$))
+    S.L = LEN(S$)
 
-    IF LEFT$(T$, L) = S$ AND INSTR(SEP$, MID$(T$, L + 1, 1)) > 0 THEN FIND_KEYWORD = -1: EXIT FUNCTION
+    IF LEFT$(T$, S.L) = S$ AND INSTR(SEP$, MID$(T$, S.L + 1, 1)) > 0 THEN
+        SearchTermFound = SearchTermFound + T.L
+        FIND_KEYWORD = -1
+        EXIT FUNCTION
+    END IF
 
     DO
         SearchTermFound = INSTR(SearchTermFound + 1, T$, S$)
         IF SearchTermFound = 0 THEN EXIT FUNCTION
         IF SearchTermFound > 1 THEN CharBefore$ = MID$(T$, SearchTermFound - 1, 1) ELSE CharBefore$ = " "
-        IF SearchTermFound + L <= LEN(T$) THEN CharAfter$ = MID$(T$, SearchTermFound + L, 1) ELSE CharAfter$ = " "
+        IF SearchTermFound + S.L <= LEN(T$) THEN CharAfter$ = MID$(T$, SearchTermFound + S.L, 1) ELSE CharAfter$ = " "
     LOOP UNTIL (INSTR(SEP$, CharBefore$) > 0 AND INSTR(SEP$, CharAfter$) > 0)
 
     'Checks if SearchTerm$ is outside quotation marks
@@ -3336,6 +3354,7 @@ FUNCTION FIND_KEYWORD (Text$, SearchTerm$, SearchTermFound)
             OpenQuotation = NOT OpenQuotation
         END IF
     NEXT i
+    SearchTermFound = SearchTermFound + T.L
     IF NOT OpenQuotation THEN FIND_KEYWORD = -1
 END FUNCTION
 
