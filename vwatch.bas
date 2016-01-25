@@ -971,18 +971,21 @@ SUB VARIABLE_VIEW
     LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
 
     'Print list items to the screen:
+    SourceLine = TRIM$(GETLINE$(CLIENT.LINENUMBER))
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        FOR ii = 1 TO LEN(FilteredList$) / 4
+        FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
             v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
             printY = ((3 + ii) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+            GOSUB ColorizeSelection
+            IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
-        FOR i = 1 TO CLIENT.TOTALVARIABLES
+        FOR i = ((y \ _FONTHEIGHT) + 1) TO CLIENT.TOTALVARIABLES
             v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
             printY = ((3 + i) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN _PRINTSTRING (5, printY), v$
+            GOSUB ColorizeSelection
+            IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT i
     END IF
 
@@ -1013,7 +1016,6 @@ SUB VARIABLE_VIEW
         LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
         COLOR _RGB32(255, 255, 255)
     END IF
-    SourceLine = TRIM$(GETLINE$(CLIENT.LINENUMBER))
     TopLine$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1, CHR$(7), " ") + "]" + CHR$(16) + " " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + "    " + SourceLine
     _PRINTSTRING (tl.x, _FONTHEIGHT + 3), TopLine$
     COLOR _RGB32(0, 0, 0)
@@ -1074,6 +1076,15 @@ SUB VARIABLE_VIEW
     END IF
 
     _DISPLAY
+    RETURN
+
+    ColorizeSelection:
+    'Indicate that this variable is used in the current source line
+    vs$ = TRIM$(VARIABLES(i).NAME)
+    IF INSTR(VARIABLES(i).NAME, "(") THEN vs$ = LEFT$(VARIABLES(i).NAME, INSTR(VARIABLES(i).NAME, "(") - 1)
+    IF FIND_KEYWORD(SourceLine, vs$) THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
+    END IF
     RETURN
 
     CheckButtons:
@@ -1338,25 +1349,23 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
 
     'Print list items to the screen:
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        FOR ii = 1 TO LEN(FilteredList$) / 4
+        FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
             printY = ((3 + ii) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
-                GOSUB ColorizeSelection
-                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
-                _PRINTSTRING (5, printY), v$
-            END IF
+            IF printY > SCREEN_HEIGHT THEN EXIT FOR
+            GOSUB ColorizeSelection
+            IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+            _PRINTSTRING (5, printY), v$
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
-        FOR i = 1 TO TOTALVARIABLES
+        FOR i = ((y \ _FONTHEIGHT) + 1) TO TOTALVARIABLES
             printY = ((3 + i) * _FONTHEIGHT) - y
-            IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
-                GOSUB ColorizeSelection
-                IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
-                _PRINTSTRING (5, printY), v$
-            END IF
+            IF printY > SCREEN_HEIGHT THEN EXIT FOR
+            GOSUB ColorizeSelection
+            IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+            _PRINTSTRING (5, printY), v$
         NEXT i
     END IF
 
@@ -3300,7 +3309,7 @@ SUB SEND_PING
     'Check if the connection is still alive on the client's end
     GET #FILE, HEADERBLOCK, HEADER
     IF HEADER.CLIENT_PING = 0 THEN
-        IF HAS_INPUT(GETLINE$(CLIENT.LINENUMBER)) THEN LAST_PING# = TIMER
+        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT") THEN LAST_PING# = TIMER
         IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
             TIMED_OUT = -1
         END IF
@@ -3316,22 +3325,28 @@ SUB SEND_PING
 END SUB
 
 '------------------------------------------------------------------------------
-FUNCTION HAS_INPUT (Text$)
+FUNCTION FIND_KEYWORD (Text$, SearchTerm$)
+    SEP$ = " =<>+-/\^:;,*()!#$%&`"
     T$ = UCASE$(TRIM$(STRIPCOMMENTS$(Text$)))
-    IF LEFT$(T$, 6) = "INPUT " THEN HAS_INPUT = -1: EXIT FUNCTION
-    IF LEFT$(T$, 11) = "LINE INPUT " THEN HAS_INPUT = -1: EXIT FUNCTION
+    S$ = UCASE$(TRIM$(SearchTerm$))
+    L = LEN(S$)
 
-    InputFound = INSTR(T$, " INPUT ")
-    IF InputFound = 0 THEN InputFound = INSTR(T$, ":INPUT ")
-    IF InputFound = 0 THEN EXIT FUNCTION
+    IF LEFT$(T$, L) = S$ AND INSTR(SEP$, MID$(T$, L + 1, 1)) > 0 THEN FIND_KEYWORD = -1: EXIT FUNCTION
 
-    'Checks if the INPUT statement outside quotation marks
-    FOR i = 1 TO InputFound - 1
+    DO
+        SearchTermFound = INSTR(SearchTermFound + 1, T$, S$)
+        IF SearchTermFound = 0 THEN EXIT FUNCTION
+        IF SearchTermFound > 1 THEN CharBefore$ = MID$(T$, SearchTermFound - 1, 1) ELSE CharBefore$ = " "
+        IF SearchTermFound + L <= LEN(T$) THEN CharAfter$ = MID$(T$, SearchTermFound + L, 1) ELSE CharAfter$ = " "
+    LOOP UNTIL (INSTR(SEP$, CharBefore$) > 0 AND INSTR(SEP$, CharAfter$) > 0)
+
+    'Checks if SearchTerm$ is outside quotation marks
+    FOR i = 1 TO SearchTermFound - 1
         IF ASC(T$, i) = 34 THEN
             OpenQuotation = NOT OpenQuotation
         END IF
     NEXT i
-    IF NOT OpenQuotation THEN HAS_INPUT = -1
+    IF NOT OpenQuotation THEN FIND_KEYWORD = -1
 END FUNCTION
 
 '------------------------------------------------------------------------------
