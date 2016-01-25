@@ -1,17 +1,5 @@
-'vWATCH64 - A variable watch system for QB64 programs
+'vWATCH64 - A debug/variable watch system for QB64 programs
 'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
-
-'Use this program when you need runtime verification of variable values
-'in a program. The output will show you in real time variable changes
-'inside your RUNNING program.
-
-'To achieve this result, vWATCH64 will parse your .BAS and extract
-'variable names. With the data gathered, a .BI and a .BM will be
-'generated. A new .BAS file will be output with the appropriate
-'INCLUDEd lines. If QB64.EXE is found, the output file is then
-'compiled. If compilation is sucessful, the variable monitor is
-'started and connects to your program output, displaying variable
-'values in real time.
 
 DEFLNG A-Z
 $RESIZE:ON
@@ -2432,7 +2420,6 @@ SUB PROCESSFILE
     PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
     PRINT #BMFile, "        'It is safe to change the client's title at this point because"
     PRINT #BMFile, "        'it's the first line to be run so no _TITLE has yet been set."
-    PRINT #BMFile, "        '(if the client never sets a title, this will stick there though)"
     PRINT #BMFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
     PRINT #BMFile, "        FirstRunDone = -1"
     PRINT #BMFile, "        VWATCH64_STOPTIMERS"
@@ -2445,6 +2432,7 @@ SUB PROCESSFILE
     PRINT #BMFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
     PRINT #BMFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
     PRINT #BMFile, "        VWATCH64_STARTTIMERS"
+    PRINT #BMFile, "        _TITLE " + Q$ + "Untitled" + Q$
     PRINT #BMFile, "        EXIT SUB"
     PRINT #BMFile, "    END IF"
     PRINT #BMFile, ""
@@ -3331,7 +3319,7 @@ FUNCTION HAS_INPUT (Text$)
     IF InputFound = 0 THEN InputFound = INSTR(T$, ":INPUT ")
     IF InputFound = 0 THEN EXIT FUNCTION
 
-    'Checks if the INPUT statement outside quotation marks or comments
+    'Checks if the INPUT statement outside quotation marks
     FOR i = 1 TO InputFound - 1
         IF ASC(T$, i) = 34 THEN
             OpenQuotation = NOT OpenQuotation
