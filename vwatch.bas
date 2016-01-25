@@ -37,7 +37,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".910b"
+CONST VERSION = ".950b"
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
@@ -420,8 +420,7 @@ SUB SOURCE_VIEW
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
         CASE 17152 'F9
             ToggleButton_Click:
-            IF shiftDown = -1 THEN GOTO ClearButton_CLICK
-            IF STEPMODE = -1 THEN
+            IF LEN(FilteredList$) = 0 THEN
                 IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
@@ -429,11 +428,29 @@ SUB SOURCE_VIEW
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 END IF
+            ELSE
+                FOR setAll = 1 TO LEN(FilteredList$) / 4
+                    which_line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
+                    IF ASC(BREAKPOINTLIST, which_line) = 0 AND LEN(STRIPCOMMENTS$(GETLINE$(which_line))) THEN
+                        ASC(BREAKPOINTLIST, which_line) = 1
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                    END IF
+                NEXT setAll
             END IF
         CASE 17408 'F10
             ClearButton_CLICK:
-            TOTALBREAKPOINTS = 0
-            BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+            IF LEN(FilteredList$) = 0 THEN
+                TOTALBREAKPOINTS = 0
+                BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+            ELSE
+                FOR setAll = 1 TO LEN(FilteredList$) / 4
+                    which_line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
+                    IF ASC(BREAKPOINTLIST, which_line) = 1 THEN
+                        ASC(BREAKPOINTLIST, which_line) = 0
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                    END IF
+                NEXT setAll
+            END IF
     END SELECT
 
     IF PAGE_HEIGHT > LIST_AREA THEN
@@ -568,19 +585,40 @@ SUB SOURCE_VIEW
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
-    TotalButtons = 6
+    TotalButtons = 6: b = 1
     REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
-    Buttons(1).CAPTION = "<F5 = Run>"
-    Buttons(2).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>")
-    Buttons(3).CAPTION = "<F6 = View Variables>"
-    Buttons(4).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>")
+    Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
+    Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
+    Buttons(b).CAPTION = "<F6 = View Variables>": b = b + 1
+    Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
-        Buttons(5).CAPTION = "<F9 = Toggle Breakpoint>"
-        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(4).CAPTION = "<F10 = Clear Breakpoints>"
+        IF LEN(FilteredList$) > 0 THEN
+            IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
+                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (filtered)>": b = b + 1
+            ELSE
+                Buttons(b).CAPTION = "<F9 = Set Breakpoint (filtered)>": b = b + 1
+            END IF
+        ELSE
+            IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
+                Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+            ELSE
+                Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+            END IF
+        END IF
     ELSE
-        Buttons(5).CAPTION = ""
+        IF LEN(FilteredList$) > 0 THEN
+            IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
+                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (filtered)>": b = b + 1
+            ELSE
+                Buttons(b).CAPTION = "<F9 = Set Breakpoint (filtered)>": b = b + 1
+            END IF
+        ELSE
+            IF TOTALBREAKPOINTS > 0 THEN
+                Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+            END IF
+        END IF
     END IF
-    Buttons(6).CAPTION = "<ESC = Exit>"
+    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -679,7 +717,13 @@ SUB SOURCE_VIEW
                     CASE 2: TRACE = NOT TRACE
                     CASE 3: GOTO WindowButton_Click
                     CASE 4: GOTO StepButton_Click
-                    CASE 5: GOTO ToggleButton_Click
+                    CASE 5
+                        IF LEN(FilteredList$) THEN BeingViewed = LEN(FilteredList$) / 4 ELSE BeingViewed = CLIENT.TOTALSOURCELINES
+                        IF (shiftDown = -1 AND TOTALBREAKPOINTS > 0) OR (shiftDown = 0 AND TOTALBREAKPOINTS = BeingViewed) THEN
+                            GOTO ClearButton_CLICK
+                        ELSE
+                            GOTO ToggleButton_Click
+                        END IF
                     CASE 6: GOTO ExitButton_Click
                     CASE ELSE: BEEP
                 END SELECT
@@ -2000,7 +2044,7 @@ SUB PROCESSFILE
             bkpx% = POS(1): bkpy% = CSRLIN
             BackupScreen = _COPYIMAGE(0)
             INTERACTIVE_MODE VARIABLES(), AddedList$, TotalSelected
-            _PUTIMAGE , BackupScreen
+            _PUTIMAGE (0, 0), BackupScreen
             _FREEIMAGE BackupScreen
             LOCATE bkpy%, bkpx%
             IF AddedList$ = CHR$(3) THEN
@@ -2675,6 +2719,7 @@ END FUNCTION
 SUB SETUP_CONNECTION
     _KEYCLEAR 'Clears the keyboard buffer
 
+    StartSetup:
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
 
     CLOSE
@@ -2714,7 +2759,8 @@ SUB SETUP_CONNECTION
         SYSTEM
     END IF
 
-    CLS
+    _AUTODISPLAY
+    CLS , _RGB32(255, 255, 255)
     'Connected! Check if client is compatible:
     IF HEADER.CLIENT_ID <> ID OR HEADER.VERSION <> VERSION THEN
         BEEP
@@ -2724,7 +2770,7 @@ SUB SETUP_CONNECTION
         PRINT "Press any key to go back..."
         CLOSE #FILE
         SLEEP
-        EXIT SUB
+        GOTO StartSetup
     END IF
 
     'Send autorization to client:
