@@ -20,7 +20,6 @@ DECLARE CUSTOMTYPE LIBRARY "direntry"
     FUNCTION FILE_current_dir_length& ALIAS current_dir_length ()
 END DECLARE
 
-'$INCLUDE:'menutop.bi'
 '$INCLUDE:'glinputtop.bi'
 
 'Constants: -------------------------------------------------------------------
@@ -209,9 +208,6 @@ $ELSE
     EXENAME = ""
 $END IF
 
-RESTORE MenuDATA
-MAKEMENU
-
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
         IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
@@ -259,10 +255,6 @@ SYSTEM
 
 FileError:
 RESUME NEXT
-
-MenuDATA:
-DATA "&File","&Open and process .BAS...","-E&xit","*"
-DATA "!"
 
 KeyWordsDATA:
 DATA _BIT,_UNSIGNED _BIT,_BYTE,_UNSIGNED _BYTE,INTEGER
@@ -2755,18 +2747,15 @@ SUB SETUP_CONNECTION
     'Wait for a connection:
     x = _EXIT
     GOSUB UpdateScreen
-    _AUTODISPLAY
-    SHOWMENU
+    MENU% = 0
     DO: _LIMIT 30
         GET #FILE, HEADERBLOCK, HEADER
-        MENU% = CHECKMENU(TRUE)
-        IF MENU% = 101 THEN HIDEMENU: CLOSE: EXIT SUB
-        k$ = INKEY$
+        GOSUB GetInput
+        IF MENU% = 101 THEN CLOSE: EXIT SUB
         IF k$ = CHR$(27) THEN USERQUIT = -1
         IF _EXIT THEN USERQUIT = -1
-        'IF _RESIZE THEN GOSUB UpdateScreen
+        GOSUB UpdateScreen
     LOOP UNTIL USERQUIT OR HEADER.CONNECTED = -1 OR MENU% = 102
-    HIDEMENU
 
     IF USERQUIT OR MENU% = 102 THEN
         CLOSE #FILE
@@ -2846,9 +2835,23 @@ SUB SETUP_CONNECTION
     TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
     _TITLE TITLESTRING
 
+    GetInput:
+    k$ = INKEY$
+    DO
+        prevy = y
+        y = y + (_MOUSEWHEEL * ((_HEIGHT - 50) / 5))
+        IF y <> prevy THEN TRACE = 0
+        mx = _MOUSEX
+        my = _MOUSEY
+        mb = _MOUSEBUTTON(1)
+    LOOP WHILE _MOUSEINPUT
+    RETURN
+
     UpdateScreen:
     CHECK_RESIZE 0, 0
     CLS , _RGB32(255, 255, 255)
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 5), _RGB32(0, 178, 179), BF
+
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
     t$ = "Waiting for a connection..."
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
@@ -2856,7 +2859,64 @@ SUB SETUP_CONNECTION
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT * 2), t$
     t$ = "ESC to quit"
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
+
+
+    'Top buttons:
+    TotalButtons = 2: b = 1
+    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    Buttons(b).CAPTION = "<Open and Process .BAS>": b = b + 1
+    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
+
+    ButtonLine$ = ""
+    FOR cb = 1 TO TotalButtons
+        c$ = TRIM$(Buttons(cb).CAPTION)
+        ButtonLine$ = ButtonLine$ + IIFSTR$(LEN(c$), c$ + " ", "")
+    NEXT cb
+
+    FOR cb = 1 TO TotalButtons
+        Buttons(cb).X = INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION)) * _FONTWIDTH + _PRINTWIDTH(ModeTitle$)
+        Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+    NEXT cb
+
+    GOSUB CheckButtons
+
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+    FOR i = 1 TO LEN(ButtonLine$)
+        IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
+            ASC(ButtonLine$, i) = 32
+        END IF
+    NEXT i
+    COLOR _RGB32(255, 255, 0)
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 2), ButtonLine$
+    COLOR _RGB32(0, 0, 0)
+
     _DISPLAY
+    RETURN
+
+    CheckButtons:
+    IF my > _FONTHEIGHT THEN RETURN
+    'Hover highlight:
+    FOR cb = 1 TO UBOUND(Buttons)
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+        END IF
+    NEXT cb
+
+    IF mb THEN
+        FOR cb = 1 TO UBOUND(Buttons)
+            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+                mb = 0: mx = _MOUSEX: my = _MOUSEY
+                'Check if the user moved the mouse out of the button before releasing it (=cancel)
+                IF my > _FONTHEIGHT THEN RETURN
+                IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
+                IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
+                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN MENU% = 101: RETURN
+                BEEP 'in case a button was added but not yet assigned
+                RETURN
+            END IF
+        NEXT cb
+    END IF
     RETURN
 END SUB
 
@@ -3445,6 +3505,5 @@ SUB CHECK_RESIZE (new_w%, new_h%)
 END SUB
 
 '------------------------------------------------------------------------------
-'$INCLUDE:'menu.bi'
 '$INCLUDE:'glinput.bi'
 
