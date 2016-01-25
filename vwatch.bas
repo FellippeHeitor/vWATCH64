@@ -3277,12 +3277,14 @@ END FUNCTION
 FUNCTION INTERVAL_SEARCH (Filter$, i)
     'Filter must contain a valid numeric string (####) or
     'a valid interval (####-####).
-
     Separator = INSTR(Filter$, "-")
-    IF Separator = 0 AND VAL(Filter$) = i THEN INTERVAL_SEARCH = -1: EXIT FUNCTION
+    IF Separator = 0 THEN
+        IF VAL(Filter$) = i THEN INTERVAL_SEARCH = -1
+        EXIT FUNCTION
+    END IF
 
     v1 = VAL(LEFT$(Filter$, Separator - 1))
-    v2 = VAL(RIGHT$(Filter$, Separator + 1))
+    v2 = VAL(RIGHT$(Filter$, LEN(Filter$) - Separator))
     IF v1 > v2 THEN SWAP v1, v2
 
     IF i >= v1 AND i <= v2 THEN INTERVAL_SEARCH = -1
