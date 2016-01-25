@@ -769,7 +769,6 @@ SUB VARIABLE_VIEW
         GET #FILE, DATABLOCK, VARIABLES()
 
         IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
-
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
@@ -1002,7 +1001,7 @@ SUB VARIABLE_VIEW
 
     'Top bar:
     '  VARIABLE VIEW: <F5 = Run> <F6 = View Source> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
-    '  Next line: [*] ####
+    '  Next line: ####
     '  Filter:                                                              Total variables: 10 (showing 7)
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
@@ -1022,25 +1021,25 @@ SUB VARIABLE_VIEW
         LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
         COLOR _RGB32(255, 255, 255)
     END IF
-    TopLine$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1, CHR$(7), " ") + "]" + CHR$(16) + " " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + "    " + SourceLine
+    TopLine$ = SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " " + CHR$(16) + " " + SourceLine
     _PRINTSTRING (tl.x, _FONTHEIGHT + 3), TopLine$
     COLOR _RGB32(0, 0, 0)
     TopLine$ = "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
-    TotalButtons = 5
+    TotalButtons = 6: b = 1
     REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
-    Buttons(1).CAPTION = "<F5 = Run>"
-    Buttons(2).CAPTION = "<F6 = Source>"
-    Buttons(3).CAPTION = "<F8 = Step>"
+    Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
+    Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
+    Buttons(b).CAPTION = "<F8 = Step>": b = b + 1
     IF STEPMODE THEN
-        Buttons(4).CAPTION = "<F9 = Toggle Breakpoint>"
-        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(4).CAPTION = "<F10 = Clear Breakpoints>"
+        Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
     ELSE
-        Buttons(4).CAPTION = ""
+        Buttons(b).CAPTION = "": b = b + 1
     END IF
-    Buttons(5).CAPTION = "<ESC = Exit>"
+    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
