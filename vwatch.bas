@@ -2911,7 +2911,7 @@ SUB SETUP_CONNECTION
                 IF my > _FONTHEIGHT THEN RETURN
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
-                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN MENU% = 101: RETURN
+                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN MENU% = 102: RETURN
                 BEEP 'in case a button was added but not yet assigned
                 RETURN
             END IF
