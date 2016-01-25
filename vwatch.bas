@@ -415,6 +415,7 @@ SUB SOURCE_VIEW
         CASE 16896 'F8
             StepButton_Click:
             STEPMODE = -1
+            TRACE = -1
             BREAKPOINT.ACTION = NEXTSTEP
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
         CASE 17152 'F9
@@ -572,7 +573,7 @@ SUB SOURCE_VIEW
     Buttons(1).CAPTION = "<F5 = Run>"
     Buttons(2).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>")
     Buttons(3).CAPTION = "<F6 = View Variables>"
-    Buttons(4).CAPTION = "<F8 = Step>"
+    Buttons(4).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>")
     IF STEPMODE THEN
         Buttons(5).CAPTION = "<F9 = Toggle Breakpoint>"
         IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(4).CAPTION = "<F10 = Clear Breakpoints>"
