@@ -1184,11 +1184,9 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             END IF
         CASE 16128 'F5
             SaveButton_Click:
-            IF TotalSelected > 0 THEN
-                _AUTODISPLAY
-                COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
-                EXIT SUB
-            END IF
+            _AUTODISPLAY
+            COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
+            EXIT SUB
     END SELECT
 
     IF PAGE_HEIGHT > LIST_AREA THEN
@@ -1265,13 +1263,13 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     'Place a light gray rectangle under the column that can currently be filtered:
     SELECT CASE searchIn
         CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(15))
+            columnHighlightX = _PRINTWIDTH(SPACE$(13))
             columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
         CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(29)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(27)) + _PRINTWIDTH(SPACE$(7))
             columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
         CASE SCOPE
-            columnHighlightX = _PRINTWIDTH(SPACE$(8))
+            columnHighlightX = _PRINTWIDTH(SPACE$(6))
             columnHighlightW = _PRINTWIDTH(SPACE$(7))
     END SELECT
     IF y = 0 THEN columnHighlightY = 55 ELSE columnHighlightY = 51
@@ -1297,8 +1295,9 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
             printY = ((3 + ii) * _FONTHEIGHT) - y
             IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
+                GOSUB ColorizeSelection
                 IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+                v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
                 _PRINTSTRING (5, printY), v$
             END IF
         NEXT ii
@@ -1306,8 +1305,9 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         FOR i = 1 TO TOTALVARIABLES
             printY = ((3 + i) * _FONTHEIGHT) - y
             IF (printY >= 50 - _FONTHEIGHT) AND printY < _HEIGHT THEN 'Don't print outside the program area
+                GOSUB ColorizeSelection
                 IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[ " + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + " ]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+                v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
                 _PRINTSTRING (5, printY), v$
             END IF
         NEXT i
@@ -1332,9 +1332,11 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     'Top buttons:
     TotalButtons = 5
     REDIM Buttons(1 TO TotalButtons) AS TOP_BUTTONSTYPE
-    Buttons(1).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
-    Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " filtered", " all") + ">"
-    Buttons(3).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and continue>", "")
+    Buttons(1).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
+    IF TotalSelected > 0 THEN
+        Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
+    END IF
+    Buttons(3).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and continue>", "<F5 = Continue>")
     Buttons(4).CAPTION = "<ESC = Cancel>"
 
     ButtonLine$ = ""
@@ -1380,9 +1382,16 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     _DISPLAY
     RETURN
 
+    ColorizeSelection:
+    'Indicate that a line has been selected with a light green bg
+    IF ASC(AddedList$, i) = 0 THEN RETURN
+    LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(0, 200, 0, 100), BF
+    RETURN
+
     DetectClick:
     'Place a hover indicator over this item:
     LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
+
     'Select/Clear the item if a mouse click was detected.
     IF mb THEN
         'Wait until a mouse up event is received:
@@ -1988,9 +1997,10 @@ SUB PROCESSFILE
         IF VERBOSE THEN _DELAY .05
         IF INTERACTIVE THEN
             bkpx% = POS(1): bkpy% = CSRLIN
-            PCOPY 0, 1
+            BackupScreen = _COPYIMAGE(0)
             INTERACTIVE_MODE VARIABLES(), AddedList$, TotalSelected
-            PCOPY 1, 0
+            _PUTIMAGE , BackupScreen
+            _FREEIMAGE BackupScreen
             LOCATE bkpy%, bkpx%
             IF AddedList$ = CHR$(3) THEN
                 'Processing was canceled by user.
