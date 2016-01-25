@@ -166,6 +166,7 @@ RESTORE_LIBRARY
 'Screen setup: ----------------------------------------------------------------
 MAINSCREEN = _NEWIMAGE(DEFAULT_WIDTH, DEFAULT_HEIGHT, 32)
 SCREEN MAINSCREEN
+DO UNTIL _SCREENEXISTS: LOOP
 CHECK_RESIZE DEFAULT_WIDTH, DEFAULT_HEIGHT
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
@@ -198,7 +199,6 @@ $IF WIN THEN
     'Under Windows, if Lucida Console font is found, it is used;
     'Otherwise we stick to _FONT 16 (default):
     IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE, BOLD")
-    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
 
     Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
     IF Ret > 0 THEN
@@ -3487,6 +3487,13 @@ END SUB
 
 '------------------------------------------------------------------------------
 SUB CHECK_RESIZE (new_w%, new_h%)
+    'Resize routine adapted from Steve McNeill:
+    'http://www.qb64.net/forum/index.php?topic=11053.msg93650#msg93650
+
+    DIM ts AS LONG 'a temp screen
+    DIM dc AS LONG, bg AS LONG 'default and background colors
+    dc = _DEFAULTCOLOR: bg = _BACKGROUNDCOLOR
+
     IF _RESIZE = 0 THEN
         IF new_w% + new_h% = 0 THEN EXIT SUB
     ELSE
@@ -3499,9 +3506,24 @@ SUB CHECK_RESIZE (new_w%, new_h%)
 
     SCREEN_WIDTH = new_w%
     SCREEN_HEIGHT = new_h%
-    WIDTH SCREEN_WIDTH \ _FONTWIDTH, SCREEN_HEIGHT \ _FONTHEIGHT
+
+    ts = _NEWIMAGE(SCREEN_WIDTH, SCREEN_HEIGHT, 32)
+    _PUTIMAGE , MAINSCREEN, ts
+
+    SCREEN ts
+    _FREEIMAGE MAINSCREEN
+    MAINSCREEN = _NEWIMAGE(new_w%, new_h%, 32)
+    _PUTIMAGE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), ts, MAINSCREEN
+    SCREEN MAINSCREEN
+    COLOR dc, bg
+    _FREEIMAGE ts
+
     LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
     SB_TRACK = LIST_AREA - 48
+
+    $IF WIN THEN
+        IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
+    $END IF
 END SUB
 
 '------------------------------------------------------------------------------
