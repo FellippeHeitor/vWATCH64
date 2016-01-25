@@ -592,7 +592,7 @@ SUB SOURCE_VIEW
     TotalButtons = 6: b = 1
     REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
+    IF CLIENT.TOTALVARIABLES > 0 THEN Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
     Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
     Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
