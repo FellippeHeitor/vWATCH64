@@ -590,9 +590,9 @@ SUB SOURCE_VIEW
     IF STEPMODE THEN
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (filtered)>": b = b + 1
+                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
             ELSE
-                Buttons(b).CAPTION = "<F9 = Set Breakpoint (filtered)>": b = b + 1
+                Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
@@ -604,9 +604,9 @@ SUB SOURCE_VIEW
     ELSE
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (filtered)>": b = b + 1
+                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
             ELSE
-                Buttons(b).CAPTION = "<F9 = Set Breakpoint (filtered)>": b = b + 1
+                Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 THEN
@@ -711,21 +711,14 @@ SUB SOURCE_VIEW
                 'Check if the user moved the mouse out of the button before releasing it (=cancel)
                 IF my > _FONTHEIGHT THEN RETURN
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
-                SELECT CASE cb
-                    CASE 1: GOTO RunButton_Click
-                    CASE 2: GOTO WindowButton_Click
-                    CASE 3: TRACE = NOT TRACE
-                    CASE 4: GOTO StepButton_Click
-                    CASE 5
-                        IF LEN(FilteredList$) THEN BeingViewed = LEN(FilteredList$) / 4 ELSE BeingViewed = CLIENT.TOTALSOURCELINES
-                        IF (shiftDown = -1 AND TOTALBREAKPOINTS > 0) OR (shiftDown = 0 AND TOTALBREAKPOINTS = BeingViewed) THEN
-                            GOTO ClearButton_CLICK
-                        ELSE
-                            GOTO ToggleButton_Click
-                        END IF
-                    CASE 6: GOTO ExitButton_Click
-                    CASE ELSE: BEEP
-                END SELECT
+                IF INSTR(Buttons(cb).CAPTION, "F5 =") THEN GOTO RunButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F6 =") THEN GOTO WindowButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "Trace O") THEN TRACE = NOT TRACE: RETURN
+                IF INSTR(Buttons(cb).CAPTION, "F8 =") THEN GOTO StepButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F9 =") THEN GOTO ToggleButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F10 =") THEN GOTO ClearButton_CLICK
+                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN GOTO ExitButton_Click
+                BEEP 'in case a button was added but not yet assigned
                 RETURN
             END IF
         NEXT cb
@@ -1082,7 +1075,7 @@ SUB VARIABLE_VIEW
     'Indicate that this variable is used in the current source line
     vs$ = TRIM$(VARIABLES(i).NAME)
     IF INSTR(VARIABLES(i).NAME, "(") THEN vs$ = LEFT$(VARIABLES(i).NAME, INSTR(VARIABLES(i).NAME, "(") - 1)
-    IF FIND_KEYWORD(SourceLine, vs$) THEN
+    IF FIND_KEYWORD(SourceLine, vs$, FoundAt) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
     END IF
     RETURN
@@ -1101,14 +1094,13 @@ SUB VARIABLE_VIEW
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
                 mb = 0
-                SELECT CASE cb
-                    CASE 1: GOTO RunButton_Click
-                    CASE 2: GOTO WindowButton_Click
-                    CASE 3: GOTO StepButton_Click
-                    CASE 4: GOTO ToggleButton_Click
-                    CASE 5: GOTO ExitButton_Click
-                    CASE ELSE: BEEP
-                END SELECT
+                IF INSTR(Buttons(cb).CAPTION, "F5 =") THEN GOTO RunButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F6 =") THEN GOTO WindowButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F8 =") THEN GOTO StepButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "Toggle") THEN GOTO ToggleButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "Clear") THEN GOTO ClearButton_CLICK
+                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN GOTO ExitButton_Click
+                BEEP 'in case a button was added but not yet assigned
                 RETURN
             END IF
         NEXT cb
@@ -1395,7 +1387,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     IF TotalSelected > 0 THEN
         Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
     END IF
-    Buttons(3).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and continue>", "<F5 = Continue>")
+    Buttons(3).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and Continue>", "<F5 = Continue>")
     Buttons(4).CAPTION = "<ESC = Cancel>"
 
     ButtonLine$ = ""
@@ -1483,13 +1475,11 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
                 mb = 0
-                SELECT CASE cb
-                    CASE 1: GOTO SelectButton_Click
-                    CASE 2: GOTO ClearButton_Click
-                    CASE 3: GOTO SaveButton_Click
-                    CASE 4: GOTO CancelButton_Click
-                    CASE ELSE: BEEP
-                END SELECT
+                IF INSTR(Buttons(cb).CAPTION, "F2 =") THEN GOTO SelectButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F3 =") THEN GOTO ClearButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "F5 =") THEN GOTO SaveButton_Click
+                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN GOTO CancelButton_Click
+                BEEP 'in case a button was added but not yet assigned
                 RETURN
             END IF
         NEXT cb
@@ -3309,7 +3299,7 @@ SUB SEND_PING
     'Check if the connection is still alive on the client's end
     GET #FILE, HEADERBLOCK, HEADER
     IF HEADER.CLIENT_PING = 0 THEN
-        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT") THEN LAST_PING# = TIMER
+        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT", FoundAt) THEN LAST_PING# = TIMER
         IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
             TIMED_OUT = -1
         END IF
@@ -3325,7 +3315,7 @@ SUB SEND_PING
 END SUB
 
 '------------------------------------------------------------------------------
-FUNCTION FIND_KEYWORD (Text$, SearchTerm$)
+FUNCTION FIND_KEYWORD (Text$, SearchTerm$, SearchTermFound)
     SEP$ = " =<>+-/\^:;,*()!#$%&`"
     T$ = UCASE$(TRIM$(STRIPCOMMENTS$(Text$)))
     S$ = UCASE$(TRIM$(SearchTerm$))
