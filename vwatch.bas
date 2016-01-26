@@ -2820,6 +2820,9 @@ SUB SETUP_CONNECTION
     LOOP WHILE _MOUSEINPUT
     RETURN
 
+    'Connection estabilished.
+    EXIT SUB
+
     UpdateScreen:
     CLS , _RGB32(255, 255, 255)
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 5), _RGB32(0, 178, 179), BF
