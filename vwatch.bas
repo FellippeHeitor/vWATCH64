@@ -2171,7 +2171,6 @@ SUB PROCESSFILE
     PRINT #BIFile, "    DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #BIFile, "    DIM SHARED vwatch64_HEADERBLOCK AS LONG"
     PRINT #BIFile, "    DIM SHARED vwatch64_LOF AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_TIMER AS INTEGER"
     PRINT #BIFile, "    DIM SHARED vwatch64_USERQUIT AS _BIT"
     PRINT #BIFile, "    DIM SHARED vwatch64_LAST_PING#"
     PRINT #BIFile, ""
@@ -2196,15 +2195,6 @@ SUB PROCESSFILE
     PRINT #BIFile, ""
     PRINT #BIFile, "    vwatch64_CONNECTTOHOST"
     PRINT #BIFile, ""
-    PRINT #BIFile, "    IF vwatch64_HEADER.RESPONSE = -1 THEN"
-    PRINT #BIFile, "        'Connection successful."
-    IF TotalSelected > 0 THEN
-        PRINT #BIFile, "        'Initialize the watch timer:"
-        PRINT #BIFile, "        vwatch64_TIMER = _FREETIMER"
-        PRINT #BIFile, "        ON TIMER(vwatch64_TIMER, vwatch64_INTERVAL) vwatch64_VARIABLEWATCH"
-        PRINT #BIFile, "        TIMER(vwatch64_TIMER) ON"
-    END IF
-    PRINT #BIFile, "    END IF"
     CLOSE BIFile
 
     BMFile = FREEFILE
@@ -2276,7 +2266,6 @@ SUB PROCESSFILE
     PRINT #BMFile, ""
     IF TotalSelected > 0 THEN
         PRINT #BMFile, "SUB vwatch64_VARIABLEWATCH"
-        PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         LocalSharedAddedTotal = 0
         FOR i = 1 TO TotalLocalVariables
             SourceLine = "    SHARED "
@@ -2373,9 +2362,6 @@ SUB PROCESSFILE
             PRINT #BMFile, LocalShared_NOREPETITION(i)
         NEXT i
 
-        PRINT #BMFile, ""
-        PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_CLIENT"
-        PRINT #BMFile, ""
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 THEN
@@ -2389,21 +2375,6 @@ SUB PROCESSFILE
                 END IF
             END IF
         NEXT i
-        PRINT #BMFile, ""
-        PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-        PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-        PRINT #BMFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
-        PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
-        PRINT #BMFile, "            CLOSE"
-        PRINT #BMFile, "            VWATCH64_STARTTIMERS"
-        PRINT #BMFile, "            EXIT SUB"
-        PRINT #BMFile, "        END IF"
-        PRINT #BMFile, "    ELSE"
-        PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
-        PRINT #BMFile, "    END IF"
-        PRINT #BMFile, "    vwatch64_HEADER.HOST_PING = 0"
-        PRINT #BMFile, "    vwatch64_HEADER.CLIENT_PING = -1"
-        PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
         PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
         PRINT #BMFile, "END SUB"
         PRINT #BMFile, ""
@@ -2429,6 +2400,10 @@ SUB PROCESSFILE
     PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTLISTBLOCK, vwatch64_BREAKPOINTLIST"
     PRINT #BMFile, ""
+    IF TotalSelected > 0 THEN
+        PRINT #BMFile, "    vwatch64_VARIABLEWATCH"
+    END IF
+    PRINT #BMFile, ""
     PRINT #BMFile, "    'On the first time this procedure is called, execution is halted,"
     PRINT #BMFile, "    'until the user presses F5 or F8 in vWATCH64"
     PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
@@ -2437,9 +2412,6 @@ SUB PROCESSFILE
     PRINT #BMFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
     PRINT #BMFile, "        FirstRunDone = -1"
     PRINT #BMFile, "        VWATCH64_STOPTIMERS"
-    IF TotalSelected > 0 THEN
-        PRINT #BMFile, "        vwatch64_VARIABLEWATCH"
-    END IF
     PRINT #BMFile, "        DO: _LIMIT 500"
     PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #BMFile, "            GOSUB vwatch64_PING"
@@ -2453,9 +2425,6 @@ SUB PROCESSFILE
     PRINT #BMFile, "    IF (ASC(vwatch64_BREAKPOINTLIST, LineNumber) = 1) OR (StepMode = -1) THEN"
     PRINT #BMFile, "        VWATCH64_STOPTIMERS"
     PRINT #BMFile, "        StepMode = -1"
-    IF TotalSelected > 0 THEN
-        PRINT #BMFile, "        vwatch64_VARIABLEWATCH"
-    END IF
     PRINT #BMFile, "        DO: _LIMIT 500"
     PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #BMFile, "            GOSUB vwatch64_PING"
