@@ -326,12 +326,6 @@ SUB SOURCE_VIEW
         EXIT SUB
     END IF
 
-    OVERLAYSCREEN = _NEWIMAGE(SCREEN_WIDTH \ 2, SCREEN_HEIGHT \ 2, 32)
-    _DEST OVERLAYSCREEN
-
-    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
-    LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
-
     IF HEADER.CONNECTED = 0 THEN
         EndMessage$ = "Connection closed by client."
     ELSEIF TIMED_OUT THEN
@@ -339,6 +333,11 @@ SUB SOURCE_VIEW
     END IF
 
     IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
+        OVERLAYSCREEN = _NEWIMAGE(SCREEN_WIDTH \ 2, SCREEN_HEIGHT \ 2, 32)
+        _DEST OVERLAYSCREEN
+
+        IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
+        LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
         BEEP
         _KEYCLEAR
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
@@ -568,7 +567,6 @@ SUB SOURCE_VIEW
             v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
             _PRINTSTRING (5, printY), v$
             COLOR _RGB32(0, 0, 0)
-            'END IF
         NEXT i
     END IF
 
@@ -1033,7 +1031,7 @@ SUB VARIABLE_VIEW
     REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
     Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
-    Buttons(b).CAPTION = "<F8 = Step>": b = b + 1
+    Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
         Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
         IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
@@ -3567,6 +3565,8 @@ SUB CHECK_RESIZE (new_w%, new_h%)
         new_w% = _RESIZEWIDTH
         new_h% = _RESIZEHEIGHT
     END IF
+
+    IF new_w% = SCREEN_WIDTH AND new_h% = SCREEN_HEIGHT THEN EXIT SUB
 
     IF new_w% < DEFAULT_WIDTH THEN new_w% = DEFAULT_WIDTH
     IF new_h% < SCREEN_TOPBAR * 3 THEN new_h% = SCREEN_TOPBAR * 3
