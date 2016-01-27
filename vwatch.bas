@@ -1629,7 +1629,7 @@ SUB PROCESSFILE
 
     'Check if processing can proceed:
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
-        EXIT SUB
+        GOTO ShowProcessDialog
     END IF
 
     BIFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".BI"
