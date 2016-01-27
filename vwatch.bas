@@ -96,7 +96,7 @@ END TYPE
 
 'Shared variables: ------------------------------------------------------------
 DIM SHARED BREAKPOINTLIST AS STRING
-DIM SHARED DEFAULTDATATYPE AS STRING * 20
+DIM SHARED DEFAULTDATATYPE(65 TO 90) AS STRING * 20
 DIM SHARED EXENAME AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
@@ -152,7 +152,9 @@ DIM OVERLAYSCREEN AS LONG
 DIM i AS INTEGER
 
 'Variables initialization: ----------------------------------------------------
-DEFAULTDATATYPE = "SINGLE"
+FOR i = 65 TO 90
+    DEFAULTDATATYPE(i) = "SINGLE"
+NEXT i
 SET_OPTIONBASE = 0
 VERBOSE = 0
 DONTCOMPILE = 0
@@ -232,7 +234,9 @@ _RESIZE ON
 _AUTODISPLAY
 
 'Reset flags:
-DEFAULTDATATYPE = "SINGLE"
+FOR i = 65 TO 90
+    DEFAULTDATATYPE(i) = "SINGLE"
+NEXT i
 SET_OPTIONBASE = 0
 VERBOSE = 0
 DONTCOMPILE = 0
@@ -1771,7 +1775,7 @@ SUB PROCESSFILE
                 DefaultTypeUsed = 0
 
                 IF LEN(FoundType) = 0 THEN
-                    FoundType = DEFAULTDATATYPE 'Assume default data type
+                    FoundType = DEFAULTDATATYPE(ASC(NextVar$, 1)) 'Assume default data type
                     DefaultTypeUsed = -1
                 END IF
 
@@ -1927,23 +1931,23 @@ SUB PROCESSFILE
             SET_OPTIONBASE = 1
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFINT " THEN
-            DEFAULTDATATYPE = "INTEGER"
+            SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "INTEGER"
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFLNG " THEN
-            DEFAULTDATATYPE = "LONG"
+            SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "LONG"
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFSTR " THEN
-            DEFAULTDATATYPE = "STRING"
+            SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "STRING"
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFSNG " THEN
-            DEFAULTDATATYPE = "SINGLE"
+            SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "SINGLE"
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFDBL " THEN
-            DEFAULTDATATYPE = "DOUBLE"
+            SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "DOUBLE"
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 8) = "_DEFINE " THEN
             IF INSTR(SourceLine, " AS ") > 0 THEN
-                DEFAULTDATATYPE = RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
+                SET_DEF MID$(SourceLine, 9, INSTR(SourceLine, " AS ") - 9), RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
             END IF
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
@@ -3506,6 +3510,36 @@ SUB CHECK_RESIZE (new_w%, new_h%)
     $END IF
 END SUB
 
+'------------------------------------------------------------------------------
+SUB SET_DEF (Range$, DataType$)
+    FOR i = 1 TO LEN(Range$)
+        SELECT CASE ASC(Range$, i)
+            CASE 65 TO 90 'A to Z
+                IF firstLetter = 0 THEN
+                    firstLetter = ASC(Range$, i)
+                    IF i = LEN(Range$) THEN
+                        DEFAULTDATATYPE(firstLetter) = DataType$
+                    END IF
+                ELSEIF secondLetter = 0 THEN
+                    secondLetter = ASC(Range$, i)
+                    IF firstLetter > secondLetter THEN SWAP firstLetter, secondLetter
+                    FOR j = firstLetter TO secondLetter
+                        DEFAULTDATATYPE(j) = DataType$
+                    NEXT j
+                    firstLetter = 0
+                    secondLetter = 0
+                END IF
+            CASE 44 'comma
+                IF secondLetter = 0 THEN
+                    IF firstLetter > 0 THEN DEFAULTDATATYPE(firstLetter) = DataType$
+                    firstLetter = 0
+                ELSE
+                    firstLetter = 0
+                    secondLetter = 0
+                END IF
+        END SELECT
+    NEXT i
+END SUB
 '------------------------------------------------------------------------------
 '$INCLUDE:'glinput.bi'
 
