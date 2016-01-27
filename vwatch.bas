@@ -281,6 +281,9 @@ SUB SOURCE_VIEW
     DIM ListEnd_Label AS STRING
     STATIC SearchIn
 
+    TotalButtons = 6
+    DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+
     TOTALBREAKPOINTS = 0
     BREAKPOINT.ACTION = 0 'Start paused; execution starts with F5 or F8.
     PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
@@ -592,8 +595,7 @@ SUB SOURCE_VIEW
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
-    TotalButtons = 6: b = 1
-    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    b = 1
     Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
     IF CLIENT.TOTALVARIABLES > 0 THEN Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
     Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
@@ -744,6 +746,9 @@ SUB VARIABLE_VIEW
     DIM ListEnd_Label AS STRING
     STATIC Filter$
     STATIC SearchIn
+
+    TotalButtons = 6
+    DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
 
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
     CLS , _RGB32(255, 255, 255)
@@ -1027,8 +1032,7 @@ SUB VARIABLE_VIEW
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
-    TotalButtons = 6: b = 1
-    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    b = 1
     Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
     Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
     Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
@@ -1126,6 +1130,10 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
 
     DIM SB_Ratio AS SINGLE
     DIM ListEnd_Label AS STRING
+
+    TotalButtons = 5
+    DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+
     AddedList$ = STRING$(TOTALVARIABLES, 0) 'Start interactive mode with all variables unselected
     TotalSelected = 0
 
@@ -1392,8 +1400,6 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
 
 
     'Top buttons:
-    TotalButtons = 5
-    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     Buttons(1).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
     IF TotalSelected > 0 THEN
         Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
@@ -2661,7 +2667,6 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION TRUNCATE$ (Text$, Char$)
-    DIM NewText$
     FOR i = 1 TO LEN(Text$)
         IF MID$(Text$, i, 1) = Char$ THEN EXIT FOR
         NewText$ = NewText$ + MID$(Text$, i, 1)
@@ -2788,6 +2793,12 @@ END FUNCTION
 SUB SETUP_CONNECTION
     _KEYCLEAR 'Clears the keyboard buffer
 
+    TotalButtons = 2
+    DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    b = 1
+    Buttons(b).CAPTION = "<Open and Process .BAS>": b = b + 1
+    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
+
     StartSetup:
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
 
@@ -2807,7 +2818,6 @@ SUB SETUP_CONNECTION
 
     'Wait for a connection:
     x = _EXIT
-    GOSUB UpdateScreen
     MENU% = 0
     DO: _LIMIT 30
         GET #FILE, HEADERBLOCK, HEADER
@@ -2896,20 +2906,17 @@ SUB SETUP_CONNECTION
     TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
     _TITLE TITLESTRING
 
+    'Connection estabilished.
+    EXIT SUB
+
     GetInput:
     k$ = INKEY$
-    DO
-        prevy = y
-        y = y + (_MOUSEWHEEL * ((_HEIGHT - 50) / 5))
-        IF y <> prevy THEN TRACE = 0
+    DO: _LIMIT 500
         mx = _MOUSEX
         my = _MOUSEY
         mb = _MOUSEBUTTON(1)
     LOOP WHILE _MOUSEINPUT
     RETURN
-
-    'Connection estabilished.
-    EXIT SUB
 
     UpdateScreen:
     CLS , _RGB32(255, 255, 255)
@@ -2925,11 +2932,6 @@ SUB SETUP_CONNECTION
 
 
     'Top buttons:
-    TotalButtons = 2: b = 1
-    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
-    Buttons(b).CAPTION = "<Open and Process .BAS>": b = b + 1
-    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
-
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
         c$ = TRIM$(Buttons(cb).CAPTION)
@@ -2968,7 +2970,7 @@ SUB SETUP_CONNECTION
     IF mb THEN
         FOR cb = 1 TO UBOUND(Buttons)
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+                WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
                 mb = 0: mx = _MOUSEX: my = _MOUSEY
                 'Check if the user moved the mouse out of the button before releasing it (=cancel)
                 IF my > _FONTHEIGHT THEN RETURN
