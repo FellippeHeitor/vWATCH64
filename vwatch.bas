@@ -2,6 +2,7 @@
 'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
 
 DEFLNG A-Z
+$RESIZE:ON
 
 $IF WIN THEN
     DECLARE LIBRARY
@@ -23,7 +24,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".950b"
+CONST VERSION = ".951b"
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
@@ -99,7 +100,7 @@ DIM SHARED DEFAULTDATATYPE AS STRING * 20
 DIM SHARED EXENAME AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
-DIM SHARED PAGE_HEIGHT AS INTEGER
+DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LAST_PING#
 DIM SHARED LF AS _BYTE
@@ -246,13 +247,13 @@ NEWFILENAME$ = ""
 MainLoop:
 '------------------------------------------------------------------------------
 DO
+    _RESIZE OFF
     TITLESTRING = "vWATCH64 - v" + VERSION
     _TITLE TITLESTRING
     SETUP_CONNECTION
     IF MENU% = 101 THEN GOTO OpenFileMenu
     _RESIZE ON
     SOURCE_VIEW
-    _RESIZE OFF
 LOOP UNTIL USERQUIT
 '------------------------------------------------------------------------------
 SYSTEM
@@ -2023,7 +2024,9 @@ SUB PROCESSFILE
             PRINT #OutputFile, bkpSourceLine$
             InBetweenSubs = -1
         ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
-            PRINT #OutputFile, "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+            IF LEFT$(SourceLine, 5) <> "CASE " THEN
+                PRINT #OutputFile, "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+            END IF
             PRINT #OutputFile, bkpSourceLine$
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
             PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED THEN"
@@ -3347,6 +3350,8 @@ SUB SEND_PING
     GET #FILE, HEADERBLOCK, HEADER
     IF HEADER.CLIENT_PING = 0 THEN
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT", FoundAt) THEN LAST_PING# = TIMER
+        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SLEEP", FoundAt) THEN LAST_PING# = TIMER
+        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "_DELAY", FoundAt) THEN LAST_PING# = TIMER
         IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
             TIMED_OUT = -1
         END IF
