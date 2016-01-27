@@ -711,14 +711,14 @@ SUB SOURCE_VIEW
     CheckButtons:
     IF my > _FONTHEIGHT THEN RETURN
     'Hover highlight:
-    FOR cb = 1 TO UBOUND(Buttons)
+    FOR cb = 1 TO TotalButtons
         IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
             LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
         END IF
     NEXT cb
 
     IF mb THEN
-        FOR cb = 1 TO UBOUND(Buttons)
+        FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
                 mb = 0: mx = _MOUSEX: my = _MOUSEY
@@ -1098,14 +1098,14 @@ SUB VARIABLE_VIEW
     CheckButtons:
     IF my > _FONTHEIGHT THEN RETURN
     'Hover highlight:
-    FOR cb = 1 TO UBOUND(Buttons)
+    FOR cb = 1 TO TotalButtons
         IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
             LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
         END IF
     NEXT cb
 
     IF mb THEN
-        FOR cb = 1 TO UBOUND(Buttons)
+        FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
                 mb = 0
@@ -1481,14 +1481,14 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     CheckButtons:
     IF my > _FONTHEIGHT THEN RETURN
     'Hover highlight:
-    FOR cb = 1 TO UBOUND(Buttons)
+    FOR cb = 1 TO TotalButtons
         IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
             LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
         END IF
     NEXT cb
 
     IF mb THEN
-        FOR cb = 1 TO UBOUND(Buttons)
+        FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
                 mb = 0
@@ -2556,7 +2556,7 @@ SUB PROCESSFILE
     'Hover highlight:
     WHILE _MOUSEINPUT: WEND
     mb = _MOUSEBUTTON(1): mx = _MOUSEX: my = _MOUSEY
-    FOR cb = 1 TO UBOUND(Buttons)
+    FOR cb = 1 TO TotalButtons
         IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
             IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
                 LINE (Buttons(cb).X, Buttons(cb).Y)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
@@ -2565,7 +2565,7 @@ SUB PROCESSFILE
     NEXT cb
 
     IF mb THEN
-        FOR cb = 1 TO UBOUND(Buttons)
+        FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
                     WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
@@ -2961,14 +2961,14 @@ SUB SETUP_CONNECTION
     CheckButtons:
     IF my > _FONTHEIGHT THEN RETURN
     'Hover highlight:
-    FOR cb = 1 TO UBOUND(Buttons)
+    FOR cb = 1 TO TotalButtons
         IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
             LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
         END IF
     NEXT cb
 
     IF mb THEN
-        FOR cb = 1 TO UBOUND(Buttons)
+        FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
                 mb = 0: mx = _MOUSEX: my = _MOUSEY
