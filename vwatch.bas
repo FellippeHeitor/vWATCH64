@@ -1551,23 +1551,78 @@ SUB PROCESSFILE
     Q$ = CHR$(34)
 
     'Process dialog:
+    '-----------------------------------------------------------
+    'vWATCH64 - v.951b
+    'Processing file: xxxxx.bas
+    'New file name:
+    '
+    '  Include arrays?            < Yes >
+    '  Launch interactive mode?   < No  >
+    '  Compile?                   < No  >
+    '  Show details?              < No  >
+    '                                          < OK > < Cancel >
+    '-----------------------------------------------------------
     DialogX = _WIDTH(MAINSCREEN) / 2 - 200
     DialogY = _HEIGHT(MAINSCREEN) / 2 - 100
-    CLS , _RGB32(255, 255, 255)
-    LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-    COLOR _RGB32(0, 0, 0), _RGB32(200, 200, 200)
-    _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-    _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-    LINE (DialogX + 400, DialogY + 5 + _FONTHEIGHT)-STEP(_WIDTH - (DialogX + 400), _FONTHEIGHT), _RGB32(255, 255, 255), BF
+
+    '---------------------------------------------
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
+        ShowProcessDialog:
+        Dialog = 1
+        CLS , _RGB32(255, 255, 255)
+
+        'Dialog buttons:
+        TotalButtons = 6
+        REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+
         getfilename% = GLIINPUT(DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2, GLIALPHA + GLINUMERIC + GLIDASH, "New file name: ", TRUE)
+        DIALOGRESULT = 0
         DO
+            LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+            COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+            LINE (DialogX + 401, DialogY + 5 + _FONTHEIGHT)-STEP(_WIDTH - (DialogX + 401), _FONTHEIGHT), _RGB32(255, 255, 255), BF
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 5), "Include arrays?"
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 6), "Launch interactive mode?"
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 7), "Compile?"
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 8), "Show details?"
+
             GLICLEAR
             GLIUPDATE
+
+            'Draw buttons
+            b = 1
+            Buttons(b).CAPTION = IIFSTR$(SKIPARRAYS, "< No  >", "< Yes >"): b = b + 1
+            Buttons(b).CAPTION = IIFSTR$(INTERACTIVE, "< Yes >", "< No  >"): b = b + 1
+            Buttons(b).CAPTION = IIFSTR$(DONTCOMPILE, "< No  >", "< Yes >"): b = b + 1
+            Buttons(b).CAPTION = IIFSTR$(VERBOSE, "< Yes >", "< No  >"): b = b + 1
+            Buttons(b).CAPTION = "< OK >": b = b + 1
+            Buttons(b).CAPTION = "< Cancel >": b = b + 1
+
+            FOR cb = 1 TO TotalButtons
+                IF cb <= 4 THEN
+                    Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (cb + 4) + 1
+                    Buttons(cb).X = DialogX + 200
+                ELSE
+                    Buttons(cb).Y = (DialogY + 200) - (_FONTHEIGHT) - 5
+                END IF
+                Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+            NEXT cb
+            Buttons(5).X = ((DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))) - _PRINTWIDTH(TRIM$(Buttons(5).CAPTION))
+            Buttons(6).X = (DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))
+
+            GOSUB CheckButtons
+            FOR cb = 1 TO TotalButtons
+                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
+            NEXT cb
+            'end of drawing buttons
+
             _DISPLAY
-        LOOP UNTIL GLIENTERED(getfilename%)
+        LOOP UNTIL GLIENTERED(getfilename%) OR DIALOGRESULT > 0
+        IF DIALOGRESULT = 2 THEN GLICLOSE getfilename%, TRUE: EXIT SUB
         NEWFILENAME$ = GLIOUTPUT$(getfilename%)
-        GLICLOSE getfilename%, FALSE
+        GLICLOSE getfilename%, TRUE
     END IF
 
     'Check if processing can proceed:
@@ -1580,86 +1635,73 @@ SUB PROCESSFILE
     NEWFILENAME$ = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", NEWFILENAME$, NEWFILENAME$ + ".BAS")
 
     IF UCASE$(FILENAME$) = UCASE$(NEWFILENAME$) THEN
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Source file = destination file. Can't proceed."
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Press any key to continue..."
         BEEP
-        _DISPLAY
-        SLEEP
-        EXIT SUB
+        GOTO ShowProcessDialog
     END IF
 
     IF _FILEEXISTS(NEWFILENAME$) THEN
-        COLOR _RGB32(255, 0, 0)
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), NOPATH$(NEWFILENAME$) + " already exists."
-        COLOR _RGB32(0, 0, 0)
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 4), "Overwrite (Y/N)?"
-        LINE (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3 + _FONTHEIGHT - 1)-STEP(_PRINTWIDTH(NOPATH$(NEWFILENAME$)), 0), _RGB32(0, 0, 0)
-        BEEP
-        _DISPLAY
-        DO
-            k = _KEYHIT
-        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
-        IF k = 78 OR k = 110 THEN EXIT SUB
-    END IF
-
-    'Options dialogs, unless already set using command line:
-    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
+        'Overwrite dialog:
+        '-----------------------------------------------------------
+        'vWATCH64 - v.951b
+        'Processing file: xxxxx.bas
+        'New file name: yyyyy.bas
+        '
+        '
+        '  File already exists.
+        '  Replace?
+        '
+        '                                           < Yes > <  No  >
+        '-----------------------------------------------------------
+        ShowOverwriteDialog:
+        Dialog = 2
         CLS , _RGB32(255, 255, 255)
-        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Include arrays (Y/N)?"
-        _KEYCLEAR
-        _DISPLAY
+
+        'Dialog buttons:
+        TotalButtons = 2
+        REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+
+        '---------------------------------------------
+        OVERWRITE = 0
         DO
-            k = _KEYHIT
-        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
-        IF k = 78 OR k = 110 THEN SKIPARRAYS = -1 ELSE SKIPARRAYS = 0
+            LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
+            COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
+            COLOR _RGB32(255, 0, 0)
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2), "New file name: " + NOPATH$(NEWFILENAME$)
+            COLOR _RGB32(0, 0, 0)
+            LINE (DialogX + 401, DialogY + 5 + _FONTHEIGHT)-STEP(_WIDTH - (DialogX + 401), _FONTHEIGHT), _RGB32(255, 255, 255), BF
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 6), "File already exists."
+            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 7), "Replace?"
+
+            'Draw buttons
+            b = 1
+            Buttons(b).CAPTION = "< Yes >": b = b + 1
+            Buttons(b).CAPTION = "<  No  >": b = b + 1
+
+            FOR cb = 1 TO TotalButtons
+                Buttons(cb).Y = (DialogY + 200) - (_FONTHEIGHT) - 5
+                Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+            NEXT cb
+            Buttons(1).X = ((DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(2).CAPTION))) - _PRINTWIDTH(TRIM$(Buttons(1).CAPTION))
+            Buttons(2).X = (DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(2).CAPTION))
+
+            GOSUB CheckButtons
+            FOR cb = 1 TO TotalButtons
+                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
+            NEXT cb
+            'end of drawing buttons
+            k$ = INKEY$
+            IF UCASE$(k$) = "Y" THEN OVERWRITE = 1: _KEYCLEAR
+            IF UCASE$(k$) = "N" THEN OVERWRITE = 2: _KEYCLEAR
+            _DISPLAY
+        LOOP UNTIL OVERWRITE = 1 OR OVERWRITE = 2
     END IF
 
-    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
-        CLS , _RGB32(255, 255, 255)
-        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Attempt to compile in the end (Y/N)?"
-        _KEYCLEAR
-        _DISPLAY
-        DO
-            k = _KEYHIT
-        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
-        IF k = 78 OR k = 110 THEN DONTCOMPILE = -1 ELSE DONTCOMPILE = 0
+    'Check if processing can proceed:
+    IF OVERWRITE = 2 THEN
+        GOTO ShowProcessDialog
     END IF
-
-    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
-        CLS , _RGB32(255, 255, 255)
-        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Use interactive mode (Y/N)?"
-        _KEYCLEAR
-        _DISPLAY
-        DO
-            k = _KEYHIT
-        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
-        IF k = 78 OR k = 110 THEN INTERACTIVE = 0 ELSE INTERACTIVE = -1
-    END IF
-
-
-    IF _COMMANDCOUNT <= 1 OR (_COMMANDCOUNT >= 1 AND FIRSTPROCESSING = 0) THEN
-        CLS , _RGB32(255, 255, 255)
-        LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), "Show processing details (Y/N)?"
-        _KEYCLEAR
-        _DISPLAY
-        DO
-            k = _KEYHIT
-        LOOP UNTIL k = 89 OR k = 121 OR k = 78 OR k = 110
-        IF k = 78 OR k = 110 THEN VERBOSE = 0 ELSE VERBOSE = -1
-    END IF
-
 
     'Processing can proceed.
     _AUTODISPLAY
@@ -2502,6 +2544,45 @@ SUB PROCESSFILE
     TotalKeywords = TotalKeywords + 1
     REDIM _PRESERVE KeywordList(1 TO TotalKeywords) AS STRING
     KeywordList(TotalKeywords) = ThisKeyword
+    RETURN
+
+    CheckButtons:
+    'Hover highlight:
+    WHILE _MOUSEINPUT: WEND
+    mb = _MOUSEBUTTON(1): mx = _MOUSEX: my = _MOUSEY
+    FOR cb = 1 TO UBOUND(Buttons)
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+                LINE (Buttons(cb).X, Buttons(cb).Y)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+            END IF
+        END IF
+    NEXT cb
+
+    IF mb THEN
+        FOR cb = 1 TO UBOUND(Buttons)
+            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+                    WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
+                    mb = 0: mx = _MOUSEX: my = _MOUSEY
+                    IF Dialog = 1 THEN
+                        SELECT CASE cb
+                            CASE 1: SKIPARRAYS = NOT SKIPARRAYS: RETURN
+                            CASE 2: INTERACTIVE = NOT INTERACTIVE: RETURN
+                            CASE 3: DONTCOMPILE = NOT DONTCOMPILE: RETURN
+                            CASE 4: VERBOSE = NOT VERBOSE: RETURN
+                            CASE 5: DIALOGRESULT = 1: RETURN
+                            CASE 6: DIALOGRESULT = 2: RETURN
+                            CASE ELSE
+                                BEEP 'in case a button was added but not yet assigned
+                        END SELECT
+                    ELSE
+                        OVERWRITE = cb: RETURN
+                    END IF
+                    RETURN
+                END IF
+            END IF
+        NEXT cb
+    END IF
     RETURN
 END SUB
 
