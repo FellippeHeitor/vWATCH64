@@ -1619,6 +1619,8 @@ SUB PROCESSFILE
             'end of drawing buttons
 
             _DISPLAY
+            k$ = INKEY$
+            IF k$ = CHR$(27) THEN DIALOGRESULT = 2
         LOOP UNTIL GLIENTERED(getfilename%) OR DIALOGRESULT > 0
         IF DIALOGRESULT = 2 THEN GLICLOSE getfilename%, TRUE: EXIT SUB
         NEWFILENAME$ = GLIOUTPUT$(getfilename%)
@@ -1692,8 +1694,8 @@ SUB PROCESSFILE
             NEXT cb
             'end of drawing buttons
             k$ = INKEY$
-            IF UCASE$(k$) = "Y" THEN OVERWRITE = 1: _KEYCLEAR
-            IF UCASE$(k$) = "N" THEN OVERWRITE = 2: _KEYCLEAR
+            IF UCASE$(k$) = "Y" OR k$ = CHR$(13) THEN OVERWRITE = 1: _KEYCLEAR
+            IF UCASE$(k$) = "N" OR k$ = CHR$(27) THEN OVERWRITE = 2: _KEYCLEAR
             _DISPLAY
         LOOP UNTIL OVERWRITE = 1 OR OVERWRITE = 2
     END IF
