@@ -202,8 +202,8 @@ END IF
 $IF WIN THEN
     'Under Windows, if Lucida Console font is found, it is used;
     'Otherwise we stick to _FONT 16 (default):
-    IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE, BOLD")
-    IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
+    'IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE, BOLD")
+    'IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
 
     Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
     IF Ret > 0 THEN
