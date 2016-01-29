@@ -2062,7 +2062,7 @@ SUB PROCESSFILE
                     PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
                     PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
                     PRINT #OutputFile, ""
-                    PRINT #OutputFile, "SYSTEM"
+                    PRINT #OutputFile, "END"
                     PRINT #OutputFile, "vwatch64_FILEERROR:"
                     PRINT #OutputFile, "RESUME NEXT"
                     PRINT #OutputFile, ""
@@ -2093,7 +2093,7 @@ SUB PROCESSFILE
                     PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
                     PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
                     PRINT #OutputFile, ""
-                    PRINT #OutputFile, "SYSTEM"
+                    PRINT #OutputFile, "END"
                     PRINT #OutputFile, "vwatch64_FILEERROR:"
                     PRINT #OutputFile, "RESUME NEXT"
                     PRINT #OutputFile, ""
@@ -2191,7 +2191,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
         PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
         PRINT #OutputFile, ""
-        PRINT #OutputFile, "SYSTEM"
+        PRINT #OutputFile, "END"
         PRINT #OutputFile, "vwatch64_FILEERROR:"
         PRINT #OutputFile, "RESUME NEXT"
         PRINT #OutputFile, ""
