@@ -7,6 +7,7 @@ $RESIZE:ON
 $IF WIN THEN
     DECLARE LIBRARY
         FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
+        FUNCTION PlaySound (pszSound AS STRING, BYVAL hmod AS _OFFSET, BYVAL fdwSound AS LONG)
     END DECLARE
 $END IF
 
@@ -218,10 +219,10 @@ $END IF
 
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     ELSEIF _COMMANDCOUNT > 1 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE BEEP
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     END IF
 END IF
@@ -346,7 +347,7 @@ SUB SOURCE_VIEW
 
         IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
         LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
-        BEEP
+        SYSTEM_BEEP
         _KEYCLEAR
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
@@ -752,7 +753,7 @@ SUB SOURCE_VIEW
                     CASE 5: GOSUB ToggleButton_Click
                     CASE 6: GOSUB ClearButton_Click
                     CASE 7: GOSUB ExitButton_Click
-                    CASE ELSE: BEEP
+                    CASE ELSE: SYSTEM_BEEP
                 END SELECT
             END IF
         NEXT cb
@@ -1149,7 +1150,7 @@ SUB VARIABLE_VIEW
                     CASE 4: GOSUB ToggleButton_Click
                     CASE 5: GOSUB ClearButton_CLICK
                     CASE 6: GOSUB ExitButton_Click
-                    CASE ELSE: BEEP
+                    CASE ELSE: SYSTEM_BEEP
                 END SELECT
             END IF
         NEXT cb
@@ -1539,7 +1540,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
                     CASE 2: GOSUB ClearButton_Click
                     CASE 3: GOSUB SaveButton_Click
                     CASE 4: GOSUB CancelButton_Click
-                    CASE ELSE: BEEP
+                    CASE ELSE: SYSTEM_BEEP
                 END SELECT
             END IF
         NEXT cb
@@ -1685,7 +1686,7 @@ SUB PROCESSFILE
     NEWFILENAME$ = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", NEWFILENAME$, NEWFILENAME$ + ".bas")
 
     IF UCASE$(FILENAME$) = UCASE$(NEWFILENAME$) THEN
-        BEEP
+        SYSTEM_BEEP
         GOTO ShowProcessDialog
     END IF
 
@@ -1788,7 +1789,7 @@ SUB PROCESSFILE
     DO
         k$ = INKEY$
         IF k$ = CHR$(27) THEN
-            BEEP
+            SYSTEM_BEEP
             PRINT
             PRINT
             COLOR _RGB32(255, 0, 0)
@@ -2109,7 +2110,7 @@ SUB PROCESSFILE
                 PRINT #OutputFile, SourceLine
                 IF VERBOSE THEN _DELAY .05
             ELSE
-                IF SourceLine <> UCASE$("FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)") THEN
+                IF LEFT$(SourceLine, 28) <> UCASE$("FUNCTION GetModuleFileNameA ") THEN
                     PRINT #OutputFile, bkpSourceLine$
                 ELSE
                     PRINT #OutputFile, "'" + bkpSourceLine$
@@ -2679,7 +2680,7 @@ SUB PROCESSFILE
                             CASE 5: DIALOGRESULT = 1: RETURN
                             CASE 6: DIALOGRESULT = 2: RETURN
                             CASE ELSE
-                                BEEP 'in case a button was added but not yet assigned
+                                SYSTEM_BEEP 'in case a button was added but not yet assigned
                         END SELECT
                     ELSE
                         OVERWRITE = cb: RETURN
@@ -2941,7 +2942,7 @@ SUB SETUP_CONNECTION
     CLS , _RGB32(255, 255, 255)
     'Connected! Check if client is compatible:
     IF HEADER.CLIENT_ID <> ID OR HEADER.VERSION <> VERSION THEN
-        BEEP
+        SYSTEM_BEEP
         PRINT "Client not compatible."
         PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.CLIENT_ID + CHR$(34)
         PRINT "Reported version: "; HEADER.VERSION
@@ -2968,7 +2969,7 @@ SUB SETUP_CONNECTION
     LOOP UNTIL LEN(TRIM$(CLIENT.CHECKSUM)) > 0
 
     'No CHECKSUM received = connection closed.
-    IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN BEEP: GOTO StartSetup
+    IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN SYSTEM_BEEP: GOTO StartSetup
 
     REDIM VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
@@ -3079,7 +3080,7 @@ SUB SETUP_CONNECTION
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
                 IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN MENU% = 102: RETURN
-                BEEP 'in case a button was added but not yet assigned
+                SYSTEM_BEEP 'in case a button was added but not yet assigned
                 RETURN
             END IF
         NEXT cb
@@ -3478,7 +3479,7 @@ SUB RESTORE_LIBRARY
     FILEERRORRAISED = 0
     ON ERROR GOTO FileError
     OPEN "timers.h" FOR OUTPUT AS #LibOutput
-    IF FILEERRORRAISED THEN BEEP: PRINT "Cannot write timers.h to "; _CWD$: SLEEP: SYSTEM
+    IF FILEERRORRAISED THEN SYSTEM_BEEP: PRINT "Cannot write timers.h to "; _CWD$: SLEEP: SYSTEM
 
     SourceLine$ = "extern int32 ontimerthread_lock;" + LF$: PRINT #LibOutput, SourceLine$;
     SourceLine$ = "void stop_timers() {" + LF$: PRINT #LibOutput, SourceLine$;
@@ -3779,3 +3780,11 @@ END SUB
 '------------------------------------------------------------------------------
 '$INCLUDE:'glinput.bi'
 
+
+SUB SYSTEM_BEEP
+    $IF WIN THEN
+        x = PlaySound("SystemDefault" + CHR$(0), 0, 65536 + 1)
+    $ELSE
+        BEEP
+    $END IF
+END SUB
