@@ -3521,6 +3521,7 @@ END FUNCTION
 '------------------------------------------------------------------------------
 FUNCTION GETLINE$ (TargetLine AS LONG)
     DIM LineLength AS LONG
+    DIM SourceLine AS STRING
 
     IF TargetLine = 0 THEN EXIT FUNCTION
     IF TargetLine > CLIENT.TOTALSOURCELINES THEN EXIT FUNCTION
@@ -3532,7 +3533,11 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
         LineLength = LEN(SOURCEFILE) - LINE_STARTS(TargetLine) - 1
     END IF
 
-    GETLINE$ = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LineLength)
+    SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LineLength)
+    IF LEFT$(SourceLine, 1) = CHR$(10) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
+    IF LEFT$(SourceLine, 1) = CHR$(LF) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
+
+    GETLINE$ = SourceLine
 END FUNCTION
 
 '------------------------------------------------------------------------------
