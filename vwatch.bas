@@ -1158,7 +1158,7 @@ SUB VARIABLE_VIEW
 
 END SUB
 
-SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
+SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     'Allows user to select which of the found variables will be watched.
     'Shows a UI similar to monitor mode, with extra commands to filter/add.
 
@@ -2155,7 +2155,7 @@ SUB PROCESSFILE
         IF INTERACTIVE THEN
             bkpx% = POS(1): bkpy% = CSRLIN
             BackupScreen = _COPYIMAGE(0)
-            INTERACTIVE_MODE VARIABLES(), AddedList$, TotalSelected
+            INTERACTIVE_MODE AddedList$, TotalSelected
             CLS , _RGB32(230, 230, 230)
             _PUTIMAGE (0, 0), BackupScreen
             _FREEIMAGE BackupScreen
