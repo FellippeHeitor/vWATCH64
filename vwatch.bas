@@ -57,6 +57,7 @@ TYPE HEADERTYPE
     RESPONSE AS _BYTE
     HOST_PING AS _BYTE
     CLIENT_PING AS _BYTE
+    HISTORY_LOG AS _BYTE
 END TYPE
 
 TYPE CLIENTTYPE
@@ -88,6 +89,7 @@ TYPE UDTTYPE
 END TYPE
 
 TYPE BUTTONSTYPE
+    ID AS LONG
     CAPTION AS STRING * 120
     X AS INTEGER
     Y AS INTEGER
@@ -100,6 +102,7 @@ DIM SHARED DEFAULTDATATYPE(65 TO 90) AS STRING * 20
 DIM SHARED EXENAME AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
+DIM SHARED FILEERRORRAISED AS _BIT
 DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LAST_PING#
@@ -263,6 +266,7 @@ LOOP UNTIL USERQUIT
 SYSTEM
 
 FileError:
+FILEERRORRAISED = -1
 RESUME NEXT
 
 KeyWordsDATA:
@@ -326,6 +330,7 @@ SUB SOURCE_VIEW
         CLOSE #FILE
         ON ERROR GOTO FileError
         KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+        ON ERROR GOTO 0
         EXIT SUB
     END IF
 
@@ -385,20 +390,21 @@ SUB SOURCE_VIEW
                 CASE CODE
                     Filter$ = Filter$ + CHR$(k)
                 CASE LINENUMBERS
-                    IF (k >= 48 AND k <= 57) OR (k = 45 AND INSTR(Filter$, "-") = 0) THEN Filter$ = Filter$ + CHR$(k)
+                    IF (k >= 48 AND k <= 57) OR (k = 45) OR (k = 44) THEN Filter$ = Filter$ + CHR$(k)
             END SELECT
         CASE 8 'Backspace
             IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-        CASE 9
+        CASE 9 'TAB
             IF SearchIn = CODE THEN SearchIn = LINENUMBERS ELSE SearchIn = CODE
             IF LEN(Filter$) > 0 AND VAL(Filter$) = 0 AND SearchIn = LINENUMBERS THEN Filter$ = ""
         CASE 27 'ESC clears the current search filter or exits interactive mode
+            ExitButton_Click:
             IF LEN(Filter$) THEN
                 Filter$ = ""
             ELSE
-                ExitButton_Click:
                 CLOSE_SESSION = -1
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 18432 'Up
             IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ((_HEIGHT - 50) * SB_Ratio)
             TRACE = 0
@@ -410,6 +416,7 @@ SUB SOURCE_VIEW
             STEPMODE = 0
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 16384 'F6
             WindowButton_Click:
             IF CLIENT.TOTALVARIABLES > 0 THEN
@@ -417,12 +424,14 @@ SUB SOURCE_VIEW
                 GET #FILE, DATABLOCK, VARIABLES()
                 VARIABLE_VIEW
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
             STEPMODE = -1
             TRACE = -1
             BREAKPOINT.ACTION = NEXTSTEP
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 17152 'F9
             ToggleButton_Click:
             IF LEN(FilteredList$) = 0 THEN
@@ -442,8 +451,9 @@ SUB SOURCE_VIEW
                     END IF
                 NEXT setAll
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 17408 'F10
-            ClearButton_CLICK:
+            ClearButton_Click:
             IF LEN(FilteredList$) = 0 THEN
                 TOTALBREAKPOINTS = 0
                 BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
@@ -456,6 +466,7 @@ SUB SOURCE_VIEW
                     END IF
                 NEXT setAll
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
     END SELECT
 
     IF PAGE_HEIGHT > LIST_AREA THEN
@@ -596,38 +607,44 @@ SUB SOURCE_VIEW
 
     'Top buttons:
     b = 1
-    Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    IF CLIENT.TOTALVARIABLES > 0 THEN Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
-    Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
-    Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
+    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
+    IF CLIENT.TOTALVARIABLES > 0 THEN
+        Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
+    END IF
+    Buttons(b).ID = 3: Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
+    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
             ELSE
-                Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
+                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
-                Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
             ELSE
-                Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
             END IF
         END IF
     ELSE
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
             ELSE
-                Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
+                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 THEN
-                Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
             END IF
         END IF
     END IF
-    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
+    Buttons(b).ID = 7: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
+
+    IF b <= TotalButtons THEN
+        Buttons(b).CAPTION = ""
+    END IF
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -709,6 +726,7 @@ SUB SOURCE_VIEW
     RETURN
 
     CheckButtons:
+    Clicked = 0
     IF my > _FONTHEIGHT THEN RETURN
     'Hover highlight:
     FOR cb = 1 TO TotalButtons
@@ -725,15 +743,17 @@ SUB SOURCE_VIEW
                 'Check if the user moved the mouse out of the button before releasing it (=cancel)
                 IF my > _FONTHEIGHT THEN RETURN
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
-                IF INSTR(Buttons(cb).CAPTION, "F5 =") THEN GOTO RunButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F6 =") THEN GOTO WindowButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "Trace O") THEN TRACE = NOT TRACE: RETURN
-                IF INSTR(Buttons(cb).CAPTION, "F8 =") THEN GOTO StepButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F9 =") THEN GOTO ToggleButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F10 =") THEN GOTO ClearButton_CLICK
-                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN GOTO ExitButton_Click
-                BEEP 'in case a button was added but not yet assigned
-                RETURN
+                Clicked = -1
+                SELECT CASE Buttons(cb).ID
+                    CASE 1: GOSUB RunButton_Click
+                    CASE 2: GOSUB WindowButton_Click
+                    CASE 3: TRACE = NOT TRACE
+                    CASE 4: GOSUB StepButton_Click
+                    CASE 5: GOSUB ToggleButton_Click
+                    CASE 6: GOSUB ClearButton_Click
+                    CASE 7: GOSUB ExitButton_Click
+                    CASE ELSE: BEEP
+                END SELECT
             END IF
         NEXT cb
     END IF
@@ -764,6 +784,8 @@ SUB VARIABLE_VIEW
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
     NEXT i
 
+    SWITCH_VIEW = 0
+
     DO: _LIMIT 500
         GOSUB ProcessInput
 
@@ -776,7 +798,7 @@ SUB VARIABLE_VIEW
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL USERQUIT OR CLOSE_SESSION
+    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW
 
     EXIT SUB
     ProcessInput:
@@ -825,12 +847,13 @@ SUB VARIABLE_VIEW
             END SELECT
             IF SearchIn = SCOPE THEN Filter$ = ""
         CASE 27 'ESC clears the current search filter or exits MONITOR_MODE
+            ExitButton_Click:
             IF LEN(Filter$) THEN
                 Filter$ = ""
             ELSE
-                ExitButton_Click:
                 CLOSE_SESSION = -1
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 18432 'Up
             IF PAGE_HEIGHT > LIST_AREA THEN
                 IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ((_HEIGHT - 50) * SB_Ratio)
@@ -844,15 +867,18 @@ SUB VARIABLE_VIEW
             STEPMODE = 0
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 16384 'F6
             WindowButton_Click:
             _KEYCLEAR
-            EXIT SUB
+            SWITCH_VIEW = -1
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
             STEPMODE = -1
             BREAKPOINT.ACTION = NEXTSTEP
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 17152 'F9
             ToggleButton_Click:
             IF shiftDown = -1 THEN GOTO ClearButton_CLICK
@@ -866,11 +892,13 @@ SUB VARIABLE_VIEW
                 END IF
                 PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 17408 'F10
             ClearButton_CLICK:
             TOTALBREAKPOINTS = 0
             BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
             PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+            IF Clicked THEN Clicked = 0: RETURN
     END SELECT
 
     IF PAGE_HEIGHT > LIST_AREA THEN
@@ -1033,16 +1061,16 @@ SUB VARIABLE_VIEW
 
     'Top buttons:
     b = 1
-    Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
-    Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
+    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
+    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
+    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
-        Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
-        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+        Buttons(b).ID = 4: Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+        Buttons(b).ID = 5: IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
     ELSE
-        Buttons(b).CAPTION = "": b = b + 1
+        Buttons(b).ID = 4: Buttons(b).CAPTION = "": b = b + 1
     END IF
-    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
+    Buttons(b).ID = 6: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -1056,6 +1084,7 @@ SUB VARIABLE_VIEW
     NEXT cb
 
     GOSUB CheckButtons
+    IF SWITCH_VIEW THEN RETURN
 
     _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
     FOR i = 1 TO LEN(ButtonLine$)
@@ -1108,15 +1137,20 @@ SUB VARIABLE_VIEW
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
-                mb = 0
-                IF INSTR(Buttons(cb).CAPTION, "F5 =") THEN GOTO RunButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F6 =") THEN GOTO WindowButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F8 =") THEN GOTO StepButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "Toggle") THEN GOTO ToggleButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "Clear") THEN GOTO ClearButton_CLICK
-                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN GOTO ExitButton_Click
-                BEEP 'in case a button was added but not yet assigned
-                RETURN
+                mb = 0: mx = _MOUSEX: my = _MOUSEY
+                'Check if the user moved the mouse out of the button before releasing it (=cancel)
+                IF my > _FONTHEIGHT THEN RETURN
+                IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
+                Clicked = -1
+                SELECT CASE Buttons(cb).ID
+                    CASE 1: GOSUB RunButton_Click
+                    CASE 2: GOSUB WindowButton_Click
+                    CASE 3: GOSUB StepButton_Click
+                    CASE 4: GOSUB ToggleButton_Click
+                    CASE 5: GOSUB ClearButton_CLICK
+                    CASE 6: GOSUB ExitButton_Click
+                    CASE ELSE: BEEP
+                END SELECT
             END IF
         NEXT cb
     END IF
@@ -1152,6 +1186,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
     NEXT i
 
+    LEAVE_INTERACTIVE_MODE = 0
     DO: _LIMIT 500
         GOSUB ProcessInput
         GOSUB UpdateList
@@ -1161,7 +1196,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             KILL NEWFILENAME$
             SYSTEM
         END IF
-    LOOP
+    LOOP UNTIL LEAVE_INTERACTIVE_MODE
 
     _AUTODISPLAY
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
@@ -1212,10 +1247,10 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
             END SELECT
             IF searchIn = SCOPE THEN Filter$ = ""
         CASE 27 'ESC clears the current search filter or exits interactive mode
+            CancelButton_Click:
             IF LEN(Filter$) THEN
                 Filter$ = ""
             ELSE
-                CancelButton_Click:
                 AddedList$ = CHR$(3)
                 _AUTODISPLAY
                 COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
@@ -1238,6 +1273,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     END IF
                 NEXT i
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 15616 'F3
             ClearButton_Click:
             IF LEN(Filter$) = 0 THEN
@@ -1251,11 +1287,11 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
                     END IF
                 NEXT i
             END IF
+            IF Clicked THEN Clicked = 0: RETURN
         CASE 16128 'F5
             SaveButton_Click:
-            _AUTODISPLAY
-            COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
-            EXIT SUB
+            LEAVE_INTERACTIVE_MODE = -1
+            IF Clicked THEN Clicked = 0: RETURN
     END SELECT
 
     IF PAGE_HEIGHT > LIST_AREA THEN
@@ -1400,12 +1436,13 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
 
 
     'Top buttons:
-    Buttons(1).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
+    b = 1
+    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>"): b = b + 1
     IF TotalSelected > 0 THEN
-        Buttons(2).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>")
+        Buttons(b).ID = 2: Buttons(b).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>"): b = b + 1
     END IF
-    Buttons(3).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and Continue>", "<F5 = Continue>")
-    Buttons(4).CAPTION = "<ESC = Cancel>"
+    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and Continue>", "<F5 = Continue>"): b = b + 1
+    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -1419,6 +1456,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     NEXT cb
 
     GOSUB CheckButtons
+    IF LEAVE_INTERACTIVE_MODE THEN RETURN
 
     _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
     FOR i = 1 TO LEN(ButtonLine$)
@@ -1479,6 +1517,7 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     RETURN
 
     CheckButtons:
+    Clicked = 0
     IF my > _FONTHEIGHT THEN RETURN
     'Hover highlight:
     FOR cb = 1 TO TotalButtons
@@ -1490,14 +1529,18 @@ SUB INTERACTIVE_MODE (VARIABLES() AS VARIABLESTYPE, AddedList$, TotalSelected)
     IF mb THEN
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                WHILE _MOUSEBUTTON(1): mb = _MOUSEINPUT: WEND
-                mb = 0
-                IF INSTR(Buttons(cb).CAPTION, "F2 =") THEN GOTO SelectButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F3 =") THEN GOTO ClearButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "F5 =") THEN GOTO SaveButton_Click
-                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN GOTO CancelButton_Click
-                BEEP 'in case a button was added but not yet assigned
-                RETURN
+                WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
+                mb = 0: mx = _MOUSEX: my = _MOUSEY
+                'Check if the user moved the mouse out of the button before releasing it (=cancel)
+                IF my > _FONTHEIGHT THEN RETURN
+                IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
+                SELECT CASE Buttons(cb).ID
+                    CASE 1: GOSUB SelectButton_Click
+                    CASE 2: GOSUB ClearButton_Click
+                    CASE 3: GOSUB SaveButton_Click
+                    CASE 4: GOSUB CancelButton_Click
+                    CASE ELSE: BEEP
+                END SELECT
             END IF
         NEXT cb
     END IF
@@ -1515,6 +1558,7 @@ SUB PROCESSFILE
     DIM BIFileName AS STRING
     DIM BMFile AS INTEGER
     DIM BMFileName AS STRING
+    DIM LOGFileName AS STRING
     DIM SourceLine AS STRING
     DIM caseBkpSourceLine AS STRING
     DIM TotalLocalVariables AS INTEGER
@@ -1536,7 +1580,6 @@ SUB PROCESSFILE
     DIM DefaultTypeUsed AS _BIT
     DIM CHECKSUM AS STRING * 8
     REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
-    REDIM VARIABLES(1) AS VARIABLESTYPE
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM KeywordList(1) AS STRING
@@ -1636,9 +1679,10 @@ SUB PROCESSFILE
         GOTO ShowProcessDialog
     END IF
 
-    BIFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".BI"
-    BMFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".BM"
-    NEWFILENAME$ = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", NEWFILENAME$, NEWFILENAME$ + ".BAS")
+    BIFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".bi"
+    BMFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".bm"
+    LOGFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".log"
+    NEWFILENAME$ = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", NEWFILENAME$, NEWFILENAME$ + ".bas")
 
     IF UCASE$(FILENAME$) = UCASE$(NEWFILENAME$) THEN
         BEEP
@@ -1751,7 +1795,8 @@ SUB PROCESSFILE
             PRINT "Processing canceled."
             COLOR _RGB32(0, 0, 0)
             PRINT "Press any key..."
-            CLOSE
+            CLOSE OutputFile
+            CLOSE InputFile
             KILL NEWFILENAME$
             SLEEP
             EXIT SUB
@@ -2122,7 +2167,8 @@ SUB PROCESSFILE
                 PRINT "Processing canceled."
                 COLOR _RGB32(0, 0, 0)
                 PRINT
-                CLOSE
+                CLOSE OutputFile
+                CLOSE InputFile
                 KILL NEWFILENAME$
                 _DELAY 1
                 EXIT SUB
@@ -2189,6 +2235,7 @@ SUB PROCESSFILE
     PRINT #BIFile, "        RESPONSE AS _BYTE"
     PRINT #BIFile, "        HOST_PING AS _BYTE"
     PRINT #BIFile, "        CLIENT_PING AS _BYTE"
+    PRINT #BIFile, "        HISTORY_LOG AS _BYTE"
     PRINT #BIFile, "    END TYPE"
     PRINT #BIFile, ""
     PRINT #BIFile, "    TYPE vwatch64_CLIENTTYPE"
@@ -2222,15 +2269,18 @@ SUB PROCESSFILE
     PRINT #BIFile, "    DIM SHARED vwatch64_CLIENT AS vwatch64_CLIENTTYPE"
     PRINT #BIFile, "    DIM SHARED vwatch64_CLIENTBLOCK AS LONG"
     PRINT #BIFile, "    DIM SHARED vwatch64_CLIENTFILE AS INTEGER"
+    PRINT #BIFile, "    DIM SHARED vwatch64_LOGFILE AS INTEGER"
     PRINT #BIFile, "    DIM SHARED vwatch64_DATABLOCK AS LONG"
     PRINT #BIFile, "    DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #BIFile, "    DIM SHARED vwatch64_HEADERBLOCK AS LONG"
     PRINT #BIFile, "    DIM SHARED vwatch64_LOF AS LONG"
     PRINT #BIFile, "    DIM SHARED vwatch64_USERQUIT AS _BIT"
     PRINT #BIFile, "    DIM SHARED vwatch64_LAST_PING#"
+    PRINT #BIFile, "    DIM SHARED vwatch64_LOGOPEN AS _BIT"
     PRINT #BIFile, ""
     IF TotalSelected > 0 THEN
         PRINT #BIFile, "    DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
+        PRINT #BIFile, "    DIM SHARED vwatch64_PREVVARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 THEN
@@ -2261,8 +2311,13 @@ SUB PROCESSFILE
     PRINT #BMFile, "SUB vwatch64_CONNECTTOHOST"
     RANDOMIZE TIMER
     PRINT #BMFile, "    DIM vwatch64_EXENAME AS STRING * 256"
+    PRINT #BMFile, ""
+    PRINT #BMFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #BMFile, ""
     PRINT #BMFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
-    PRINT #BMFile, "    'You may be wondering why such a random file number..."
+    PRINT #BMFile, "    vwatch64_LOGFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
+    PRINT #BMFile, "    IF vwatch64_LOGFILE = vwatch64_CLIENTFILE THEN vwatch64_LOGFILE = vwatch64_LOGFILE + 1"
+    PRINT #BMFile, "    'You may be wondering why such random file numbers..."
     PRINT #BMFile, "    OPEN " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
     PRINT #BMFile, ""
     PRINT #BMFile, "    'Check if a connection is already active"
@@ -2273,7 +2328,11 @@ SUB PROCESSFILE
     PRINT #BMFile, "        IF vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM THEN"
     PRINT #BMFile, "            EXIT SUB"
     PRINT #BMFile, "        ELSE"
+    PRINT #BMFile, "            _TITLE " + Q$ + "FAILED!" + Q$
     PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
+    PRINT #BMFile, "            CLOSE #vwatch64_CLIENTFILE"
+    PRINT #BMFile, "            ON ERROR GOTO vwatch64_FILEERROR"
+    PRINT #BMFile, "            KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
     PRINT #BMFile, "            EXIT SUB"
     PRINT #BMFile, "        END IF"
     PRINT #BMFile, "    END IF"
@@ -2302,17 +2361,30 @@ SUB PROCESSFILE
     PRINT #BMFile, "    'Wait for authorization:"
     PRINT #BMFile, "    vwatch64_WAITSTART# = TIMER"
     PRINT #BMFile, "    DO: _LIMIT 30"
+    PRINT #BMFile, "        _TITLE " + Q$ + "Connecting to vWATCH64 (F4 to cancel and start logging)... (" + Q$ + " + LTRIM$(STR$(3 - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
     PRINT #BMFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "        IF _KEYHIT = 27 THEN EXIT DO"
+    PRINT #BMFile, "        k = _KEYHIT"
+    PRINT #BMFile, "        IF k = 27 THEN EXIT DO"
+    PRINT #BMFile, "        IF k = 15872 THEN vwatch64_HEADER.HISTORY_LOG = -1: EXIT DO"
     PRINT #BMFile, "        IF TIMER - vwatch64_WAITSTART# > 3 THEN EXIT DO"
     PRINT #BMFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
     PRINT #BMFile, ""
-    PRINT #BMFile, "    IF vwatch64_HEADER.RESPONSE = 0 THEN"
+    PRINT #BMFile, "    IF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = 0 THEN"
+    PRINT #BMFile, "        _TITLE " + Q$ + "FAILED!" + Q$
     PRINT #BMFile, "        vwatch64_HEADER.CONNECTED = 0"
     PRINT #BMFile, "        CLOSE #vwatch64_CLIENTFILE"
     PRINT #BMFile, "        ON ERROR GOTO vwatch64_FILEERROR"
     PRINT #BMFile, "        KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
     PRINT #BMFile, "        EXIT SUB"
+    PRINT #BMFile, "    ELSEIF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+    PRINT #BMFile, "        _TITLE " + Q$ + "LOGGING STARTED!" + Q$
+    PRINT #BMFile, "        OPEN " + Q$ + PATHONLY$(EXENAME) + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
+    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
+    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
+    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
+    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #BMFile, "        vwatch64_LOGOPEN = -1"
     PRINT #BMFile, "    ELSE"
     PRINT #BMFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
@@ -2430,6 +2502,18 @@ SUB PROCESSFILE
                 END IF
             END IF
         NEXT i
+        PRINT #BMFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+        PRINT #BMFile, "        FOR i = 1 to " + LTRIM$(STR$(TotalSelected))
+        PRINT #BMFile, "            IF vwatch64_PREVVARIABLES(i) <> vwatch64_VARIABLES(i).VALUE THEN"
+        PRINT #BMFile, "                vwatch64_PREVVARIABLES(i) = vwatch64_VARIABLES(i).VALUE"
+        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, "
+        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "Value changed:" + Q$
+        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).DATATYPE) + " + Q$ + ")" + Q$
+        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).VALUE)"
+        PRINT #BMFile, "            END IF"
+        PRINT #BMFile, "        NEXT i"
+        PRINT #BMFile, "    END IF"
+        PRINT #BMFile, ""
         PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
         PRINT #BMFile, "END SUB"
         PRINT #BMFile, ""
@@ -2437,8 +2521,24 @@ SUB PROCESSFILE
     PRINT #BMFile, "SUB vwatch64_CHECKBREAKPOINT (LineNumber AS LONG)"
     PRINT #BMFile, "    STATIC FirstRunDone AS _BIT"
     PRINT #BMFile, "    STATIC StepMode AS _BIT"
+    PRINT #BMFile, "    STATIC RunCount AS INTEGER"
     PRINT #BMFile, ""
-    PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
+    PRINT #BMFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+    PRINT #BMFile, "        RunCount = RunCount + 1"
+    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STR$(LineNumber); "
+    PRINT #BMFile, "        IF RunCount = 30 THEN RunCount = 0: PRINT #vwatch64_LOGFILE,"
+    PRINT #BMFile, "    END IF"
+    PRINT #BMFile, ""
+    PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
+    PRINT #BMFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN"
+    PRINT #BMFile, "            _DELAY .5"
+    PRINT #BMFile, "            _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #BMFile, "            FirstRunDone = -1"
+    PRINT #BMFile, "            EXIT SUB"
+    PRINT #BMFile, "        END IF"
+    PRINT #BMFile, "    ELSE"
+    PRINT #BMFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
+    PRINT #BMFile, "    END IF"
     PRINT #BMFile, ""
     PRINT #BMFile, "    vwatch64_CLIENT.LINENUMBER = LineNumber"
     PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
@@ -2492,11 +2592,11 @@ SUB PROCESSFILE
     PRINT #BMFile, "    vwatch64_PING:"
     PRINT #BMFile, "    'Check if connection is still alive on host's end"
     PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE: EXIT SUB"
+    PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE vwatch64_CLIENTFILE: EXIT SUB"
     PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
     PRINT #BMFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
     PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
-    PRINT #BMFile, "            CLOSE"
+    PRINT #BMFile, "            CLOSE vwatch64_CLIENTFILE"
     PRINT #BMFile, "            VWATCH64_STARTTIMERS"
     PRINT #BMFile, "            EXIT SUB"
     PRINT #BMFile, "        END IF"
@@ -2523,7 +2623,7 @@ SUB PROCESSFILE
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
         PRINT "Attempting to compile...";
-        AttemptCompile% = _SHELLHIDE(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
+        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
             PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
             PRINT "Files have been generated, you will have to compile them yourself."
@@ -2802,11 +2902,12 @@ SUB SETUP_CONNECTION
     StartSetup:
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
 
-    CLOSE
+    CLOSE #FILE
     FILE = FREEFILE
     ON ERROR GOTO FileError
     'Try killing vwatch64.dat. Won't work if open, so we'll try to reconnect to client.
     KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+    ON ERROR GOTO 0
 
     'Opens "vwatch64.dat" to wait for a connection:
     OPEN PATHONLY$(EXENAME) + "vwatch64.dat" FOR BINARY AS #FILE
@@ -2822,7 +2923,7 @@ SUB SETUP_CONNECTION
     DO: _LIMIT 30
         GET #FILE, HEADERBLOCK, HEADER
         GOSUB GetInput
-        IF MENU% = 101 THEN CLOSE: EXIT SUB
+        IF MENU% = 101 THEN CLOSE #FILE: EXIT SUB
         IF k$ = CHR$(27) THEN USERQUIT = -1
         IF _EXIT THEN USERQUIT = -1
         GOSUB UpdateScreen
@@ -2832,6 +2933,7 @@ SUB SETUP_CONNECTION
         CLOSE #FILE
         ON ERROR GOTO FileError
         KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+        ON ERROR GOTO 0
         SYSTEM
     END IF
 
@@ -3373,8 +3475,10 @@ SUB RESTORE_LIBRARY
     IF INSTR(_OS$, "WIN") > 0 THEN LF$ = CHR$(13) + CHR$(10) ELSE LF$ = CHR$(10)
 
     LibOutput = FREEFILE
+    FILEERRORRAISED = 0
     ON ERROR GOTO FileError
     OPEN "timers.h" FOR OUTPUT AS #LibOutput
+    IF FILEERRORRAISED THEN BEEP: PRINT "Cannot write timers.h to "; _CWD$: SLEEP: SYSTEM
 
     SourceLine$ = "extern int32 ontimerthread_lock;" + LF$: PRINT #LibOutput, SourceLine$;
     SourceLine$ = "void stop_timers() {" + LF$: PRINT #LibOutput, SourceLine$;
@@ -3438,6 +3542,7 @@ SUB SEND_PING
     IF HEADER.CLIENT_PING = 0 THEN
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SLEEP", FoundAt) THEN LAST_PING# = TIMER
+        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SHELL", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "_DELAY", FoundAt) THEN LAST_PING# = TIMER
         IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
             TIMED_OUT = -1
@@ -3486,19 +3591,59 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION INTERVAL_SEARCH (Filter$, i)
-    'Filter must contain a valid numeric string (####) or
-    'a valid interval (####-####).
-    Separator = INSTR(Filter$, "-")
-    IF Separator = 0 THEN
+    'Filter must contain a valid numeric string (####),
+    'a valid interval (####-####) or comma-separated values.
+
+    IF LEN(Filter$) = 0 THEN EXIT FUNCTION
+    IF i = 0 THEN EXIT FUNCTION
+
+    Separator = INSTR(Filter$, "-") + INSTR(Filter$, ",")
+
+    IF Separator = 0 THEN 'Single number passed
         IF VAL(Filter$) = i THEN INTERVAL_SEARCH = -1
         EXIT FUNCTION
     END IF
 
-    v1 = VAL(LEFT$(Filter$, Separator - 1))
-    v2 = VAL(RIGHT$(Filter$, LEN(Filter$) - Separator))
-    IF v1 > v2 THEN SWAP v1, v2
+    Reading = 1
+    FOR j = 1 TO LEN(Filter$)
+        v = ASC(Filter$, j)
+        SELECT CASE v
+            CASE 44 'comma
+                Reading = 1
+                GOSUB Eval
+            CASE 45 'hyphen
+                IF PrevChar <> 45 THEN
+                    Reading = Reading + 1
+                    IF Reading = 2 THEN
+                        IF j = LEN(Filter$) THEN GOSUB Eval
+                    END IF
+                END IF
+            CASE 48 TO 57 '0 to 9
+                IF Reading = 1 THEN
+                    v1$ = v1$ + CHR$(v)
+                ELSEIF Reading = 2 THEN
+                    v2$ = v2$ + CHR$(v)
+                END IF
+                IF j = LEN(Filter$) THEN GOSUB Eval
+        END SELECT
+        PrevChar = v
+    NEXT j
 
-    IF i >= v1 AND i <= v2 THEN INTERVAL_SEARCH = -1
+    EXIT FUNCTION
+    Eval:
+    v1 = VAL(v1$)
+    v2 = VAL(v2$)
+    v1$ = ""
+    v2$ = ""
+    IF v2 > 0 THEN
+        IF v1 > 0 THEN
+            IF v1 > v2 THEN v2 = v1
+            IF i >= v1 AND i <= v2 THEN INTERVAL_SEARCH = -1
+        END IF
+    ELSE
+        IF v1 = i THEN INTERVAL_SEARCH = -1
+    END IF
+    RETURN
 END FUNCTION
 
 '------------------------------------------------------------------------------
@@ -3625,6 +3770,7 @@ SUB SET_DEF (Range$, DataType$)
         END SELECT
     NEXT i
 END SUB
+
 '------------------------------------------------------------------------------
 '$INCLUDE:'glinput.bi'
 
