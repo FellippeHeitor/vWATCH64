@@ -24,7 +24,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".951b"
+CONST VERSION = ".952b"
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
