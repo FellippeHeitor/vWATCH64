@@ -22,7 +22,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".952b"
+CONST VERSION = ".953b"
 
 CONST FALSE = 0
 CONST TRUE = NOT FALSE
@@ -41,6 +41,7 @@ CONST SCOPE = 3
 CONST DATATYPES = 4
 CONST CODE = 5
 CONST LINENUMBERS = 6
+CONST SETNEXT = 7
 
 'Screen:
 CONST DEFAULT_WIDTH = 1000
@@ -70,6 +71,7 @@ END TYPE
 
 TYPE BREAKPOINTTYPE
     ACTION AS _BYTE
+    LINENUMBER AS LONG
 END TYPE
 
 TYPE VARIABLESTYPE
@@ -279,7 +281,7 @@ SUB SOURCE_VIEW
     DIM ListEnd_Label AS STRING
     STATIC SearchIn
 
-    TotalButtons = 6
+    TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
 
     TOTALBREAKPOINTS = 0
@@ -393,7 +395,10 @@ SUB SOURCE_VIEW
             IF LEN(Filter$) > 0 AND VAL(Filter$) = 0 AND SearchIn = LINENUMBERS THEN Filter$ = ""
         CASE 27 'ESC clears the current search filter or exits interactive mode
             ExitButton_Click:
-            IF LEN(Filter$) THEN
+            IF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
+                Filter$ = ""
+            ELSEIF SearchIn = SETNEXT THEN
+                SearchIn = LINENUMBERS
                 Filter$ = ""
             ELSE
                 CLOSE_SESSION = -1
@@ -596,7 +601,11 @@ SUB SOURCE_VIEW
     COLOR _RGB32(0, 0, 0)
     TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + TRIM$(CLIENT.CURRENTMODULE) + ")"
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
-    TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+    IF SearchIn = CODE OR SearchIn = LINENUMBERS THEN
+        TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+    ELSE
+        TopLine$ = "Set next line (must be inside " + TRIM$(CLIENT.CURRENTMODULE) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+    END IF
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
@@ -606,6 +615,7 @@ SUB SOURCE_VIEW
         Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
     END IF
     Buttons(b).ID = 3: Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
+    Buttons(b).ID = 8: Buttons(b).CAPTION = "<Set Next>": b = b + 1
     Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
         IF LEN(FilteredList$) > 0 THEN
@@ -746,6 +756,7 @@ SUB SOURCE_VIEW
                     CASE 5: GOSUB ToggleButton_Click
                     CASE 6: GOSUB ClearButton_Click
                     CASE 7: GOSUB ExitButton_Click
+                    CASE 8: Filter$ = "": SearchIn = SETNEXT
                     CASE ELSE: SYSTEM_BEEP
                 END SELECT
             END IF
@@ -1573,11 +1584,13 @@ SUB PROCESSFILE
     DIM caseBkpNextVar$
     DIM DefaultTypeUsed AS _BIT
     DIM CHECKSUM AS STRING * 8
+    DIM TotalNextLineData AS LONG
     REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM KeywordList(1) AS STRING
     REDIM OutputLines(1) AS STRING
+    REDIM SetNextLineData(1) AS STRING
 
     RESTORE KeyWordsDATA
     'Populate KeywordList() with DATA TYPES:
@@ -1768,7 +1781,8 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
                 ELSE
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CHECKBREAKPOINT " + TRIM$(STR$(TotalSourceLines))
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ": vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
+                    GOSUB AddNextLineData
                 END IF
             END IF
 
@@ -2001,19 +2015,10 @@ SUB PROCESSFILE
             IF NOT DeclaringLibrary THEN
                 IF MainModule THEN
                     MainModule = 0
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+                    GOSUB AddEndOfMainModuleCode
+                    GOSUB AddGotoNextLineCode
                 END IF
+                TotalNextLineData = 0
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
                     IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
@@ -2032,19 +2037,10 @@ SUB PROCESSFILE
             IF NOT DeclaringLibrary THEN
                 IF MainModule THEN
                     MainModule = 0
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+                    GOSUB AddEndOfMainModuleCode
+                    GOSUB AddGotoNextLineCode
                 END IF
+                TotalNextLineData = 0
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
@@ -2065,6 +2061,12 @@ SUB PROCESSFILE
             END IF
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+            IF INSTR(SourceLine, "END SUB") > 0 THEN
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "EXIT SUB"
+            ELSEIF INSTR(SourceLine, "END FUNCTION") > 0 THEN
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "EXIT FUNCTION"
+            END IF
+            GOSUB AddGotoNextLineCode
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             InBetweenSubs = -1
         ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
@@ -2128,18 +2130,8 @@ SUB PROCESSFILE
 
     IF MainModule THEN 'All lines have been parsed. This .BAS contains no SUBs/FUNCTIONs.
         MainModule = 0
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+        GOSUB AddEndOfMainModuleCode
+        GOSUB AddGotoNextLineCode
     END IF
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     CLOSE InputFile
@@ -2196,7 +2188,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_BREAKPOINTTYPE"
     PRINT #OutputFile, "    ACTION AS _BYTE"
+    PRINT #OutputFile, "    LINENUMBER AS LONG"
     PRINT #OutputFile, "END TYPE"
+    PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, ""
         PRINT #OutputFile, "TYPE vwatch64_VARIABLESTYPE"
@@ -2223,6 +2217,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BIT"
     PRINT #OutputFile, "DIM SHARED vwatch64_LAST_PING#"
     PRINT #OutputFile, "DIM SHARED vwatch64_LOGOPEN AS _BIT"
+    PRINT #OutputFile, "DIM SHARED vwatch64_NEXTLINE AS LONG"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
@@ -2474,7 +2469,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, "END SUB"
         PRINT #OutputFile, ""
     END IF
-    PRINT #OutputFile, "SUB vwatch64_CHECKBREAKPOINT (LineNumber AS LONG)"
+    PRINT #OutputFile, "FUNCTION vwatch64_CHECKBREAKPOINT&(LineNumber AS LONG)"
     PRINT #OutputFile, "    STATIC FirstRunDone AS _BIT"
     PRINT #OutputFile, "    STATIC StepMode AS _BIT"
     PRINT #OutputFile, "    STATIC RunCount AS INTEGER"
@@ -2626,6 +2621,39 @@ SUB PROCESSFILE
     AddOutputLine:
     TotalOutputLines = TotalOutputLines + 1
     REDIM _PRESERVE OutputLines(1 TO TotalOutputLines) AS STRING
+    RETURN
+
+    AddNextLineData:
+    TotalNextLineData = TotalNextLineData + 1
+    REDIM _PRESERVE SetNextLineData(1 TO TotalNextLineData) AS STRING
+    SetNextLineData(TotalNextLineData) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines))
+    RETURN
+
+    AddEndOfMainModuleCode:
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+    RETURN
+
+    AddGotoNextLineCode:
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_SETNEXTLINE:"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "SELECT CASE vwatch64_NEXTLINE"
+    FOR nextline.I = 1 TO TotalNextLineData
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CASE " + LTRIM$(STR$(VAL(RIGHT$(SetNextLineData(nextline.I), LEN(SetNextLineData(nextline.I)) - 15))))
+        OutputLines(TotalOutputLines) = OutputLines(TotalOutputLines) + ": GOTO " + SetNextLineData(nextline.I)
+    NEXT nextline.I
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END SELECT"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RETURN"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     RETURN
 
     CheckButtons:
