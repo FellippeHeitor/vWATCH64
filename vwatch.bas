@@ -172,6 +172,7 @@ RESTORE_LIBRARY
 'Screen setup: ----------------------------------------------------------------
 MAINSCREEN = _NEWIMAGE(SCREEN_WIDTH, SCREEN_HEIGHT, 32)
 SCREEN MAINSCREEN
+DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
 
@@ -322,7 +323,7 @@ SUB SOURCE_VIEW
         PUT #FILE, HEADERBLOCK, HEADER
         CLOSE #FILE
         ON ERROR GOTO FileError
-        KILL _STARTDIR$ + PATHSEP$ + "vwatch64.dat"
+        KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
         ON ERROR GOTO 0
         EXIT SUB
     END IF
@@ -1701,6 +1702,7 @@ SUB PROCESSFILE
 
         _DISPLAY
         k$ = INKEY$
+        IF k$ = CHR$(13) THEN DIALOGRESULT = 1
         IF k$ = CHR$(27) THEN DIALOGRESULT = 2
     LOOP UNTIL DIALOGRESULT > 0
     IF DIALOGRESULT = 2 THEN EXIT SUB
@@ -2002,10 +2004,10 @@ SUB PROCESSFILE
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
@@ -2033,10 +2035,10 @@ SUB PROCESSFILE
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
@@ -2074,10 +2076,10 @@ SUB PROCESSFILE
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSE
@@ -2129,10 +2131,10 @@ SUB PROCESSFILE
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
-        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
@@ -2263,13 +2265,14 @@ SUB PROCESSFILE
     RANDOMIZE TIMER
     PRINT #OutputFile, "    DIM vwatch64_EXENAME AS STRING * 256"
     PRINT #OutputFile, ""
+    PRINT #OutputFile, "    DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS"
     PRINT #OutputFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
     PRINT #OutputFile, "    vwatch64_LOGFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
     PRINT #OutputFile, "    IF vwatch64_LOGFILE = vwatch64_CLIENTFILE THEN vwatch64_LOGFILE = vwatch64_LOGFILE + 1"
     PRINT #OutputFile, "    'You may be wondering why such random file numbers..."
-    PRINT #OutputFile, "    OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "    OPEN " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Check if a connection is already active"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
@@ -2283,7 +2286,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
     PRINT #OutputFile, "            CLOSE #vwatch64_CLIENTFILE"
     PRINT #OutputFile, "            ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #OutputFile, "            KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+    PRINT #OutputFile, "            KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
     PRINT #OutputFile, "            EXIT SUB"
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    END IF"
@@ -2320,22 +2323,23 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        IF TIMER - vwatch64_WAITSTART# > 3 THEN EXIT DO"
     PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "    IF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = 0 THEN"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "    IF vwatch64_HEADER.RESPONSE = 0 THEN"
     PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
     PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
     PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #OutputFile, "        KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-    PRINT #OutputFile, "        EXIT SUB"
-    PRINT #OutputFile, "    ELSEIF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = -1 THEN"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "LOGGING STARTED!" + Q$
-    PRINT #OutputFile, "        OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
-    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
-    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
-    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
-    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #OutputFile, "        vwatch64_LOGOPEN = -1"
+    PRINT #OutputFile, "        KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
+    PRINT #OutputFile, "        IF vwatch64_HEADER.HISTORY_LOG = 0 THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "LOGGING STARTED!" + Q$
+    PRINT #OutputFile, "            OPEN " + Q$ + _CWD$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
+    PRINT #OutputFile, "             PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "            vwatch64_LOGOPEN = -1"
+    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    ELSE"
     PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
@@ -2453,7 +2457,7 @@ SUB PROCESSFILE
                 END IF
             END IF
         NEXT i
-        PRINT #OutputFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+        PRINT #OutputFile, "    IF vwatch64_LOGOPEN = -1 THEN"
         PRINT #OutputFile, "        FOR i = 1 to " + LTRIM$(STR$(TotalSelected))
         PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(i) <> vwatch64_VARIABLES(i).VALUE THEN"
         PRINT #OutputFile, "                vwatch64_PREVVARIABLES(i) = vwatch64_VARIABLES(i).VALUE"
@@ -2465,6 +2469,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, "        NEXT i"
         PRINT #OutputFile, "    END IF"
         PRINT #OutputFile, ""
+        PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
         PRINT #OutputFile, "END SUB"
         PRINT #OutputFile, ""
@@ -2475,6 +2480,18 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    STATIC RunCount AS INTEGER"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+    PRINT #OutputFile, "        IF vwatch64_LOGOPEN = 0 THEN"
+    PRINT #OutputFile, "            OPEN " + Q$ + _CWD$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "            vwatch64_LOGOPEN = -1"
+    PRINT #OutputFile, "        END IF"
+    IF TotalSelected > 0 THEN
+        PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN vwatch64_VARIABLEWATCH"
+    END IF
     PRINT #OutputFile, "        RunCount = RunCount + 1"
     PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STR$(LineNumber); "
     PRINT #OutputFile, "        IF RunCount = 30 THEN RunCount = 0: PRINT #vwatch64_LOGFILE,"
@@ -2577,7 +2594,7 @@ SUB PROCESSFILE
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
         PRINT "Attempting to compile...";
-        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -x " + Q$ + NEWFILENAME$ + Q$)
+        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
             PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
             PRINT "File has been output, you will have to compile them yourself."
@@ -2860,11 +2877,11 @@ SUB SETUP_CONNECTION
     FILE = FREEFILE
     ON ERROR GOTO FileError
     'Try killing vwatch64.dat. Won't work if open, so we'll try to reconnect to client.
-    KILL _STARTDIR$ + PATHSEP$ + "vwatch64.dat"
+    KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
     ON ERROR GOTO 0
 
     'Opens "vwatch64.dat" to wait for a connection:
-    OPEN _STARTDIR$ + PATHSEP$ + "vwatch64.dat" FOR BINARY AS #FILE
+    OPEN _CWD$ + PATHSEP$ + "vwatch64.dat" FOR BINARY AS #FILE
 
     HEADERBLOCK = 1
     CLIENTBLOCK = LEN(HEADER) + 1
@@ -2886,7 +2903,7 @@ SUB SETUP_CONNECTION
     IF USERQUIT OR MENU% = 102 THEN
         CLOSE #FILE
         ON ERROR GOTO FileError
-        KILL _STARTDIR$ + PATHSEP$ + "vwatch64.dat"
+        KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
         ON ERROR GOTO 0
         SYSTEM
     END IF
