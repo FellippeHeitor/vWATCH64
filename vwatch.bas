@@ -7,8 +7,6 @@ DEFLNG A-Z
 $IF WIN THEN
     DECLARE LIBRARY
         FUNCTION PlaySound (pszSound AS STRING, BYVAL hmod AS INTEGER, BYVAL fdwSound AS INTEGER)
-        FUNCTION FindWindow& (BYVAL ClassName AS _OFFSET, WindowName$)
-        FUNCTION MessageBox (BYVAL hWnd&, lpText AS STRING, lpCaption AS STRING, BYVAL uType AS LONG)
     END DECLARE
 $END IF
 
@@ -21,8 +19,6 @@ DECLARE CUSTOMTYPE LIBRARY "direntry"
     SUB FILE_get_current_dir ALIAS get_current_dir (s AS STRING)
     FUNCTION FILE_current_dir_length& ALIAS current_dir_length ()
 END DECLARE
-
-'$INCLUDE:'glinputtop.bi'
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
@@ -1580,6 +1576,7 @@ SUB PROCESSFILE
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM KeywordList(1) AS STRING
+    REDIM OutputLines(1) AS STRING
 
     RESTORE KeyWordsDATA
     'Populate KeywordList() with DATA TYPES:
@@ -1594,11 +1591,39 @@ SUB PROCESSFILE
 
     Q$ = CHR$(34)
 
+
+    IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
+        i = -1
+        DO: _LIMIT 30
+            i = i + 1
+            IF UCASE$(RIGHT$(FILENAME$, 4)) = ".BAS" THEN
+                NEWFILENAME$ = LEFT$(FILENAME$, LEN(FILENAME$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+            ELSE
+                NEWFILENAME$ = FILENAME$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+            END IF
+            IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
+        LOOP
+    ELSE
+        i = -1
+        tempFilename$ = NEWFILENAME$
+        DO: _LIMIT 30
+            i = i + 1
+            IF UCASE$(RIGHT$(tempFilename$, 4)) = ".BAS" THEN
+                NEWFILENAME$ = LEFT$(tempFilename$, LEN(tempFilename$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+            ELSE
+                NEWFILENAME$ = tempFilename$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+            END IF
+            IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
+        LOOP
+    END IF
+    LOGFileName = PATHONLY$(FILENAME$) + NOPATH$(NEWFILENAME$) + ".log"
+
+
     'Process dialog:
     '-----------------------------------------------------------
     'vWATCH64 - v.951b
     'Processing file: xxxxx.bas
-    'New file name:
+    'New file name: xxxx.vwatch
     '
     '  Include arrays?            < Yes >
     '  Launch interactive mode?   < No  >
@@ -1606,157 +1631,79 @@ SUB PROCESSFILE
     '  Show details?              < No  >
     '                                          < OK > < Cancel >
     '-----------------------------------------------------------
-    DialogX = _WIDTH(MAINSCREEN) / 2 - 200
-    DialogY = _HEIGHT(MAINSCREEN) / 2 - 100
+    DialogW = 410
+    DialogH = 200
+    DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
+    DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
 
     '---------------------------------------------
-    IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
-        ShowProcessDialog:
-        Dialog = 1
-        CLS , _RGB32(255, 255, 255)
-        COLOR _RGB32(0, 0, 0)
 
-        'Dialog buttons:
-        TotalButtons = 6
-        REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    CLS , _RGB32(255, 255, 255)
+    COLOR _RGB32(0, 0, 0)
 
-        getfilename% = GLIINPUT(DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2, GLIALPHA + GLINUMERIC + GLIDASH, "New file name: ", TRUE)
-        DIALOGRESULT = 0
+    'Dialog buttons:
+    TotalButtons = 6
+    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+
+    DIALOGRESULT = 0
+    DO
+        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(200, 200, 200), BF
+        DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
+        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+        tempFilename$ = NOPATH$(FILENAME$)
+        tempFilename.len = LEN(tempFilename$) + 1
         DO
-            LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-            COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-            _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-            LINE (DialogX + 401, DialogY + 5 + _FONTHEIGHT)-STEP(_WIDTH - (DialogX + 401), _FONTHEIGHT), _RGB32(255, 255, 255), BF
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 5), "Include arrays?"
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 6), "Launch interactive mode?"
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 7), "Compile?"
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 8), "Show details?"
+            tempFilename.len = tempFilename.len - 1
+            TextLabel$ = "Processing file: " + IIFSTR$(tempFilename.len < LEN(NOPATH$(FILENAME$)), "...", "") + RIGHT$(tempFilename$, tempFilename.len)
+        LOOP UNTIL _PRINTWIDTH(TextLabel$) < 400
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2), TextLabel$
 
-            GLICLEAR
-            GLIUPDATE
+        tempFilename$ = NOPATH$(NEWFILENAME$)
+        tempFilename.len = LEN(tempFilename$) + 1
+        DO
+            tempFilename.len = tempFilename.len - 1
+            TextLabel$ = "New file name: " + IIFSTR$(tempFilename.len < LEN(NOPATH$(NEWFILENAME$)), "...", "") + RIGHT$(tempFilename$, tempFilename.len)
+        LOOP UNTIL _PRINTWIDTH(TextLabel$) < 400
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), TextLabel$
 
-            'Draw buttons
-            b = 1
-            Buttons(b).CAPTION = IIFSTR$(SKIPARRAYS, "< No  >", "< Yes >"): b = b + 1
-            Buttons(b).CAPTION = IIFSTR$(INTERACTIVE, "< Yes >", "< No  >"): b = b + 1
-            Buttons(b).CAPTION = IIFSTR$(DONTCOMPILE, "< No  >", "< Yes >"): b = b + 1
-            Buttons(b).CAPTION = IIFSTR$(VERBOSE, "< Yes >", "< No  >"): b = b + 1
-            Buttons(b).CAPTION = "< OK >": b = b + 1
-            Buttons(b).CAPTION = "< Cancel >": b = b + 1
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 6), "Include arrays?"
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 7), "Launch interactive mode?"
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 8), "Compile?"
+        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 9), "Show details?"
 
-            FOR cb = 1 TO TotalButtons
-                IF cb <= 4 THEN
-                    Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (cb + 4) + 1
-                    Buttons(cb).X = DialogX + 200
-                ELSE
-                    Buttons(cb).Y = (DialogY + 200) - (_FONTHEIGHT) - 5
-                END IF
-                Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
-            NEXT cb
-            Buttons(5).X = ((DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))) - _PRINTWIDTH(TRIM$(Buttons(5).CAPTION))
-            Buttons(6).X = (DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))
+        'Draw buttons
+        b = 1
+        Buttons(b).CAPTION = IIFSTR$(SKIPARRAYS, "< No  >", "< Yes >"): b = b + 1
+        Buttons(b).CAPTION = IIFSTR$(INTERACTIVE, "< Yes >", "< No  >"): b = b + 1
+        Buttons(b).CAPTION = IIFSTR$(DONTCOMPILE, "< No  >", "< Yes >"): b = b + 1
+        Buttons(b).CAPTION = IIFSTR$(VERBOSE, "< Yes >", "< No  >"): b = b + 1
+        Buttons(b).CAPTION = "< OK >": b = b + 1
+        Buttons(b).CAPTION = "< Cancel >": b = b + 1
 
-            GOSUB CheckButtons
-            FOR cb = 1 TO TotalButtons
-                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
-            NEXT cb
-            'end of drawing buttons
-
-            _DISPLAY
-            k$ = INKEY$
-            IF k$ = CHR$(27) THEN DIALOGRESULT = 2
-        LOOP UNTIL GLIENTERED(getfilename%) OR DIALOGRESULT > 0
-        IF DIALOGRESULT = 2 THEN GLICLOSE getfilename%, FALSE: EXIT SUB
-        NEWFILENAME$ = GLIOUTPUT$(getfilename%)
-        GLICLOSE getfilename%, FALSE
-    END IF
-
-    'Check if processing can proceed:
-    IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
-        GOTO ShowProcessDialog
-    END IF
-
-    BIFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".bi"
-    BMFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".bm"
-    LOGFileName = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4), NEWFILENAME$) + ".log"
-    NEWFILENAME$ = PATHONLY$(FILENAME$) + IIFSTR$(UCASE$(RIGHT$(NEWFILENAME$, 4)) = ".BAS", NEWFILENAME$, NEWFILENAME$ + ".bas")
-
-    IF UCASE$(FILENAME$) = UCASE$(NEWFILENAME$) THEN
-        SYSTEM_BEEP
-        GOTO ShowProcessDialog
-    END IF
-
-    IF _FILEEXISTS(NEWFILENAME$) THEN
-        'Overwrite dialog:
-        '-----------------------------------------------------------
-        'vWATCH64 - v.951b
-        'Processing file: xxxxx.bas
-        'New file name: yyyyy.bas
-        '
-        '
-        '  File already exists.
-        '  Replace?
-        '
-        '                                           < Yes > <  No  >
-        '-----------------------------------------------------------
-        ShowOverwriteDialog:
-        $IF WIN THEN
-            MessageType = VAL("&H00000020L") + VAL("&H00000004L")
-            _AUTODISPLAY
-            OVERWRITE = MessageBox(FindWindow(0, TITLESTRING + CHR$(0)), "File already exists. Overwrite?", "vWATCH64", MessageType) - 5
-            _DISPLAY
-        $ELSE
-            OVERWRITE = 0
-            Dialog = 2
-            CLS , _RGB32(255, 255, 255)
-        $END IF
-
-        'Dialog buttons:
-        TotalButtons = 2
-        REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
-
-        '---------------------------------------------
-        DO UNTIL OVERWRITE = 1 OR OVERWRITE = 2
-            LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
-            COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-            _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT), "Processing file: " + NOPATH$(FILENAME$)
-            COLOR _RGB32(255, 0, 0)
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2), "New file name: " + NOPATH$(NEWFILENAME$)
-            COLOR _RGB32(0, 0, 0)
-            LINE (DialogX + 401, DialogY + 5 + _FONTHEIGHT)-STEP(_WIDTH - (DialogX + 401), _FONTHEIGHT), _RGB32(255, 255, 255), BF
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 6), "File already exists."
-            _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 7), "Replace?"
-
-            'Draw buttons
-            b = 1
-            Buttons(b).CAPTION = "< Yes >": b = b + 1
-            Buttons(b).CAPTION = "<  No  >": b = b + 1
-
-            FOR cb = 1 TO TotalButtons
+        FOR cb = 1 TO TotalButtons
+            IF cb <= 4 THEN
+                Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (cb + 5) + 1
+                Buttons(cb).X = DialogX + 200
+            ELSE
                 Buttons(cb).Y = (DialogY + 200) - (_FONTHEIGHT) - 5
-                Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
-            NEXT cb
-            Buttons(1).X = ((DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(2).CAPTION))) - _PRINTWIDTH(TRIM$(Buttons(1).CAPTION))
-            Buttons(2).X = (DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(2).CAPTION))
+            END IF
+            Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+        NEXT cb
+        Buttons(5).X = ((DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))) - _PRINTWIDTH(TRIM$(Buttons(5).CAPTION) + " ")
+        Buttons(6).X = (DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))
 
-            GOSUB CheckButtons
-            FOR cb = 1 TO TotalButtons
-                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
-            NEXT cb
-            'end of drawing buttons
-            k$ = INKEY$
-            IF UCASE$(k$) = "Y" OR k$ = CHR$(13) THEN OVERWRITE = 1: _KEYCLEAR
-            IF UCASE$(k$) = "N" OR k$ = CHR$(27) THEN OVERWRITE = 2: _KEYCLEAR
-            _DISPLAY
-        LOOP
-    END IF
+        GOSUB CheckButtons
+        FOR cb = 1 TO TotalButtons
+            _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
+        NEXT cb
+        'end of drawing buttons
 
-    'Check if processing can proceed:
-    IF OVERWRITE = 2 THEN
-        GOTO ShowProcessDialog
-    END IF
+        _DISPLAY
+        k$ = INKEY$
+        IF k$ = CHR$(27) THEN DIALOGRESULT = 2
+    LOOP UNTIL DIALOGRESULT > 0
+    IF DIALOGRESULT = 2 THEN EXIT SUB
 
     'Processing can proceed.
     _AUTODISPLAY
@@ -1770,17 +1717,12 @@ SUB PROCESSFILE
     SOURCEFILE = SPACE$(LOF(InputFile))
     GET #InputFile, 1, SOURCEFILE
 
-    SEEK #InputFile, 1
     CHECKSUM = ADLER32(SOURCEFILE)
     SOURCEFILE = ""
-
-    OutputFile = FREEFILE
-    OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
+    SEEK #InputFile, 1
 
     MainModule = -1
-    'Inject the required code into processed file:
-    PRINT #OutputFile, "'$INCLUDE:'" + BIFileName + "'"
-
+    TotalOutputLines = 0
     'Look for variables inside the main module and stores information in VARIABLES()
     'and LOCALVARIABLES. If SUB or FUNCTION is found, injects CURRENTMODULE verification
     'code. If SYSTEM is found, injects cleanup procedures (also when main module ends):
@@ -1800,7 +1742,6 @@ SUB PROCESSFILE
             PRINT "Processing canceled."
             COLOR _RGB32(0, 0, 0)
             PRINT "Press any key..."
-            CLOSE OutputFile
             CLOSE InputFile
             KILL NEWFILENAME$
             SLEEP
@@ -1826,7 +1767,7 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
                 ELSE
-                    PRINT #OutputFile, "vwatch64_CHECKBREAKPOINT " + TRIM$(STR$(TotalSourceLines))
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CHECKBREAKPOINT " + TRIM$(STR$(TotalSourceLines))
                 END IF
             END IF
 
@@ -2016,63 +1957,63 @@ SUB PROCESSFILE
             END IF
             caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine)
             IF LEN(caseBkpNextVar$) = 0 THEN
-                PRINT #OutputFile, bkpSourceLine$
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1
             END IF
         ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
             IF INSTR(SourceLine, " LIBRARY") THEN DeclaringLibrary = -1
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
             DeclaringLibrary = 0
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 13) = "OPTION BASE 1" THEN
             SET_OPTIONBASE = 1
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFINT " THEN
             SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "INTEGER"
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFLNG " THEN
             SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "LONG"
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFSTR " THEN
             SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "STRING"
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFSNG " THEN
             SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "SINGLE"
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 7) = "DEFDBL " THEN
             SET_DEF RIGHT$(SourceLine, LEN(SourceLine) - 7), "DOUBLE"
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 8) = "_DEFINE " THEN
             IF INSTR(SourceLine, " AS ") > 0 THEN
                 SET_DEF MID$(SourceLine, 9, INSTR(SourceLine, " AS ") - 9), RIGHT$(SourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
             END IF
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
             'User defined types will be added to the DATA TYPE keyword list:
             ThisKeyword = RIGHT$(caseBkpSourceLine, LEN(SourceLine) - 5)
             GOSUB AddThisKeyword
             DefiningType = -1
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
             InBetweenSubs = 0
             IF NOT DeclaringLibrary THEN
                 IF MainModule THEN
                     MainModule = 0
-                    PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED THEN"
-                    PRINT #OutputFile, "    vwatch64_HEADER.CONNECTED = 0"
-                    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                    PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
-                    PRINT #OutputFile, "END IF"
-                    PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-                    PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-                    PRINT #OutputFile, ""
-                    PRINT #OutputFile, "END"
-                    PRINT #OutputFile, "vwatch64_FILEERROR:"
-                    PRINT #OutputFile, "RESUME NEXT"
-                    PRINT #OutputFile, ""
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
                 END IF
-                PRINT #OutputFile, bkpSourceLine$
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
                     IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5) + Q$
@@ -2080,30 +2021,30 @@ SUB PROCESSFILE
                     IF VERBOSE THEN PRINT "Found: "; caseBkpSourceLine
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
-                PRINT #OutputFile, SourceLine
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = SourceLine
                 IF VERBOSE THEN _DELAY .05
             ELSE
-                PRINT #OutputFile, bkpSourceLine$
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             END IF
         ELSEIF LEFT$(SourceLine, 9) = "FUNCTION " THEN
             InBetweenSubs = 0
             IF NOT DeclaringLibrary THEN
                 IF MainModule THEN
                     MainModule = 0
-                    PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED THEN"
-                    PRINT #OutputFile, "    vwatch64_HEADER.CONNECTED = 0"
-                    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-                    PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
-                    PRINT #OutputFile, "END IF"
-                    PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-                    PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-                    PRINT #OutputFile, ""
-                    PRINT #OutputFile, "END"
-                    PRINT #OutputFile, "vwatch64_FILEERROR:"
-                    PRINT #OutputFile, "RESUME NEXT"
-                    PRINT #OutputFile, ""
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
                 END IF
-                PRINT #OutputFile, bkpSourceLine$
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10) + Q$
@@ -2111,37 +2052,37 @@ SUB PROCESSFILE
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; caseBkpSourceLine
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
-                PRINT #OutputFile, SourceLine
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = SourceLine
                 IF VERBOSE THEN _DELAY .05
             ELSE
                 IF LEFT$(SourceLine, 28) <> UCASE$("FUNCTION GetModuleFileNameA ") THEN
-                    PRINT #OutputFile, bkpSourceLine$
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 ELSE
-                    PRINT #OutputFile, "'" + bkpSourceLine$
-                    PRINT #OutputFile, "'FUNCTION declaration skipped because it's already in the $INCLUDEd file (line 1)."
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'" + bkpSourceLine$
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'FUNCTION declaration skipped because it's already in the $INCLUDEd file (line 1)."
                 END IF
             END IF
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
-            PRINT #OutputFile, "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             InBetweenSubs = -1
         ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
             IF LEFT$(SourceLine, 5) <> "CASE " THEN
-                PRINT #OutputFile, "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
             END IF
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
-            PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED THEN"
-            PRINT #OutputFile, "    vwatch64_HEADER.CONNECTED = 0"
-            PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-            PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
-            PRINT #OutputFile, "END IF"
-            PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-            PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-            PRINT #OutputFile, ""
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSE
-            PRINT #OutputFile, bkpSourceLine$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         END IF
     LOOP UNTIL EOF(InputFile)
 
@@ -2172,7 +2113,6 @@ SUB PROCESSFILE
                 PRINT "Processing canceled."
                 COLOR _RGB32(0, 0, 0)
                 PRINT
-                CLOSE OutputFile
                 CLOSE InputFile
                 KILL NEWFILENAME$
                 _DELAY 1
@@ -2188,216 +2128,223 @@ SUB PROCESSFILE
 
     IF MainModule THEN 'All lines have been parsed. This .BAS contains no SUBs/FUNCTIONs.
         MainModule = 0
-        PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED THEN"
-        PRINT #OutputFile, "    vwatch64_HEADER.CONNECTED = 0"
-        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-        PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
-        PRINT #OutputFile, "END IF"
-        PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-        PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-        PRINT #OutputFile, ""
-        PRINT #OutputFile, "END"
-        PRINT #OutputFile, "vwatch64_FILEERROR:"
-        PRINT #OutputFile, "RESUME NEXT"
-        PRINT #OutputFile, ""
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    CLOSE #vwatch64_CLIENTFILE"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
+        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     END IF
-    PRINT #OutputFile,
-    PRINT #OutputFile, "'$INCLUDE:'" + BMFileName + "'"
-    CLOSE OutputFile
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     CLOSE InputFile
 
-    BIFile = FREEFILE
-    OPEN BIFileName FOR OUTPUT AS #BIFile
+    OutputFile = FREEFILE
+    OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
 
-    PRINT "Generating "; BIFileName; "..."
-    'Creates a vWATCH64.BI customized for the .BAS provided:
+    PRINT "Generating "; NEWFILENAME$; "..."
+    'Creates the output .vwatch:
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, "'vWATCH64 initialization code - version " + VERSION + ":"
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     $IF WIN THEN
-        PRINT #BIFile, "        DECLARE LIBRARY"
-        PRINT #BIFile, "            FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)"
-        PRINT #BIFile, "        END DECLARE"
+        PRINT #OutputFile, "DECLARE LIBRARY"
+        PRINT #OutputFile, "    FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)"
+        PRINT #OutputFile, "END DECLARE"
     $END IF
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    DECLARE LIBRARY " + Q$ + "timers" + Q$
-    PRINT #BIFile, "        SUB VWATCH64_STOPTIMERS ALIAS stop_timers"
-    PRINT #BIFile, "        SUB VWATCH64_STARTTIMERS ALIAS start_timers"
-    PRINT #BIFile, "    END DECLARE"
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    CONST vwatch64_ID = " + Q$ + "vWATCH64" + Q$
-    PRINT #BIFile, "    CONST vwatch64_VERSION = " + Q$ + VERSION + Q$
-    PRINT #BIFile, "    CONST vwatch64_INTERVAL = .1"
-    PRINT #BIFile, "    CONST vwatch64_CHECKSUM = " + Q$ + CHECKSUM + Q$
-    PRINT #BIFile, "    CONST vwatch64_TIMEOUTLIMIT =" + STR$(TIMEOUTLIMIT)
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    'Breakpoint control:"
-    PRINT #BIFile, "    CONST vwatch64_CONTINUE = 1"
-    PRINT #BIFile, "    CONST vwatch64_NEXTSTEP = 2"
-    PRINT #BIFile, "    CONST vwatch64_READY = 3"
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    TYPE vwatch64_HEADERTYPE"
-    PRINT #BIFile, "        CLIENT_ID AS STRING * 8"
-    PRINT #BIFile, "        VERSION AS STRING * 5"
-    PRINT #BIFile, "        CONNECTED AS _BYTE"
-    PRINT #BIFile, "        RESPONSE AS _BYTE"
-    PRINT #BIFile, "        HOST_PING AS _BYTE"
-    PRINT #BIFile, "        CLIENT_PING AS _BYTE"
-    PRINT #BIFile, "        HISTORY_LOG AS _BYTE"
-    PRINT #BIFile, "    END TYPE"
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    TYPE vwatch64_CLIENTTYPE"
-    PRINT #BIFile, "        NAME AS STRING * 256"
-    PRINT #BIFile, "        CHECKSUM AS STRING * 8"
-    PRINT #BIFile, "        TOTALSOURCELINES AS LONG"
-    PRINT #BIFile, "        EXENAME AS STRING * 256"
-    PRINT #BIFile, "        CURRENTMODULE AS STRING * 50"
-    PRINT #BIFile, "        LINENUMBER AS LONG"
-    PRINT #BIFile, "        TOTALVARIABLES AS LONG"
-    PRINT #BIFile, "    END TYPE"
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    TYPE vwatch64_BREAKPOINTTYPE"
-    PRINT #BIFile, "        ACTION AS _BYTE"
-    PRINT #BIFile, "    END TYPE"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "DECLARE LIBRARY " + Q$ + "timers" + Q$
+    PRINT #OutputFile, "    SUB VWATCH64_STOPTIMERS ALIAS stop_timers"
+    PRINT #OutputFile, "    SUB VWATCH64_STARTTIMERS ALIAS start_timers"
+    PRINT #OutputFile, "END DECLARE"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "CONST vwatch64_ID = " + Q$ + "vWATCH64" + Q$
+    PRINT #OutputFile, "CONST vwatch64_VERSION = " + Q$ + VERSION + Q$
+    PRINT #OutputFile, "CONST vwatch64_INTERVAL = .1"
+    PRINT #OutputFile, "CONST vwatch64_CHECKSUM = " + Q$ + CHECKSUM + Q$
+    PRINT #OutputFile, "CONST vwatch64_TIMEOUTLIMIT =" + STR$(TIMEOUTLIMIT)
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "'Breakpoint control:"
+    PRINT #OutputFile, "CONST vwatch64_CONTINUE = 1"
+    PRINT #OutputFile, "CONST vwatch64_NEXTSTEP = 2"
+    PRINT #OutputFile, "CONST vwatch64_READY = 3"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "TYPE vwatch64_HEADERTYPE"
+    PRINT #OutputFile, "    CLIENT_ID AS STRING * 8"
+    PRINT #OutputFile, "    VERSION AS STRING * 5"
+    PRINT #OutputFile, "    CONNECTED AS _BYTE"
+    PRINT #OutputFile, "    RESPONSE AS _BYTE"
+    PRINT #OutputFile, "    HOST_PING AS _BYTE"
+    PRINT #OutputFile, "    CLIENT_PING AS _BYTE"
+    PRINT #OutputFile, "    HISTORY_LOG AS _BYTE"
+    PRINT #OutputFile, "END TYPE"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "TYPE vwatch64_CLIENTTYPE"
+    PRINT #OutputFile, "    NAME AS STRING * 256"
+    PRINT #OutputFile, "    CHECKSUM AS STRING * 8"
+    PRINT #OutputFile, "    TOTALSOURCELINES AS LONG"
+    PRINT #OutputFile, "    EXENAME AS STRING * 256"
+    PRINT #OutputFile, "    CURRENTMODULE AS STRING * 50"
+    PRINT #OutputFile, "    LINENUMBER AS LONG"
+    PRINT #OutputFile, "    TOTALVARIABLES AS LONG"
+    PRINT #OutputFile, "END TYPE"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "TYPE vwatch64_BREAKPOINTTYPE"
+    PRINT #OutputFile, "    ACTION AS _BYTE"
+    PRINT #OutputFile, "END TYPE"
     IF TotalSelected > 0 THEN
-        PRINT #BIFile, ""
-        PRINT #BIFile, "    TYPE vwatch64_VARIABLESTYPE"
-        PRINT #BIFile, "        NAME AS STRING * 256"
-        PRINT #BIFile, "        SCOPE AS STRING * 7"
-        PRINT #BIFile, "        UDT AS STRING * 40"
-        PRINT #BIFile, "        DATATYPE AS STRING * 20"
-        PRINT #BIFile, "        VALUE AS STRING * 255"
-        PRINT #BIFile, "    END TYPE"
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "TYPE vwatch64_VARIABLESTYPE"
+        PRINT #OutputFile, "    NAME AS STRING * 256"
+        PRINT #OutputFile, "    SCOPE AS STRING * 7"
+        PRINT #OutputFile, "    UDT AS STRING * 40"
+        PRINT #OutputFile, "    DATATYPE AS STRING * 20"
+        PRINT #OutputFile, "    VALUE AS STRING * 255"
+        PRINT #OutputFile, "END TYPE"
     END IF
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    DIM SHARED vwatch64_BREAKPOINT AS vwatch64_BREAKPOINTTYPE"
-    PRINT #BIFile, "    DIM SHARED vwatch64_BREAKPOINTBLOCK AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_BREAKPOINTLISTBLOCK AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_BREAKPOINTLIST AS STRING *" + STR$(TotalSourceLines)
-    PRINT #BIFile, "    DIM SHARED vwatch64_CLIENT AS vwatch64_CLIENTTYPE"
-    PRINT #BIFile, "    DIM SHARED vwatch64_CLIENTBLOCK AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_CLIENTFILE AS INTEGER"
-    PRINT #BIFile, "    DIM SHARED vwatch64_LOGFILE AS INTEGER"
-    PRINT #BIFile, "    DIM SHARED vwatch64_DATABLOCK AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
-    PRINT #BIFile, "    DIM SHARED vwatch64_HEADERBLOCK AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_LOF AS LONG"
-    PRINT #BIFile, "    DIM SHARED vwatch64_USERQUIT AS _BIT"
-    PRINT #BIFile, "    DIM SHARED vwatch64_LAST_PING#"
-    PRINT #BIFile, "    DIM SHARED vwatch64_LOGOPEN AS _BIT"
-    PRINT #BIFile, ""
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINT AS vwatch64_BREAKPOINTTYPE"
+    PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINTBLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINTLISTBLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINTLIST AS STRING *" + STR$(TotalSourceLines)
+    PRINT #OutputFile, "DIM SHARED vwatch64_CLIENT AS vwatch64_CLIENTTYPE"
+    PRINT #OutputFile, "DIM SHARED vwatch64_CLIENTBLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_CLIENTFILE AS INTEGER"
+    PRINT #OutputFile, "DIM SHARED vwatch64_LOGFILE AS INTEGER"
+    PRINT #OutputFile, "DIM SHARED vwatch64_DATABLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
+    PRINT #OutputFile, "DIM SHARED vwatch64_HEADERBLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_LOF AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BIT"
+    PRINT #OutputFile, "DIM SHARED vwatch64_LAST_PING#"
+    PRINT #OutputFile, "DIM SHARED vwatch64_LOGOPEN AS _BIT"
+    PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
-        PRINT #BIFile, "    DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
-        PRINT #BIFile, "    DIM SHARED vwatch64_PREVVARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
+        PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
+        PRINT #OutputFile, "DIM SHARED vwatch64_PREVVARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 THEN
                 tempindex = tempindex + 1
-                PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + TRIM$(VARIABLES(i).NAME) + Q$
-                PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + TRIM$(VARIABLES(i).SCOPE) + Q$
-                PRINT #BIFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + TRIM$(VARIABLES(i).DATATYPE) + Q$
+                PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + TRIM$(VARIABLES(i).NAME) + Q$
+                PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + TRIM$(VARIABLES(i).SCOPE) + Q$
+                PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + TRIM$(VARIABLES(i).DATATYPE) + Q$
             END IF
         NEXT i
-        PRINT #BIFile, ""
+        PRINT #OutputFile, ""
     END IF
-    PRINT #BIFile, "    vwatch64_HEADERBLOCK = 1"
-    PRINT #BIFile, "    vwatch64_CLIENTBLOCK = LEN(vwatch64_HEADER) + 1"
-    PRINT #BIFile, "    vwatch64_BREAKPOINTBLOCK = vwatch64_CLIENTBLOCK + LEN(vwatch64_CLIENT) + 1"
-    PRINT #BIFile, "    vwatch64_BREAKPOINTLISTBLOCK = vwatch64_BREAKPOINTBLOCK + LEN(vwatch64_BREAKPOINT) + 1"
-    PRINT #BIFile, "    vwatch64_DATABLOCK = vwatch64_BREAKPOINTLISTBLOCK + LEN(vwatch64_BREAKPOINTLIST) + 1"
-    PRINT #BIFile, ""
-    PRINT #BIFile, "    vwatch64_CONNECTTOHOST"
-    PRINT #BIFile, ""
-    CLOSE BIFile
+    PRINT #OutputFile, "vwatch64_HEADERBLOCK = 1"
+    PRINT #OutputFile, "vwatch64_CLIENTBLOCK = LEN(vwatch64_HEADER) + 1"
+    PRINT #OutputFile, "vwatch64_BREAKPOINTBLOCK = vwatch64_CLIENTBLOCK + LEN(vwatch64_CLIENT) + 1"
+    PRINT #OutputFile, "vwatch64_BREAKPOINTLISTBLOCK = vwatch64_BREAKPOINTBLOCK + LEN(vwatch64_BREAKPOINT) + 1"
+    PRINT #OutputFile, "vwatch64_DATABLOCK = vwatch64_BREAKPOINTLISTBLOCK + LEN(vwatch64_BREAKPOINTLIST) + 1"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, "'End of vWATCH64 initialization code."
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
 
-    BMFile = FREEFILE
-    OPEN BMFileName FOR OUTPUT AS #BMFile
+    'Dump the processed source into the output file:
+    FOR i = 1 TO TotalOutputLines
+        PRINT #OutputFile, OutputLines(i)
+    NEXT i
 
-    PRINT "Generating "; BMFileName; "..."
-    IF VERBOSE THEN _DELAY .05
-    'Creates a vWATCH64.BM customized for the .BAS provided:
-    PRINT #BMFile, "SUB vwatch64_CONNECTTOHOST"
+    'Add vWATCH64's procedures:
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, "'vWATCH64 procedures:"
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, "SUB vwatch64_CONNECTTOHOST"
     RANDOMIZE TIMER
-    PRINT #BMFile, "    DIM vwatch64_EXENAME AS STRING * 256"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
-    PRINT #BMFile, "    vwatch64_LOGFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
-    PRINT #BMFile, "    IF vwatch64_LOGFILE = vwatch64_CLIENTFILE THEN vwatch64_LOGFILE = vwatch64_LOGFILE + 1"
-    PRINT #BMFile, "    'You may be wondering why such random file numbers..."
-    PRINT #BMFile, "    OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    'Check if a connection is already active"
-    PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = -1 THEN"
-    PRINT #BMFile, "        'Check if the existing file belongs to this program."
-    PRINT #BMFile, "        GET #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    PRINT #BMFile, "        IF vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM THEN"
-    PRINT #BMFile, "            EXIT SUB"
-    PRINT #BMFile, "        ELSE"
-    PRINT #BMFile, "            _TITLE " + Q$ + "FAILED!" + Q$
-    PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
-    PRINT #BMFile, "            CLOSE #vwatch64_CLIENTFILE"
-    PRINT #BMFile, "            ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #BMFile, "            KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-    PRINT #BMFile, "            EXIT SUB"
-    PRINT #BMFile, "        END IF"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    vwatch64_CLIENT.NAME = " + Q$ + FILENAME$ + Q$
-    PRINT #BMFile, "    vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM"
-    PRINT #BMFile, "    vwatch64_CLIENT.TOTALSOURCELINES =" + STR$(TotalSourceLines)
-    PRINT #BMFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
-    PRINT #BMFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TotalSelected)
-    PRINT #BMFile, ""
+    PRINT #OutputFile, "    DIM vwatch64_EXENAME AS STRING * 256"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
+    PRINT #OutputFile, "    vwatch64_LOGFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
+    PRINT #OutputFile, "    IF vwatch64_LOGFILE = vwatch64_CLIENTFILE THEN vwatch64_LOGFILE = vwatch64_LOGFILE + 1"
+    PRINT #OutputFile, "    'You may be wondering why such random file numbers..."
+    PRINT #OutputFile, "    OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'Check if a connection is already active"
+    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = -1 THEN"
+    PRINT #OutputFile, "        'Check if the existing file belongs to this program."
+    PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    PRINT #OutputFile, "        IF vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM THEN"
+    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
+    PRINT #OutputFile, "            CLOSE #vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "            ON ERROR GOTO vwatch64_FILEERROR"
+    PRINT #OutputFile, "            KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    vwatch64_CLIENT.NAME = " + Q$ + FILENAME$ + Q$
+    PRINT #OutputFile, "    vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM"
+    PRINT #OutputFile, "    vwatch64_CLIENT.TOTALSOURCELINES =" + STR$(TotalSourceLines)
+    PRINT #OutputFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+    PRINT #OutputFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TotalSelected)
+    PRINT #OutputFile, ""
     $IF WIN THEN
-        PRINT #BMFile, "    Ret = GetModuleFileNameA(0, vwatch64_EXENAME, LEN(vwatch64_EXENAME))"
-        PRINT #BMFile, "    IF Ret > 0 THEN"
-        PRINT #BMFile, "        vwatch64_CLIENT.EXENAME = LEFT$(vwatch64_EXENAME, Ret)"
-        PRINT #BMFile, "    END IF"
+        PRINT #OutputFile, "    Ret = GetModuleFileNameA(0, vwatch64_EXENAME, LEN(vwatch64_EXENAME))"
+        PRINT #OutputFile, "    IF Ret > 0 THEN"
+        PRINT #OutputFile, "        vwatch64_CLIENT.EXENAME = LEFT$(vwatch64_EXENAME, Ret)"
+        PRINT #OutputFile, "    END IF"
     $ELSE
-        PRINT #BMFile, "    vwatch64_CLIENT.EXENAME = " + Q$ + Q$
+        PRINT #OutputFile, "    vwatch64_CLIENT.EXENAME = " + Q$ + Q$
     $END IF
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    'Send this client's version and connection request"
-    PRINT #BMFile, "    vwatch64_HEADER.CLIENT_ID = vwatch64_ID"
-    PRINT #BMFile, "    vwatch64_HEADER.VERSION = vwatch64_VERSION"
-    PRINT #BMFile, "    vwatch64_HEADER.CONNECTED = -1"
-    PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    'Wait for authorization:"
-    PRINT #BMFile, "    vwatch64_WAITSTART# = TIMER"
-    PRINT #BMFile, "    DO: _LIMIT 30"
-    PRINT #BMFile, "        _TITLE " + Q$ + "Connecting to vWATCH64 (F4 to cancel and start logging)... (" + Q$ + " + LTRIM$(STR$(3 - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
-    PRINT #BMFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "        k = _KEYHIT"
-    PRINT #BMFile, "        IF k = 27 THEN EXIT DO"
-    PRINT #BMFile, "        IF k = 15872 THEN vwatch64_HEADER.HISTORY_LOG = -1: EXIT DO"
-    PRINT #BMFile, "        IF TIMER - vwatch64_WAITSTART# > 3 THEN EXIT DO"
-    PRINT #BMFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    IF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = 0 THEN"
-    PRINT #BMFile, "        _TITLE " + Q$ + "FAILED!" + Q$
-    PRINT #BMFile, "        vwatch64_HEADER.CONNECTED = 0"
-    PRINT #BMFile, "        CLOSE #vwatch64_CLIENTFILE"
-    PRINT #BMFile, "        ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #BMFile, "        KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
-    PRINT #BMFile, "        EXIT SUB"
-    PRINT #BMFile, "    ELSEIF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = -1 THEN"
-    PRINT #BMFile, "        _TITLE " + Q$ + "LOGGING STARTED!" + Q$
-    PRINT #BMFile, "        OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
-    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
-    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
-    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
-    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #BMFile, "        vwatch64_LOGOPEN = -1"
-    PRINT #BMFile, "    ELSE"
-    PRINT #BMFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, "END SUB"
-    PRINT #BMFile, ""
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'Send this client's version and connection request"
+    PRINT #OutputFile, "    vwatch64_HEADER.CLIENT_ID = vwatch64_ID"
+    PRINT #OutputFile, "    vwatch64_HEADER.VERSION = vwatch64_VERSION"
+    PRINT #OutputFile, "    vwatch64_HEADER.CONNECTED = -1"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'Wait for authorization:"
+    PRINT #OutputFile, "    vwatch64_WAITSTART# = TIMER"
+    PRINT #OutputFile, "    DO: _LIMIT 30"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64 (F4 to cancel and start logging)... (" + Q$ + " + LTRIM$(STR$(3 - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
+    PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "        k = _KEYHIT"
+    PRINT #OutputFile, "        IF k = 27 THEN EXIT DO"
+    PRINT #OutputFile, "        IF k = 15872 THEN vwatch64_HEADER.HISTORY_LOG = -1: EXIT DO"
+    PRINT #OutputFile, "        IF TIMER - vwatch64_WAITSTART# > 3 THEN EXIT DO"
+    PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = 0 THEN"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
+    PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
+    PRINT #OutputFile, "        KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
+    PRINT #OutputFile, "        EXIT SUB"
+    PRINT #OutputFile, "    ELSEIF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "LOGGING STARTED!" + Q$
+    PRINT #OutputFile, "        OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
+    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
+    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
+    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
+    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "        vwatch64_LOGOPEN = -1"
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, "END SUB"
+    PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
-        PRINT #BMFile, "SUB vwatch64_VARIABLEWATCH"
+        PRINT #OutputFile, "SUB vwatch64_VARIABLEWATCH"
         LocalSharedAddedTotal = 0
         FOR i = 1 TO TotalLocalVariables
             SourceLine = "    SHARED "
@@ -2491,7 +2438,7 @@ SUB PROCESSFILE
         NEXT i
 
         FOR i = 1 TO LocalSharedNotRepeated
-            PRINT #BMFile, LocalShared_NOREPETITION(i)
+            PRINT #OutputFile, LocalShared_NOREPETITION(i)
         NEXT i
 
         tempindex = 0
@@ -2500,120 +2447,123 @@ SUB PROCESSFILE
                 tempindex = tempindex + 1
                 IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
                     SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
-                    PRINT #BMFile, SourceLine
+                    PRINT #OutputFile, SourceLine
                 ELSE
                     SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
-                    PRINT #BMFile, SourceLine
+                    PRINT #OutputFile, SourceLine
                 END IF
             END IF
         NEXT i
-        PRINT #BMFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
-        PRINT #BMFile, "        FOR i = 1 to " + LTRIM$(STR$(TotalSelected))
-        PRINT #BMFile, "            IF vwatch64_PREVVARIABLES(i) <> vwatch64_VARIABLES(i).VALUE THEN"
-        PRINT #BMFile, "                vwatch64_PREVVARIABLES(i) = vwatch64_VARIABLES(i).VALUE"
-        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, "
-        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "Value changed:" + Q$
-        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).DATATYPE) + " + Q$ + ")" + Q$
-        PRINT #BMFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).VALUE)"
-        PRINT #BMFile, "            END IF"
-        PRINT #BMFile, "        NEXT i"
-        PRINT #BMFile, "    END IF"
-        PRINT #BMFile, ""
-        PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
-        PRINT #BMFile, "END SUB"
-        PRINT #BMFile, ""
+        PRINT #OutputFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+        PRINT #OutputFile, "        FOR i = 1 to " + LTRIM$(STR$(TotalSelected))
+        PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(i) <> vwatch64_VARIABLES(i).VALUE THEN"
+        PRINT #OutputFile, "                vwatch64_PREVVARIABLES(i) = vwatch64_VARIABLES(i).VALUE"
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, "
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "Value changed:" + Q$
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).DATATYPE) + " + Q$ + ")" + Q$
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).VALUE)"
+        PRINT #OutputFile, "            END IF"
+        PRINT #OutputFile, "        NEXT i"
+        PRINT #OutputFile, "    END IF"
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
+        PRINT #OutputFile, "END SUB"
+        PRINT #OutputFile, ""
     END IF
-    PRINT #BMFile, "SUB vwatch64_CHECKBREAKPOINT (LineNumber AS LONG)"
-    PRINT #BMFile, "    STATIC FirstRunDone AS _BIT"
-    PRINT #BMFile, "    STATIC StepMode AS _BIT"
-    PRINT #BMFile, "    STATIC RunCount AS INTEGER"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
-    PRINT #BMFile, "        RunCount = RunCount + 1"
-    PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STR$(LineNumber); "
-    PRINT #BMFile, "        IF RunCount = 30 THEN RunCount = 0: PRINT #vwatch64_LOGFILE,"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
-    PRINT #BMFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN"
-    PRINT #BMFile, "            _DELAY .5"
-    PRINT #BMFile, "            _TITLE " + Q$ + "Untitled" + Q$
-    PRINT #BMFile, "            FirstRunDone = -1"
-    PRINT #BMFile, "            EXIT SUB"
-    PRINT #BMFile, "        END IF"
-    PRINT #BMFile, "    ELSE"
-    PRINT #BMFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    vwatch64_CLIENT.LINENUMBER = LineNumber"
-    PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    'Check if step mode was initiated by the host:"
-    PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #BMFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    'Indicate to the host we're ready to go and get the breakpoint list:"
-    PRINT #BMFile, "    vwatch64_HEADER.CLIENT_PING = -1"
-    PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "    vwatch64_BREAKPOINT.ACTION = vwatch64_READY"
-    PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTLISTBLOCK, vwatch64_BREAKPOINTLIST"
-    PRINT #BMFile, ""
+    PRINT #OutputFile, "SUB vwatch64_CHECKBREAKPOINT (LineNumber AS LONG)"
+    PRINT #OutputFile, "    STATIC FirstRunDone AS _BIT"
+    PRINT #OutputFile, "    STATIC StepMode AS _BIT"
+    PRINT #OutputFile, "    STATIC RunCount AS INTEGER"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
+    PRINT #OutputFile, "        RunCount = RunCount + 1"
+    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STR$(LineNumber); "
+    PRINT #OutputFile, "        IF RunCount = 30 THEN RunCount = 0: PRINT #vwatch64_LOGFILE,"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
+    PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN"
+    PRINT #OutputFile, "            _DELAY .5"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "            FirstRunDone = -1"
+    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    vwatch64_CLIENT.LINENUMBER = LineNumber"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'Check if step mode was initiated by the host:"
+    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'Indicate to the host we're ready to go and get the breakpoint list:"
+    PRINT #OutputFile, "    vwatch64_HEADER.CLIENT_PING = -1"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    vwatch64_BREAKPOINT.ACTION = vwatch64_READY"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTLISTBLOCK, vwatch64_BREAKPOINTLIST"
+    PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
-        PRINT #BMFile, "    vwatch64_VARIABLEWATCH"
+        PRINT #OutputFile, "    vwatch64_VARIABLEWATCH"
     END IF
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    'On the first time this procedure is called, execution is halted,"
-    PRINT #BMFile, "    'until the user presses F5 or F8 in vWATCH64"
-    PRINT #BMFile, "    IF FirstRunDone = 0 THEN"
-    PRINT #BMFile, "        'It is safe to change the client's title at this point because"
-    PRINT #BMFile, "        'it's the first line to be run so no _TITLE has yet been set."
-    PRINT #BMFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
-    PRINT #BMFile, "        FirstRunDone = -1"
-    PRINT #BMFile, "        VWATCH64_STOPTIMERS"
-    PRINT #BMFile, "        DO: _LIMIT 500"
-    PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #BMFile, "            GOSUB vwatch64_PING"
-    PRINT #BMFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
-    PRINT #BMFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
-    PRINT #BMFile, "        VWATCH64_STARTTIMERS"
-    PRINT #BMFile, "        _TITLE " + Q$ + "Untitled" + Q$
-    PRINT #BMFile, "        EXIT SUB"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    IF (ASC(vwatch64_BREAKPOINTLIST, LineNumber) = 1) OR (StepMode = -1) THEN"
-    PRINT #BMFile, "        VWATCH64_STOPTIMERS"
-    PRINT #BMFile, "        StepMode = -1"
-    PRINT #BMFile, "        DO: _LIMIT 500"
-    PRINT #BMFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #BMFile, "            GOSUB vwatch64_PING"
-    PRINT #BMFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
-    PRINT #BMFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
-    PRINT #BMFile, "        VWATCH64_STARTTIMERS"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, ""
-    PRINT #BMFile, "    EXIT SUB"
-    PRINT #BMFile, "    vwatch64_PING:"
-    PRINT #BMFile, "    'Check if connection is still alive on host's end"
-    PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE vwatch64_CLIENTFILE: EXIT SUB"
-    PRINT #BMFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-    PRINT #BMFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
-    PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
-    PRINT #BMFile, "            CLOSE vwatch64_CLIENTFILE"
-    PRINT #BMFile, "            VWATCH64_STARTTIMERS"
-    PRINT #BMFile, "            EXIT SUB"
-    PRINT #BMFile, "        END IF"
-    PRINT #BMFile, "    ELSE"
-    PRINT #BMFile, "        vwatch64_LAST_PING# = TIMER"
-    PRINT #BMFile, "    END IF"
-    PRINT #BMFile, "    vwatch64_HEADER.HOST_PING = 0"
-    PRINT #BMFile, "    vwatch64_HEADER.CLIENT_PING = -1"
-    PRINT #BMFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #BMFile, "    RETURN"
-    PRINT #BMFile, "END SUB"
-    CLOSE BMFile
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'On the first time this procedure is called, execution is halted,"
+    PRINT #OutputFile, "    'until the user presses F5 or F8 in vWATCH64"
+    PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
+    PRINT #OutputFile, "        'It is safe to change the client's title at this point because"
+    PRINT #OutputFile, "        'it's the first line to be run so no _TITLE has yet been set."
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
+    PRINT #OutputFile, "        FirstRunDone = -1"
+    PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
+    PRINT #OutputFile, "        DO: _LIMIT 500"
+    PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "            GOSUB vwatch64_PING"
+    PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
+    PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "        EXIT SUB"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF (ASC(vwatch64_BREAKPOINTLIST, LineNumber) = 1) OR (StepMode = -1) THEN"
+    PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
+    PRINT #OutputFile, "        StepMode = -1"
+    PRINT #OutputFile, "        DO: _LIMIT 500"
+    PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "            GOSUB vwatch64_PING"
+    PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
+    PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    EXIT SUB"
+    PRINT #OutputFile, "    vwatch64_PING:"
+    PRINT #OutputFile, "    'Check if connection is still alive on host's end"
+    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE vwatch64_CLIENTFILE: EXIT SUB"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
+    PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
+    PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
+    PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "            VWATCH64_STARTTIMERS"
+    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
+    PRINT #OutputFile, "    vwatch64_HEADER.CLIENT_PING = -1"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    RETURN"
+    PRINT #OutputFile, "END SUB"
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, "'End of vWATCH64 procedures."
+    PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    CLOSE OutputFile
     PRINT "Done."
     IF VERBOSE THEN SLEEP 1
 
@@ -2628,19 +2578,19 @@ SUB PROCESSFILE
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
         PRINT "Attempting to compile...";
-        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
+        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -x " + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
             PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
-            PRINT "Files have been generated, you will have to compile them yourself."
+            PRINT "File has been output, you will have to compile them yourself."
             PRINT "Press any key to go back..."
             SLEEP
             EXIT SUB
         ELSE
             PRINT "done."
-            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$) THEN
-                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
+            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 7) + ExecutableExtension$) THEN
+                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 7) + ExecutableExtension$
             ELSE
-                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
+                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 7) + ExecutableExtension$ + "."
                 PRINT "You will have to compile/run it yourself."
                 PRINT "Press any key to go back..."
                 SLEEP
@@ -2655,6 +2605,11 @@ SUB PROCESSFILE
     TotalKeywords = TotalKeywords + 1
     REDIM _PRESERVE KeywordList(1 TO TotalKeywords) AS STRING
     KeywordList(TotalKeywords) = ThisKeyword
+    RETURN
+
+    AddOutputLine:
+    TotalOutputLines = TotalOutputLines + 1
+    REDIM _PRESERVE OutputLines(1 TO TotalOutputLines) AS STRING
     RETURN
 
     CheckButtons:
@@ -2675,20 +2630,15 @@ SUB PROCESSFILE
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
                     WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
                     mb = 0: mx = _MOUSEX: my = _MOUSEY
-                    IF Dialog = 1 THEN
-                        SELECT CASE cb
-                            CASE 1: SKIPARRAYS = NOT SKIPARRAYS: RETURN
-                            CASE 2: INTERACTIVE = NOT INTERACTIVE: RETURN
-                            CASE 3: DONTCOMPILE = NOT DONTCOMPILE: RETURN
-                            CASE 4: VERBOSE = NOT VERBOSE: RETURN
-                            CASE 5: DIALOGRESULT = 1: RETURN
-                            CASE 6: DIALOGRESULT = 2: RETURN
-                            CASE ELSE
-                                SYSTEM_BEEP 'in case a button was added but not yet assigned
-                        END SELECT
-                    ELSE
-                        OVERWRITE = cb: RETURN
-                    END IF
+                    SELECT CASE cb
+                        CASE 1: SKIPARRAYS = NOT SKIPARRAYS: RETURN
+                        CASE 2: INTERACTIVE = NOT INTERACTIVE: RETURN
+                        CASE 3: DONTCOMPILE = NOT DONTCOMPILE: RETURN
+                        CASE 4: VERBOSE = NOT VERBOSE: RETURN
+                        CASE 5: DIALOGRESULT = 1: RETURN
+                        CASE 6: DIALOGRESULT = 2: RETURN
+                        CASE ELSE: SYSTEM_BEEP 'in case a button was added but not yet assigned
+                    END SELECT
                     RETURN
                 END IF
             END IF
@@ -3782,9 +3732,6 @@ SUB SET_DEF (Range$, DataType$)
 END SUB
 
 '------------------------------------------------------------------------------
-'$INCLUDE:'glinput.bi'
-
-
 SUB SYSTEM_BEEP
     $IF WIN THEN
         x = PlaySound("SystemDefault", 0, 65536 + 1)
