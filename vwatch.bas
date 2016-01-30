@@ -1743,7 +1743,6 @@ SUB PROCESSFILE
             COLOR _RGB32(0, 0, 0)
             PRINT "Press any key..."
             CLOSE InputFile
-            KILL NEWFILENAME$
             SLEEP
             EXIT SUB
         END IF
@@ -2114,7 +2113,6 @@ SUB PROCESSFILE
                 COLOR _RGB32(0, 0, 0)
                 PRINT
                 CLOSE InputFile
-                KILL NEWFILENAME$
                 _DELAY 1
                 EXIT SUB
             ELSE
@@ -2249,6 +2247,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'End of vWATCH64 initialization code."
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, ""
 
     'Dump the processed source into the output file:
     FOR i = 1 TO TotalOutputLines
@@ -3734,7 +3733,7 @@ END SUB
 '------------------------------------------------------------------------------
 SUB SYSTEM_BEEP
     $IF WIN THEN
-        x = PlaySound("SystemDefault", 0, 65536 + 1)
+        x = PlaySound("SystemDefault" + CHR$(0), 0, 65536 + 1)
     $ELSE
         BEEP
     $END IF
