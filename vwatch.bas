@@ -286,6 +286,7 @@ SUB SOURCE_VIEW
 
     TOTALBREAKPOINTS = 0
     BREAKPOINT.ACTION = 0 'Start paused; execution starts with F5 or F8.
+    BREAKPOINT.LINENUMBER = 0
     PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
 
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
@@ -387,18 +388,84 @@ SUB SOURCE_VIEW
                     Filter$ = Filter$ + CHR$(k)
                 CASE LINENUMBERS
                     IF (k >= 48 AND k <= 57) OR (k = 45) OR (k = 44) THEN Filter$ = Filter$ + CHR$(k)
+                CASE SETNEXT
+                    IF (k >= 48 AND k <= 57) THEN Filter$ = Filter$ + CHR$(k)
             END SELECT
         CASE 8 'Backspace
             IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
         CASE 9 'TAB
-            IF SearchIn = CODE THEN SearchIn = LINENUMBERS ELSE SearchIn = CODE
+            IF SearchIn = SETNEXT THEN
+                SearchIn = CODE
+                Filter$ = ""
+            ELSEIF SearchIn = CODE THEN
+                SearchIn = LINENUMBERS
+            ELSE
+                SearchIn = CODE
+            END IF
+
             IF LEN(Filter$) > 0 AND VAL(Filter$) = 0 AND SearchIn = LINENUMBERS THEN Filter$ = ""
+        CASE 13 'ENTER confirms SET NEXT LINE, after proper evaluation of Filter$
+            IF SearchIn = SETNEXT THEN
+                IF LEN(Filter$) = 0 THEN
+                    SearchIn = CODE
+                ELSEIF LEN(Filter$) > 0 AND VAL(Filter$) > 0 THEN
+                    DesiredLine = VAL(Filter$)
+                    IF DesiredLine <= CLIENT.TOTALSOURCELINES THEN
+                        IF TRIM$(CLIENT.CURRENTMODULE) = "MAIN MODULE" THEN
+                            CanGo = -1
+                            FOR dl.Check = DesiredLine TO 1 STEP -1
+                                SearchedLine$ = TRIM$(GETLINE$(dl.Check))
+                                IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
+                                    CanGo = 0
+                                    EXIT FOR
+                                END IF
+                            NEXT dl.Check
+                        ELSE
+                            CanGo = 0
+                            FOR dl.Check = DesiredLine TO 1 STEP -1
+                                SearchedLine$ = TRIM$(GETLINE$(dl.Check))
+                                cm$ = TRIM$(CLIENT.CURRENTMODULE)
+                                IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
+                                    IF LEFT$(SearchedLine$, LEN(cm$)) = cm$ THEN
+                                        'We're in the same module as the desired line
+                                        CanGo = -1
+                                        EXIT FOR
+                                    ELSE
+                                        _TITLE "not in the same module: " + SearchedLine$
+                                        EXIT FOR
+                                    END IF
+                                END IF
+                            NEXT dl.Check
+                        END IF
+                        IF CanGo THEN
+                            _TITLE "can go. put data to file."
+                            BREAKPOINT.ACTION = SETNEXT
+                            BREAKPOINT.LINENUMBER = DesiredLine
+                            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+                            BREAKPOINT.ACTION = 0
+                            BREAKPOINT.LINENUMBER = 0
+                            SearchIn = CODE
+                            Filter$ = ""
+                        ELSE
+                            _TITLE "can't cross module boundary"
+                            SYSTEM_BEEP
+                            SearchIn = CODE
+                            Filter$ = ""
+                        END IF
+                    ELSE
+                        _TITLE "desired line > total lines"
+                        SYSTEM_BEEP
+                        SearchIn = CODE
+                        Filter$ = ""
+                    END IF
+                END IF
+            END IF
         CASE 27 'ESC clears the current search filter or exits interactive mode
             ExitButton_Click:
             IF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
                 Filter$ = ""
             ELSEIF SearchIn = SETNEXT THEN
-                SearchIn = LINENUMBERS
+                SearchIn = CODE
                 Filter$ = ""
             ELSE
                 CLOSE_SESSION = -1
@@ -523,7 +590,7 @@ SUB SOURCE_VIEW
     'Build a filtered list, if a filter is active:
     i = 0: FilteredList$ = ""
     PAGE_HEIGHT = _FONTHEIGHT * (CLIENT.TOTALSOURCELINES + 3)
-    IF LEN(Filter$) > 0 THEN
+    IF LEN(Filter$) > 0 AND SearchIn <> SETNEXT THEN
         DO
             i = i + 1
             IF i > CLIENT.TOTALSOURCELINES THEN EXIT DO
@@ -550,7 +617,7 @@ SUB SOURCE_VIEW
 
     CLS , _RGB32(255, 255, 255)
     'Print list items to the screen:
-    IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
+    IF LEN(FilteredList$) > 0 THEN
         ListStart = ((y \ _FONTHEIGHT) + 1)
         ListEnd = LEN(FilteredList$) / 4
         FOR ii = ListStart TO ListEnd
@@ -567,7 +634,7 @@ SUB SOURCE_VIEW
                 COLOR _RGB32(0, 0, 0)
             END IF
         NEXT ii
-    ELSEIF LEN(Filter$) = 0 THEN
+    ELSE
         ListStart = ((y \ _FONTHEIGHT) + 1)
         ListEnd = CLIENT.TOTALSOURCELINES
         FOR i = ListStart TO ListEnd
@@ -583,7 +650,7 @@ SUB SOURCE_VIEW
         NEXT i
     END IF
 
-    IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
+    IF LEN(Filter$) AND LEN(FilteredList$) = 0 AND SearchIn <> SETNEXT THEN 'A filter is on, but nothing was found
         _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
         _PRINTSTRING (5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to reset filter)"
     END IF
@@ -615,9 +682,9 @@ SUB SOURCE_VIEW
         Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
     END IF
     Buttons(b).ID = 3: Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
-    Buttons(b).ID = 8: Buttons(b).CAPTION = "<Set Next>": b = b + 1
     Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
+        Buttons(b).ID = 8: Buttons(b).CAPTION = "<Set Next>": b = b + 1
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
                 Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
@@ -644,11 +711,11 @@ SUB SOURCE_VIEW
             END IF
         END IF
     END IF
-    Buttons(b).ID = 7: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
+    Buttons(b).ID = 7: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, IIFSTR$(SearchIn <> SETNEXT, "<ESC = Clear filter>", "<ESC = Cancel set next>"), "<ESC = Exit>"): b = b + 1
 
-    IF b <= TotalButtons THEN
-        Buttons(b).CAPTION = ""
-    END IF
+    FOR cb = b TO TotalButtons
+        Buttons(cb).CAPTION = ""
+    NEXT cb
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -674,17 +741,17 @@ SUB SOURCE_VIEW
     COLOR _RGB32(0, 0, 0)
 
     IF PAGE_HEIGHT > LIST_AREA THEN
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+        IF LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
+        ELSE
             _PRINTSTRING (5, ((5 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), ListEnd_Label
         END IF
         DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
     ELSE
         'End of list message:
-        IF LEN(Filter$) AND LEN(FilteredList$) > 0 THEN
+        IF LEN(FilteredList$) > 0 THEN
             _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
-        ELSEIF LEN(Filter$) = 0 THEN
+        ELSE
             _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT * 2) - y), ListEnd_Label
         END IF
     END IF
@@ -2164,6 +2231,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "CONST vwatch64_CONTINUE = 1"
     PRINT #OutputFile, "CONST vwatch64_NEXTSTEP = 2"
     PRINT #OutputFile, "CONST vwatch64_READY = 3"
+    PRINT #OutputFile, "CONST vwatch64_SETNEXT = 7"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_HEADERTYPE"
     PRINT #OutputFile, "    CLIENT_ID AS STRING * 8"
@@ -2531,6 +2599,14 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
     PRINT #OutputFile, "        DO: _LIMIT 500"
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "            IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETNEXT THEN"
+    PRINT #OutputFile, "                vwatch64_CHECKBREAKPOINT& = vwatch64_BREAKPOINT.LINENUMBER"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.ACTION = vwatch64_NEXTSTEP"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.LINENUMBER = 0"
+    PRINT #OutputFile, "                StepMode = -1"
+    PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "                EXIT FUNCTION"
+    PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
@@ -2544,6 +2620,14 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        StepMode = -1"
     PRINT #OutputFile, "        DO: _LIMIT 500"
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "            IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETNEXT THEN"
+    PRINT #OutputFile, "                vwatch64_CHECKBREAKPOINT& = vwatch64_BREAKPOINT.LINENUMBER"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.ACTION = vwatch64_NEXTSTEP"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.LINENUMBER = 0"
+    PRINT #OutputFile, "                StepMode = -1"
+    PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "                EXIT FUNCTION"
+    PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
@@ -2597,10 +2681,10 @@ SUB PROCESSFILE
             EXIT SUB
         ELSE
             PRINT "done."
-            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 11) + ExecutableExtension$) THEN
-                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 11) + ExecutableExtension$
+            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$) THEN
+                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
             ELSE
-                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 11) + ExecutableExtension$ + "."
+                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
                 PRINT "You will have to compile/run it yourself."
                 PRINT "Press any key to go back..."
                 SLEEP
