@@ -1611,9 +1611,9 @@ SUB PROCESSFILE
         DO: _LIMIT 30
             i = i + 1
             IF UCASE$(RIGHT$(FILENAME$, 4)) = ".BAS" THEN
-                NEWFILENAME$ = LEFT$(FILENAME$, LEN(FILENAME$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+                NEWFILENAME$ = LEFT$(FILENAME$, LEN(FILENAME$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
             ELSE
-                NEWFILENAME$ = FILENAME$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+                NEWFILENAME$ = FILENAME$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
             END IF
             IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
         LOOP
@@ -1623,15 +1623,14 @@ SUB PROCESSFILE
         DO: _LIMIT 30
             i = i + 1
             IF UCASE$(RIGHT$(tempFilename$, 4)) = ".BAS" THEN
-                NEWFILENAME$ = LEFT$(tempFilename$, LEN(tempFilename$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+                NEWFILENAME$ = LEFT$(tempFilename$, LEN(tempFilename$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
             ELSE
-                NEWFILENAME$ = tempFilename$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch"
+                NEWFILENAME$ = tempFilename$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
             END IF
             IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
         LOOP
     END IF
-    LOGFileName = PATHONLY$(FILENAME$) + NOPATH$(NEWFILENAME$) + ".log"
-
+    LOGFileName = PATHONLY$(FILENAME$) + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ".log"
 
     'Process dialog:
     '-----------------------------------------------------------
@@ -2598,10 +2597,10 @@ SUB PROCESSFILE
             EXIT SUB
         ELSE
             PRINT "done."
-            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 7) + ExecutableExtension$) THEN
-                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 7) + ExecutableExtension$
+            IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 11) + ExecutableExtension$) THEN
+                SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 11) + ExecutableExtension$
             ELSE
-                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 7) + ExecutableExtension$ + "."
+                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 11) + ExecutableExtension$ + "."
                 PRINT "You will have to compile/run it yourself."
                 PRINT "Press any key to go back..."
                 SLEEP
