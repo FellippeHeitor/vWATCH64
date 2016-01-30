@@ -1,13 +1,14 @@
 'vWATCH64 - A debug/variable watch system for QB64 programs
 'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
 
-DEFLNG A-Z
 $RESIZE:ON
+DEFLNG A-Z
 
 $IF WIN THEN
     DECLARE LIBRARY
-        FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)
-        FUNCTION PlaySound (pszSound AS STRING, BYVAL hmod AS _OFFSET, BYVAL fdwSound AS LONG)
+        FUNCTION PlaySound (pszSound AS STRING, BYVAL hmod AS INTEGER, BYVAL fdwSound AS INTEGER)
+        FUNCTION FindWindow& (BYVAL ClassName AS _OFFSET, WindowName$)
+        FUNCTION MessageBox (BYVAL hWnd&, lpText AS STRING, lpCaption AS STRING, BYVAL uType AS LONG)
     END DECLARE
 $END IF
 
@@ -100,7 +101,6 @@ END TYPE
 'Shared variables: ------------------------------------------------------------
 DIM SHARED BREAKPOINTLIST AS STRING
 DIM SHARED DEFAULTDATATYPE(65 TO 90) AS STRING * 20
-DIM SHARED EXENAME AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
 DIM SHARED FILEERRORRAISED AS _BIT
@@ -122,7 +122,7 @@ DIM SHARED TITLESTRING AS STRING
 DIM SHARED TOTALBREAKPOINTS AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
 DIM SHARED TTFONT AS LONG
-DIM SHARED hWnd&
+DIM SHARED PATHSEP$
 
 'File structure:
 DIM SHARED BREAKPOINTBLOCK AS LONG
@@ -208,13 +208,9 @@ $IF WIN THEN
     'Otherwise we stick to _FONT 16 (default):
     IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE, BOLD")
     IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
-
-    Ret = GetModuleFileNameA(0, EXENAME_HOLDER$256, LEN(EXENAME_HOLDER$256))
-    IF Ret > 0 THEN
-        EXENAME = LEFT$(EXENAME_HOLDER$256, Ret)
-    END IF
+    PATHSEP$ = "\"
 $ELSE
-    EXENAME = ""
+    PATHSEP$ = "/"
 $END IF
 
 IF LEN(COMMAND$) THEN
@@ -330,7 +326,7 @@ SUB SOURCE_VIEW
         PUT #FILE, HEADERBLOCK, HEADER
         CLOSE #FILE
         ON ERROR GOTO FileError
-        KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+        KILL _STARTDIR$ + PATHSEP$ + "vwatch64.dat"
         ON ERROR GOTO 0
         EXIT SUB
     END IF
@@ -1618,6 +1614,7 @@ SUB PROCESSFILE
         ShowProcessDialog:
         Dialog = 1
         CLS , _RGB32(255, 255, 255)
+        COLOR _RGB32(0, 0, 0)
 
         'Dialog buttons:
         TotalButtons = 6
@@ -1670,9 +1667,9 @@ SUB PROCESSFILE
             k$ = INKEY$
             IF k$ = CHR$(27) THEN DIALOGRESULT = 2
         LOOP UNTIL GLIENTERED(getfilename%) OR DIALOGRESULT > 0
-        IF DIALOGRESULT = 2 THEN GLICLOSE getfilename%, TRUE: EXIT SUB
+        IF DIALOGRESULT = 2 THEN GLICLOSE getfilename%, FALSE: EXIT SUB
         NEWFILENAME$ = GLIOUTPUT$(getfilename%)
-        GLICLOSE getfilename%, TRUE
+        GLICLOSE getfilename%, FALSE
     END IF
 
     'Check if processing can proceed:
@@ -1704,16 +1701,23 @@ SUB PROCESSFILE
         '                                           < Yes > <  No  >
         '-----------------------------------------------------------
         ShowOverwriteDialog:
-        Dialog = 2
-        CLS , _RGB32(255, 255, 255)
+        $IF WIN THEN
+            MessageType = VAL("&H00000020L") + VAL("&H00000004L")
+            _AUTODISPLAY
+            OVERWRITE = MessageBox(FindWindow(0, TITLESTRING + CHR$(0)), "File already exists. Overwrite?", "vWATCH64", MessageType) - 5
+            _DISPLAY
+        $ELSE
+            OVERWRITE = 0
+            Dialog = 2
+            CLS , _RGB32(255, 255, 255)
+        $END IF
 
         'Dialog buttons:
         TotalButtons = 2
         REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
 
         '---------------------------------------------
-        OVERWRITE = 0
-        DO
+        DO UNTIL OVERWRITE = 1 OR OVERWRITE = 2
             LINE (DialogX, DialogY)-STEP(400, 200), _RGB32(200, 200, 200), BF
             COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
             _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -1746,7 +1750,7 @@ SUB PROCESSFILE
             IF UCASE$(k$) = "Y" OR k$ = CHR$(13) THEN OVERWRITE = 1: _KEYCLEAR
             IF UCASE$(k$) = "N" OR k$ = CHR$(27) THEN OVERWRITE = 2: _KEYCLEAR
             _DISPLAY
-        LOOP UNTIL OVERWRITE = 1 OR OVERWRITE = 2
+        LOOP
     END IF
 
     'Check if processing can proceed:
@@ -2061,7 +2065,7 @@ SUB PROCESSFILE
                     PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
                     PRINT #OutputFile, "END IF"
                     PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-                    PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+                    PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
                     PRINT #OutputFile, ""
                     PRINT #OutputFile, "END"
                     PRINT #OutputFile, "vwatch64_FILEERROR:"
@@ -2092,7 +2096,7 @@ SUB PROCESSFILE
                     PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
                     PRINT #OutputFile, "END IF"
                     PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-                    PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+                    PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
                     PRINT #OutputFile, ""
                     PRINT #OutputFile, "END"
                     PRINT #OutputFile, "vwatch64_FILEERROR:"
@@ -2133,7 +2137,7 @@ SUB PROCESSFILE
             PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
             PRINT #OutputFile, "END IF"
             PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-            PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+            PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
             PRINT #OutputFile, ""
             PRINT #OutputFile, bkpSourceLine$
         ELSE
@@ -2190,7 +2194,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, "    CLOSE #vwatch64_CLIENTFILE"
         PRINT #OutputFile, "END IF"
         PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
-        PRINT #OutputFile, "KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+        PRINT #OutputFile, "KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
         PRINT #OutputFile, ""
         PRINT #OutputFile, "END"
         PRINT #OutputFile, "vwatch64_FILEERROR:"
@@ -2319,7 +2323,7 @@ SUB PROCESSFILE
     PRINT #BMFile, "    vwatch64_LOGFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
     PRINT #BMFile, "    IF vwatch64_LOGFILE = vwatch64_CLIENTFILE THEN vwatch64_LOGFILE = vwatch64_LOGFILE + 1"
     PRINT #BMFile, "    'You may be wondering why such random file numbers..."
-    PRINT #BMFile, "    OPEN " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
+    PRINT #BMFile, "    OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
     PRINT #BMFile, ""
     PRINT #BMFile, "    'Check if a connection is already active"
     PRINT #BMFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
@@ -2333,7 +2337,7 @@ SUB PROCESSFILE
     PRINT #BMFile, "            vwatch64_HEADER.CONNECTED = 0"
     PRINT #BMFile, "            CLOSE #vwatch64_CLIENTFILE"
     PRINT #BMFile, "            ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #BMFile, "            KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+    PRINT #BMFile, "            KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
     PRINT #BMFile, "            EXIT SUB"
     PRINT #BMFile, "        END IF"
     PRINT #BMFile, "    END IF"
@@ -2375,11 +2379,11 @@ SUB PROCESSFILE
     PRINT #BMFile, "        vwatch64_HEADER.CONNECTED = 0"
     PRINT #BMFile, "        CLOSE #vwatch64_CLIENTFILE"
     PRINT #BMFile, "        ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #BMFile, "        KILL " + Q$ + PATHONLY$(EXENAME) + "vwatch64.dat" + Q$
+    PRINT #BMFile, "        KILL " + Q$ + _STARTDIR$ + PATHSEP$ + "vwatch64.dat" + Q$
     PRINT #BMFile, "        EXIT SUB"
     PRINT #BMFile, "    ELSEIF vwatch64_HEADER.RESPONSE = 0 AND vwatch64_HEADER.HISTORY_LOG = -1 THEN"
     PRINT #BMFile, "        _TITLE " + Q$ + "LOGGING STARTED!" + Q$
-    PRINT #BMFile, "        OPEN " + Q$ + PATHONLY$(EXENAME) + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
+    PRINT #BMFile, "        OPEN " + Q$ + _STARTDIR$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
     PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
     PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
     PRINT #BMFile, "        PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
@@ -2907,11 +2911,11 @@ SUB SETUP_CONNECTION
     FILE = FREEFILE
     ON ERROR GOTO FileError
     'Try killing vwatch64.dat. Won't work if open, so we'll try to reconnect to client.
-    KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+    KILL _STARTDIR$ + PATHSEP$ + "vwatch64.dat"
     ON ERROR GOTO 0
 
     'Opens "vwatch64.dat" to wait for a connection:
-    OPEN PATHONLY$(EXENAME) + "vwatch64.dat" FOR BINARY AS #FILE
+    OPEN _STARTDIR$ + PATHSEP$ + "vwatch64.dat" FOR BINARY AS #FILE
 
     HEADERBLOCK = 1
     CLIENTBLOCK = LEN(HEADER) + 1
@@ -2933,7 +2937,7 @@ SUB SETUP_CONNECTION
     IF USERQUIT OR MENU% = 102 THEN
         CLOSE #FILE
         ON ERROR GOTO FileError
-        KILL PATHONLY$(EXENAME) + "vwatch64.dat"
+        KILL _STARTDIR$ + PATHSEP$ + "vwatch64.dat"
         ON ERROR GOTO 0
         SYSTEM
     END IF
@@ -3783,7 +3787,7 @@ END SUB
 
 SUB SYSTEM_BEEP
     $IF WIN THEN
-        x = PlaySound("SystemDefault" + CHR$(0), 0, 65536 + 1)
+        x = PlaySound("SystemDefault", 0, 65536 + 1)
     $ELSE
         BEEP
     $END IF
