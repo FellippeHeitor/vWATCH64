@@ -24,9 +24,6 @@ END DECLARE
 CONST ID = "vWATCH64"
 CONST VERSION = ".953b"
 
-CONST FALSE = 0
-CONST TRUE = NOT FALSE
-
 CONST TIMEOUTLIMIT = 3 'SECONDS
 
 'Breakpoint control:
@@ -411,34 +408,45 @@ SUB SOURCE_VIEW
                 ELSEIF LEN(Filter$) > 0 AND VAL(Filter$) > 0 THEN
                     DesiredLine = VAL(Filter$)
                     IF DesiredLine <= CLIENT.TOTALSOURCELINES THEN
-                        IF TRIM$(CLIENT.CURRENTMODULE) = "MAIN MODULE" THEN
-                            CanGo = -1
-                            FOR dl.Check = DesiredLine TO 1 STEP -1
-                                SearchedLine$ = TRIM$(GETLINE$(dl.Check))
-                                IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
-                                    CanGo = 0
-                                    EXIT FOR
-                                END IF
-                            NEXT dl.Check
-                        ELSE
-                            CanGo = 0
-                            FOR dl.Check = DesiredLine TO 1 STEP -1
-                                SearchedLine$ = TRIM$(GETLINE$(dl.Check))
-                                cm$ = TRIM$(CLIENT.CURRENTMODULE)
-                                IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
-                                    IF LEFT$(SearchedLine$, LEN(cm$)) = cm$ THEN
-                                        'We're in the same module as the desired line
-                                        CanGo = -1
-                                        EXIT FOR
-                                    ELSE
-                                        _TITLE "not in the same module: " + SearchedLine$
+                        DesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(DesiredLine)))
+                        CanGo = -1
+                        IF LEN(DesiredSourceLine$) = 0 THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 1) = "$" THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 4) = "DIM " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 5) = "DATA " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 5) = "CASE " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 5) = "TYPE " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 6) = "REDIM " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 6) = "CONST " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 7) = "STATIC " THEN CanGo = 3
+                        IF CanGo = -1 THEN
+                            IF TRIM$(CLIENT.CURRENTMODULE) = "MAIN MODULE" THEN
+                                CanGo = -1
+                                FOR dl.Check = DesiredLine TO 1 STEP -1
+                                    SearchedLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(dl.Check)))
+                                    IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
+                                        CanGo = 1
                                         EXIT FOR
                                     END IF
-                                END IF
-                            NEXT dl.Check
+                                NEXT dl.Check
+                            ELSE
+                                CanGo = 2
+                                FOR dl.Check = DesiredLine TO 1 STEP -1
+                                    SearchedLine$ = TRIM$(GETLINE$(dl.Check))
+                                    cm$ = TRIM$(CLIENT.CURRENTMODULE)
+                                    IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
+                                        IF LEFT$(SearchedLine$, LEN(cm$)) = cm$ THEN
+                                            'We're in the same module as the desired line
+                                            CanGo = -1
+                                            EXIT FOR
+                                        ELSE
+                                            EXIT FOR
+                                        END IF
+                                    END IF
+                                NEXT dl.Check
+                            END IF
                         END IF
-                        IF CanGo THEN
-                            _TITLE "can go. put data to file."
+                        IF CanGo = -1 THEN
                             BREAKPOINT.ACTION = SETNEXT
                             BREAKPOINT.LINENUMBER = DesiredLine
                             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
@@ -446,17 +454,18 @@ SUB SOURCE_VIEW
                             BREAKPOINT.LINENUMBER = 0
                             SearchIn = CODE
                             Filter$ = ""
+                        ELSEIF CanGo = 1 OR CanGo = 2 THEN
+                            Message$ = "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$)
+                            Message$ = Message$ + CHR$(LF) + "(you can only set the next statement within the same scope)."
+                            MESSAGEBOX Message$, -1
                         ELSE
-                            _TITLE "can't cross module boundary"
-                            SYSTEM_BEEP
-                            SearchIn = CODE
-                            Filter$ = ""
+                            Message$ = "The specified source line can't be set as the next statement"
+                            Message$ = Message$ + CHR$(LF) + "(usually a nonexecutable statement)."
+                            MESSAGEBOX Message$, -1
                         END IF
                     ELSE
-                        _TITLE "desired line > total lines"
-                        SYSTEM_BEEP
-                        SearchIn = CODE
-                        Filter$ = ""
+                        Message$ = "Invalid line number."
+                        MESSAGEBOX Message$, -1
                     END IF
                 END IF
             END IF
@@ -489,6 +498,10 @@ SUB SOURCE_VIEW
                 _KEYCLEAR
                 GET #FILE, DATABLOCK, VARIABLES()
                 VARIABLE_VIEW
+            ELSE
+                Message$ = "There are no watchable variables (defined with DIM) in your program,"
+                Message$ = Message$ + CHR$(LF) + "or you didn't select any variables when processing your source file."
+                MESSAGEBOX Message$, -1
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
@@ -678,9 +691,7 @@ SUB SOURCE_VIEW
     'Top buttons:
     b = 1
     Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    IF CLIENT.TOTALVARIABLES > 0 THEN
-        Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
-    END IF
+    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
     Buttons(b).ID = 3: Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
     Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
     IF STEPMODE THEN
@@ -730,7 +741,6 @@ SUB SOURCE_VIEW
 
     GOSUB CheckButtons
 
-    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
     FOR i = 1 TO LEN(ButtonLine$)
         IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
             ASC(ButtonLine$, i) = 32
@@ -798,13 +808,14 @@ SUB SOURCE_VIEW
 
     CheckButtons:
     Clicked = 0
-    IF my > _FONTHEIGHT THEN RETURN
+    IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
     'Hover highlight:
     FOR cb = 1 TO TotalButtons
         IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
             LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
         END IF
     NEXT cb
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
 
     IF mb THEN
         FOR cb = 1 TO TotalButtons
@@ -2325,7 +2336,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "SUB vwatch64_CONNECTTOHOST"
     RANDOMIZE TIMER
-    PRINT #OutputFile, "    DIM vwatch64_EXENAME AS STRING * 256"
+    PRINT #OutputFile, "    DIM vwatch64_EXENAME AS STRING * 256, Ret AS LONG, k AS LONG"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS"
     PRINT #OutputFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
@@ -2410,6 +2421,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "SUB vwatch64_VARIABLEWATCH"
+        PRINT #OutputFile, "    DIM vwatch64_i AS LONG"
         LocalSharedAddedTotal = 0
         FOR i = 1 TO TotalLocalVariables
             SourceLine = "    SHARED "
@@ -2520,15 +2532,15 @@ SUB PROCESSFILE
             END IF
         NEXT i
         PRINT #OutputFile, "    IF vwatch64_LOGOPEN = -1 THEN"
-        PRINT #OutputFile, "        FOR i = 1 to " + LTRIM$(STR$(TotalSelected))
-        PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(i) <> vwatch64_VARIABLES(i).VALUE THEN"
-        PRINT #OutputFile, "                vwatch64_PREVVARIABLES(i) = vwatch64_VARIABLES(i).VALUE"
+        PRINT #OutputFile, "        FOR vwatch64_i = 1 to " + LTRIM$(STR$(TotalSelected))
+        PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(vwatch64_i) <> vwatch64_VARIABLES(vwatch64_i).VALUE THEN"
+        PRINT #OutputFile, "                vwatch64_PREVVARIABLES(vwatch64_i) = vwatch64_VARIABLES(vwatch64_i).VALUE"
         PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, "
         PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "Value changed:" + Q$
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).DATATYPE) + " + Q$ + ")" + Q$
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLES(i).VALUE)"
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(vwatch64_i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).DATATYPE) + " + Q$ + ")" + Q$
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).VALUE)"
         PRINT #OutputFile, "            END IF"
-        PRINT #OutputFile, "        NEXT i"
+        PRINT #OutputFile, "        NEXT vwatch64_i"
         PRINT #OutputFile, "    END IF"
         PRINT #OutputFile, ""
         PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
@@ -2601,10 +2613,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "            IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETNEXT THEN"
     PRINT #OutputFile, "                vwatch64_CHECKBREAKPOINT& = vwatch64_BREAKPOINT.LINENUMBER"
-    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.ACTION = vwatch64_NEXTSTEP"
-    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.LINENUMBER = 0"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINT.LINENUMBER = 0"
     PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
@@ -2622,8 +2635,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "            IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETNEXT THEN"
     PRINT #OutputFile, "                vwatch64_CHECKBREAKPOINT& = vwatch64_BREAKPOINT.LINENUMBER"
-    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.ACTION = vwatch64_NEXTSTEP"
-    PRINT #OutputFile, "                vwatch64_BREAKPOINTBLOCK.LINENUMBER = 0"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
+    PRINT #OutputFile, "                vwatch64_BREAKPOINT.LINENUMBER = 0"
     PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "                EXIT FUNCTION"
@@ -3616,8 +3629,8 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
     END IF
 
     SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LineLength)
-    IF LEFT$(SourceLine, 1) = CHR$(10) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
-    IF LEFT$(SourceLine, 1) = CHR$(LF) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
+    IF RIGHT$(SourceLine, 1) = CHR$(10) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
+    IF RIGHT$(SourceLine, 1) = CHR$(LF) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
 
     GETLINE$ = SourceLine
 END FUNCTION
@@ -3865,4 +3878,105 @@ SUB SYSTEM_BEEP
     $ELSE
         BEEP
     $END IF
+END SUB
+
+SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
+    Message$ = tMessage$
+    CharW = _PRINTWIDTH("_")
+    REDIM MessageLines(1) AS STRING
+
+    LINE (0, 0)-STEP(SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1), _RGBA32(170, 170, 170, 170), BF
+    MaxLen = 1
+    DO
+        lineBreak = INSTR(lineBreak + 1, Message$, CHR$(LF))
+        IF lineBreak = 0 AND totalLines = 0 THEN
+            totalLines = 1
+            MessageLines(1) = Message$
+            MaxLen = LEN(Message$)
+            EXIT DO
+        ELSEIF lineBreak = 0 AND totalLines > 0 THEN
+            totalLines = totalLines + 1
+            REDIM _PRESERVE MessageLines(1 TO totalLines) AS STRING
+            MessageLines(totalLines) = RIGHT$(Message$, LEN(Message$) - prevlinebreak + 1)
+            IF LEN(MessageLines(totalLines)) > MaxLen THEN MaxLen = LEN(MessageLines(totalLines))
+            EXIT DO
+        END IF
+        IF totalLines = 0 THEN prevlinebreak = 1
+        totalLines = totalLines + 1
+        REDIM _PRESERVE MessageLines(1 TO totalLines) AS STRING
+        MessageLines(totalLines) = MID$(Message$, prevlinebreak, lineBreak - prevlinebreak)
+        IF LEN(MessageLines(totalLines)) > MaxLen THEN MaxLen = LEN(MessageLines(totalLines))
+        prevlinebreak = lineBreak + 1
+    LOOP
+
+    DialogW = (CharW * MaxLen) + 20
+    DialogH = _FONTHEIGHT * (5 + totalLines) + 10
+    DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
+    DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
+
+    TotalButtons = 1
+    DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+
+    DIALOGRESULT = 0
+    _KEYCLEAR
+    SYSTEM_BEEP
+    DO
+        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(255, 255, 255), BF
+        DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
+        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+        FOR i = 1 TO totalLines
+            Message.X = _WIDTH / 2 - _PRINTWIDTH(MessageLines(i)) / 2
+            _PRINTSTRING (Message.X, DialogY + 5 + _FONTHEIGHT * (i + 1)), MessageLines(i)
+        NEXT i
+
+        'Draw buttons
+        b = 1
+        Buttons(b).ID = 1
+        Buttons(b).CAPTION = "< OK >"
+        Buttons(b).Y = DialogY + 5 + _FONTHEIGHT * (4 + totalLines)
+        Buttons(b).X = _WIDTH / 2 - _PRINTWIDTH(TRIM$(Buttons(b).CAPTION)) / 2
+        Buttons(b).W = _PRINTWIDTH(TRIM$(Buttons(b).CAPTION))
+
+        GOSUB CheckButtons
+        FOR cb = 1 TO TotalButtons
+            _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
+        NEXT cb
+        'end of drawing buttons
+
+        _DISPLAY
+        k$ = INKEY$
+        IF k$ = CHR$(13) THEN DIALOGRESULT = 1
+        IF SendPing THEN SEND_PING
+    LOOP UNTIL DIALOGRESULT > 0
+    _KEYCLEAR
+
+    EXIT SUB
+    CheckButtons:
+    'Hover highlight:
+    WHILE _MOUSEINPUT: WEND
+    mb = _MOUSEBUTTON(1): mx = _MOUSEX: my = _MOUSEY
+    FOR cb = 1 TO TotalButtons
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+                LINE (Buttons(cb).X, Buttons(cb).Y)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+            END IF
+        END IF
+    NEXT cb
+
+    IF mb THEN
+        FOR cb = 1 TO TotalButtons
+            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+                    WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
+                    mb = 0: mx = _MOUSEX: my = _MOUSEY
+                    SELECT CASE cb
+                        CASE 1: DIALOGRESULT = 1
+                        CASE ELSE: SYSTEM_BEEP 'in case a button was added but not yet assigned
+                    END SELECT
+                    RETURN
+                END IF
+            END IF
+        NEXT cb
+    END IF
+    RETURN
 END SUB
