@@ -61,7 +61,6 @@ TYPE CLIENTTYPE
     CHECKSUM AS STRING * 8
     TOTALSOURCELINES AS LONG
     EXENAME AS STRING * 256
-    CURRENTMODULE AS STRING * 50
     LINENUMBER AS LONG
     TOTALVARIABLES AS LONG
 END TYPE
@@ -95,6 +94,7 @@ END TYPE
 
 'Shared variables: ------------------------------------------------------------
 DIM SHARED BREAKPOINTLIST AS STRING
+DIM SHARED CLIENT_CURRENTMODULE AS STRING * 50
 DIM SHARED DEFAULTDATATYPE(65 TO 90) AS STRING * 20
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
@@ -143,11 +143,11 @@ DIM SHARED TIMED_OUT AS _BIT
 DIM SHARED USERQUIT AS _BIT
 DIM SHARED CLOSE_SESSION AS _BIT
 DIM SHARED VERBOSE AS _BIT
+DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
 REDIM SHARED LINE_STARTS(0) AS LONG
 
-DIM OVERLAYSCREEN AS LONG
 DIM i AS INTEGER
 
 'Variables initialization: ----------------------------------------------------
@@ -161,6 +161,7 @@ SKIPARRAYS = 0
 INTERACTIVE = 0
 NO_TTFONT = 0
 FIRSTPROCESSING = -1
+VARIABLE_HIGHLIGHT = -1
 SCREEN_WIDTH = DEFAULT_WIDTH
 SCREEN_HEIGHT = DEFAULT_HEIGHT
 LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
@@ -303,6 +304,7 @@ SUB SOURCE_VIEW
     DO: _LIMIT 500
         GOSUB ProcessInput
         GET #FILE, CLIENTBLOCK, CLIENT
+        FIND_CURRENTMODULE
         IF CLIENT.LINENUMBER <> prev_LineNumber AND ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
             STEPMODE = -1
             TRACE = -1
@@ -335,30 +337,7 @@ SUB SOURCE_VIEW
     END IF
 
     IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
-        OVERLAYSCREEN = _NEWIMAGE(SCREEN_WIDTH \ 2, SCREEN_HEIGHT \ 2, 32)
-        _DEST OVERLAYSCREEN
-
-        IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
-        LINE (0, 0)-STEP(799, 599), _RGBA32(255, 255, 255, 200), BF
-        SYSTEM_BEEP
-        _KEYCLEAR
-        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + 1), EndMessage$
-        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), EndMessage$
-        EndMessage$ = "Press any key to continue..."
-        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING ((_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2) + 1, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT + 1), EndMessage$
-        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(EndMessage$) / 2, (_HEIGHT / 2 - _FONTHEIGHT / 2) + _FONTHEIGHT), EndMessage$
-        _DEST MAINSCREEN
-        _PUTIMAGE , OVERLAYSCREEN
-        _FREEIMAGE OVERLAYSCREEN
-        DO: _LIMIT 30
-            WHILE _MOUSEINPUT: mb = _MOUSEBUTTON(1): WEND
-            IF mb THEN EXIT DO
-            IF _EXIT THEN USERQUIT = -1: EXIT DO
-        LOOP UNTIL _KEYHIT
+        MESSAGEBOX EndMessage$, -1
     END IF
     EXIT SUB
 
@@ -420,7 +399,7 @@ SUB SOURCE_VIEW
                         IF LEFT$(DesiredSourceLine$, 6) = "CONST " THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 7) = "STATIC " THEN CanGo = 3
                         IF CanGo = -1 THEN
-                            IF TRIM$(CLIENT.CURRENTMODULE) = "MAIN MODULE" THEN
+                            IF TRIM$(CLIENT_CURRENTMODULE) = "MAIN MODULE" THEN
                                 CanGo = -1
                                 FOR dl.Check = DesiredLine TO 1 STEP -1
                                     SearchedLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(dl.Check)))
@@ -433,7 +412,7 @@ SUB SOURCE_VIEW
                                 CanGo = 2
                                 FOR dl.Check = DesiredLine TO 1 STEP -1
                                     SearchedLine$ = TRIM$(GETLINE$(dl.Check))
-                                    cm$ = TRIM$(CLIENT.CURRENTMODULE)
+                                    cm$ = TRIM$(CLIENT_CURRENTMODULE)
                                     IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
                                         IF LEFT$(SearchedLine$, LEN(cm$)) = cm$ THEN
                                             'We're in the same module as the desired line
@@ -679,12 +658,12 @@ SUB SOURCE_VIEW
     COLOR _RGB32(255, 255, 255)
     _PRINTSTRING (4, 2), ModeTitle$
     COLOR _RGB32(0, 0, 0)
-    TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + TRIM$(CLIENT.CURRENTMODULE) + ")"
+    TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + TRIM$(CLIENT_CURRENTMODULE) + ")"
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
     IF SearchIn = CODE OR SearchIn = LINENUMBERS THEN
         TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     ELSE
-        TopLine$ = "Set next line (must be inside " + TRIM$(CLIENT.CURRENTMODULE) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+        TopLine$ = "Set next line (must be inside " + TRIM$(CLIENT_CURRENTMODULE) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     END IF
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
@@ -849,8 +828,9 @@ SUB VARIABLE_VIEW
     DIM ListEnd_Label AS STRING
     STATIC Filter$
     STATIC SearchIn
+    STATIC y AS LONG
 
-    TotalButtons = 6
+    TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
 
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
@@ -877,13 +857,17 @@ SUB VARIABLE_VIEW
         SEND_PING
 
         GET #FILE, CLIENTBLOCK, CLIENT
+        FIND_CURRENTMODULE
         GET #FILE, DATABLOCK, VARIABLES()
+        FOR i = 1 TO CLIENT.TOTALVARIABLES
+            IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND INSTR(VARIABLES(i).SCOPE, " SHARED") = 0 THEN VARIABLES(i).VALUE = "<out of scope>"
+        NEXT i
 
         IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW
+    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW OR TIMED_OUT OR HEADER.CONNECTED = 0
 
     EXIT SUB
     ProcessInput:
@@ -907,15 +891,7 @@ SUB VARIABLE_VIEW
                 k = 0
             END IF
         CASE 32 TO 126 'Printable ASCII characters
-            IF SearchIn <> SCOPE THEN
-                Filter$ = Filter$ + CHR$(k)
-            ELSE
-                IF k = ASC("L") OR k = ASC("l") THEN
-                    Filter$ = "LOCAL"
-                ELSEIF k = ASC("S") OR k = ASC("s") THEN
-                    Filter$ = "SHARED"
-                END IF
-            END IF
+            Filter$ = Filter$ + CHR$(k)
         CASE 8 'Backspace
             IF SearchIn <> SCOPE THEN
                 IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
@@ -1127,7 +1103,7 @@ SUB VARIABLE_VIEW
     COLOR _RGB32(255, 255, 255)
     _PRINTSTRING (4, 2), ModeTitle$
     COLOR _RGB32(0, 0, 0)
-    TopLine$ = TRIM$(CLIENT.CURRENTMODULE)
+    TopLine$ = TRIM$(CLIENT_CURRENTMODULE)
     _PRINTSTRING (_WIDTH - 3 - _PRINTWIDTH(TopLine$), 3), TopLine$
     TopLine$ = "Total variables:" + STR$(CLIENT.TOTALVARIABLES) + IIFSTR$(LEN(FilteredList$), " (showing " + TRIM$(STR$(LEN(FilteredList$) / 4)) + ")", "")
     _PRINTSTRING (_WIDTH - 5 - _PRINTWIDTH(TopLine$), (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -1149,11 +1125,16 @@ SUB VARIABLE_VIEW
     Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
     Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
     Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
+    Buttons(b).ID = 7: Buttons(b).CAPTION = "<Highlight " + IIFSTR$(VARIABLE_HIGHLIGHT, "ON>", "OFF>"): b = b + 1
     IF STEPMODE THEN
-        Buttons(b).ID = 4: Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
-        Buttons(b).ID = 5: IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+        IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
+            Buttons(b).ID = 5: Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+        ELSE
+            Buttons(b).ID = 4: Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+        END IF
     ELSE
         Buttons(b).ID = 4: Buttons(b).CAPTION = "": b = b + 1
+        Buttons(b).ID = 5: Buttons(b).CAPTION = "": b = b + 1
     END IF
     Buttons(b).ID = 6: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
 
@@ -1206,10 +1187,12 @@ SUB VARIABLE_VIEW
 
     ColorizeSelection:
     'Indicate that this variable is used in the current source line
-    vs$ = TRIM$(VARIABLES(i).NAME)
-    IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
-    IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT.CURRENTMODULE)) > 0 OR INSTR(TRIM$(VARIABLES(i).SCOPE), " SHARED") > 0) THEN
-        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
+    IF VARIABLE_HIGHLIGHT THEN
+        vs$ = TRIM$(VARIABLES(i).NAME)
+        IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
+        IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT_CURRENTMODULE)) > 0 OR INSTR(TRIM$(VARIABLES(i).SCOPE), " SHARED") > 0) THEN
+            LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
+        END IF
     END IF
     RETURN
 
@@ -1238,6 +1221,7 @@ SUB VARIABLE_VIEW
                     CASE 4: GOSUB ToggleButton_Click
                     CASE 5: GOSUB ClearButton_CLICK
                     CASE 6: GOSUB ExitButton_Click
+                    CASE 7: VARIABLE_HIGHLIGHT = NOT VARIABLE_HIGHLIGHT
                     CASE ELSE: SYSTEM_BEEP
                 END SELECT
             END IF
@@ -2185,13 +2169,10 @@ SUB PROCESSFILE
                     CurrentSubFunc$ = TRIM$("SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5))
                     GOSUB AddSFParametersAsVariables
                     IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
-                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + TRIM$(MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)) + Q$
                 ELSE
                     CurrentSubFunc$ = caseBkpSourceLine
                     IF VERBOSE THEN PRINT "Found: "; caseBkpSourceLine
-                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
-                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = SourceLine
                 IF VERBOSE THEN _DELAY .05
                 TotalSubFunc = TotalSubFunc + 1
                 REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
@@ -2214,13 +2195,10 @@ SUB PROCESSFILE
                     CurrentSubFunc$ = TRIM$("FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10))
                     GOSUB AddSFParametersAsVariables
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
-                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + TRIM$(MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)) + Q$
                 ELSE
                     CurrentSubFunc$ = caseBkpSourceLine
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; caseBkpSourceLine
-                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
-                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = SourceLine
                 IF VERBOSE THEN _DELAY .05
                 TotalSubFunc = TotalSubFunc + 1
                 REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
@@ -2235,8 +2213,6 @@ SUB PROCESSFILE
                 END IF
             END IF
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCHRESET"
             IF INSTR(SourceLine, "END SUB") > 0 THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "EXIT SUB"
             ELSEIF INSTR(SourceLine, "END FUNCTION") > 0 THEN
@@ -2247,12 +2223,6 @@ SUB PROCESSFILE
             SUBFUNC.END(TotalSubFunc) = TotalOutputLines
             InBetweenSubs = -1
             CurrentSubFunc$ = ""
-        ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
-            IF LEFT$(SourceLine, 5) <> "CASE " THEN
-                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
-                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCHRESET"
-            END IF
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
@@ -2361,7 +2331,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    CHECKSUM AS STRING * 8"
     PRINT #OutputFile, "    TOTALSOURCELINES AS LONG"
     PRINT #OutputFile, "    EXENAME AS STRING * 256"
-    PRINT #OutputFile, "    CURRENTMODULE AS STRING * 50"
     PRINT #OutputFile, "    LINENUMBER AS LONG"
     PRINT #OutputFile, "    TOTALVARIABLES AS LONG"
     PRINT #OutputFile, "END TYPE"
@@ -2409,9 +2378,6 @@ SUB PROCESSFILE
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + TRIM$(VARIABLES(i).NAME) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + TRIM$(VARIABLES(i).SCOPE) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + TRIM$(VARIABLES(i).DATATYPE) + Q$
-                IF INSTR(VARIABLES(i).SCOPE, "MAIN MODULE") = 0 THEN
-                    PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + Q$ + "<out of scope>" + Q$
-                END IF
             END IF
         NEXT i
         PRINT #OutputFile, ""
@@ -2479,7 +2445,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    vwatch64_CLIENT.NAME = " + Q$ + FILENAME$ + Q$
     PRINT #OutputFile, "    vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM"
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALSOURCELINES =" + STR$(TotalSourceLines)
-    PRINT #OutputFile, "    vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TotalSelected)
     PRINT #OutputFile, ""
     $IF WIN THEN
@@ -2868,20 +2833,6 @@ SUB PROCESSFILE
         END IF
     NEXT sf.Var
     PRINT #OutputFile, "RETURN"
-    PRINT #OutputFile, ""
-
-    PRINT #OutputFile, "vwatch64_VARIABLEWATCHRESET:"
-    tempindex.SFvar = 0
-    FOR sf.Var = 1 TO TOTALVARIABLES
-        IF ASC(AddedList$, sf.Var) = 1 THEN
-            tempindex.SFvar = tempindex.SFvar + 1
-            IF TRIM$(VARIABLES(sf.Var).SCOPE) = CurrentSubFunc$ THEN
-                PRINT #OutputFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = " + Q$ + "<out of scope>" + Q$
-            END IF
-        END IF
-    NEXT sf.Var
-    PRINT #OutputFile, "RETURN"
-    PRINT #OutputFile, ""
     RETURN
 
 
@@ -4115,6 +4066,7 @@ SUB SYSTEM_BEEP
     $END IF
 END SUB
 
+'------------------------------------------------------------------------------
 SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
     Message$ = tMessage$
     CharW = _PRINTWIDTH("_")
@@ -4181,6 +4133,8 @@ SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
         _DISPLAY
         k$ = INKEY$
         IF k$ = CHR$(13) THEN DIALOGRESULT = 1
+        IF k$ = CHR$(27) THEN DIALOGRESULT = 2
+        IF _EXIT THEN USERQUIT = -1: EXIT DO
         IF SendPing THEN SEND_PING
     LOOP UNTIL DIALOGRESULT > 0
     _KEYCLEAR
@@ -4215,3 +4169,50 @@ SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
     END IF
     RETURN
 END SUB
+
+'------------------------------------------------------------------------------
+SUB FIND_CURRENTMODULE
+    'Get the name of the SUB/FUNCTION CLIENT.LINENUMBER is in.
+    sfname$ = "MAIN MODULE"
+    IF CLIENT.LINENUMBER > 0 THEN
+        FOR currSF_CHECK = CLIENT.LINENUMBER TO 1 STEP -1
+            thisline$ = GETLINE$(currSF_CHECK)
+            thisline$ = TRIM$(thisline$)
+            isSF = 0
+            ncthisline$ = UCASE$(thisline$)
+            IF LEFT$(ncthisline$, 4) = "SUB " THEN isSF = 1
+            IF LEFT$(ncthisline$, 9) = "FUNCTION " THEN isSF = 2
+            IF isSF THEN
+                IF RIGHT$(ncthisline$, 7) = " STATIC" THEN
+                    thisline$ = RTRIM$(LEFT$(thisline$, LEN(thisline$) - 7))
+                END IF
+
+                thisline$ = TRIM$(thisline$)
+                checkargs = INSTR(thisline$, "(")
+                IF checkargs > 0 THEN
+                    sfname$ = RTRIM$(LEFT$(thisline$, checkargs - 1))
+                ELSE
+                    sfname$ = thisline$
+                END IF
+
+                'It could be that SUB or FUNCTION is inside a DECLARE LIBRARY.
+                'In such case, it must be ignored:
+                InsideDECLARE = 0
+                FOR declib_CHECK = currSF_CHECK TO 1 STEP -1
+                    thisline$ = GETLINE$(declib_CHECK)
+                    thisline$ = TRIM$(thisline$)
+                    ncthisline$ = UCASE$(thisline$)
+                    IF LEFT$(ncthisline$, 8) = "DECLARE " AND INSTR(ncthisline$, " LIBRARY") > 0 THEN InsideDECLARE = -1: EXIT FOR
+                    IF LEFT$(ncthisline$, 11) = "END DECLARE" THEN EXIT FOR
+                NEXT
+
+                IF InsideDECLARE = -1 THEN
+                    sfname$ = "MAIN MODULE"
+                END IF
+            END IF
+        NEXT
+    END IF
+
+    CLIENT_CURRENTMODULE = sfname$
+END SUB
+
