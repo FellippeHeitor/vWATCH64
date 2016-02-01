@@ -1208,7 +1208,7 @@ SUB VARIABLE_VIEW
     'Indicate that this variable is used in the current source line
     vs$ = TRIM$(VARIABLES(i).NAME)
     IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
-    IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT.CURRENTMODULE)) > 0 THEN
+    IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT.CURRENTMODULE)) > 0 OR INSTR(TRIM$(VARIABLES(i).SCOPE), " SHARED") > 0) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
     END IF
     RETURN
@@ -1664,6 +1664,8 @@ SUB PROCESSFILE
     DIM TotalSubFunc AS LONG
     DIM ThisKeyword AS STRING
     DIM DefiningType AS _BIT
+    DIM PrecompilerBlock AS _BIT
+    DIM CheckingOff AS _BIT
     DIM InBetweenSubs AS _BIT
     DIM DeclaringLibrary AS _BIT
     DIM FoundType AS STRING
@@ -1697,7 +1699,6 @@ SUB PROCESSFILE
     LOOP
 
     Q$ = CHR$(34)
-
 
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
         i = -1
@@ -1874,11 +1875,13 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
                 ELSE
-                    IF NOT MainModule THEN
+                    IF MainModule = 0 AND PrecompilerBlock = 0 AND CheckingOff = 0 THEN
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCH"
                     END IF
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ": vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
-                    GOSUB AddNextLineData
+                    IF PrecompilerBlock = 0 AND CheckingOff = 0 THEN
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ": vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
+                        GOSUB AddNextLineData
+                    END IF
                 END IF
             END IF
 
@@ -2145,6 +2148,24 @@ SUB PROCESSFILE
             GOSUB AddThisKeyword
             DefiningType = -1
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 4) = "$IF " THEN
+            'No vWATCH64 labels will be placed/accessible inside precompiler blocks
+            'otherwise vWATCH64 would have to evaluate them and that's QB64's job.
+            PrecompilerBlock = -1
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 7) = "$END IF" THEN
+            PrecompilerBlock = 0
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 13) = "$CHECKING:OFF" THEN
+            'vWATCH64 won't mess with lines of code between $CHECKING:OFF
+            'and $CHECKING:ON, considering that such lines are technically
+            'error free, by the programmer's own judgement to include such
+            'metacommands.
+            CheckingOff = -1
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 12) = "$CHECKING:ON" THEN
+            CheckingOff = 0
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
             InBetweenSubs = 0
             IF NOT DeclaringLibrary THEN
@@ -2222,6 +2243,7 @@ SUB PROCESSFILE
         ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
             IF LEFT$(SourceLine, 5) <> "CASE " THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCHRESET"
             END IF
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
@@ -2734,7 +2756,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    vwatch64_PING:"
     PRINT #OutputFile, "    'Check if connection is still alive on host's end"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE vwatch64_CLIENTFILE: EXIT SUB"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE vwatch64_CLIENTFILE: VWATCH64_STARTTIMERS: EXIT SUB"
     PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
     PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
     PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
