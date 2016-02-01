@@ -75,7 +75,10 @@ TYPE VARIABLESTYPE
     SCOPE AS STRING * 50
     UDT AS STRING * 40
     DATATYPE AS STRING * 20
-    VALUE AS STRING * 255
+END TYPE
+
+TYPE VARIABLEVALUETYPE
+    VALUE AS STRING * 256
 END TYPE
 
 TYPE UDTTYPE
@@ -120,11 +123,13 @@ DIM SHARED TTFONT AS LONG
 DIM SHARED PATHSEP$
 
 'File structure:
+DIM SHARED HEADERBLOCK AS LONG
+DIM SHARED CLIENTBLOCK AS LONG
 DIM SHARED BREAKPOINTBLOCK AS LONG
 DIM SHARED BREAKPOINTLISTBLOCK AS LONG
-DIM SHARED CLIENTBLOCK AS LONG
+DIM SHARED DATAINFOBLOCK AS LONG
 DIM SHARED DATABLOCK AS LONG
-DIM SHARED HEADERBLOCK AS LONG
+DIM SHARED EXCHANGEBLOCK AS LONG
 
 'Custom structures:
 DIM SHARED BREAKPOINT AS BREAKPOINTTYPE
@@ -146,6 +151,7 @@ DIM SHARED VERBOSE AS _BIT
 DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
+REDIM SHARED VARIABLE_DATA(0) AS VARIABLEVALUETYPE
 REDIM SHARED LINE_STARTS(0) AS LONG
 
 DIM i AS INTEGER
@@ -471,7 +477,7 @@ SUB SOURCE_VIEW
             WindowButton_Click:
             IF CLIENT.TOTALVARIABLES > 0 THEN
                 _KEYCLEAR
-                GET #FILE, DATABLOCK, VARIABLES()
+                GET #FILE, DATABLOCK, VARIABLE_DATA()
                 VARIABLE_VIEW
             ELSE
                 Message$ = "There are no watchable variables (defined with DIM) in your program,"
@@ -666,39 +672,39 @@ SUB SOURCE_VIEW
 
     'Top buttons:
     b = 1
-    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Variables>": b = b + 1
+    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5=Run>": b = b + 1
+    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6=Variables>": b = b + 1
     Buttons(b).ID = 3: Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
-    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
+    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8=Step>", "<F8=Pause>"): b = b + 1
     IF STEPMODE THEN
         Buttons(b).ID = 8: Buttons(b).CAPTION = "<Set Next>": b = b + 1
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints (filtered)>": b = b + 1
             ELSE
-                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
+                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9=Set Breakpoint (filtered)>": b = b + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints>": b = b + 1
             ELSE
-                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9=Toggle Breakpoint>": b = b + 1
             END IF
         END IF
     ELSE
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints (all filtered)>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints (filtered)>": b = b + 1
             ELSE
-                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9 = Set Breakpoint (all filtered)>": b = b + 1
+                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9=Set Breakpoint (filtered)>": b = b + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints>": b = b + 1
             END IF
         END IF
     END IF
-    Buttons(b).ID = 7: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, IIFSTR$(SearchIn <> SETNEXT, "<ESC = Clear filter>", "<ESC = Cancel set next>"), "<ESC = Exit>"): b = b + 1
+    Buttons(b).ID = 7: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, IIFSTR$(SearchIn <> SETNEXT, "<ESC=Clear filter>", "<ESC/TAB=Cancel>"), "<ESC=Exit>"): b = b + 1
 
     FOR cb = b TO TotalButtons
         Buttons(cb).CAPTION = ""
@@ -855,9 +861,9 @@ SUB VARIABLE_VIEW
 
         GET #FILE, CLIENTBLOCK, CLIENT
         FIND_CURRENTMODULE
-        GET #FILE, DATABLOCK, VARIABLES()
+        GET #FILE, DATABLOCK, VARIABLE_DATA()
         FOR i = 1 TO CLIENT.TOTALVARIABLES
-            IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND INSTR(VARIABLES(i).SCOPE, " SHARED") = 0 THEN VARIABLES(i).VALUE = "<out of scope>"
+            IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND INSTR(VARIABLES(i).SCOPE, " SHARED") = 0 THEN VARIABLE_DATA(i).VALUE = "<out of scope>"
         NEXT i
 
         IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
@@ -1021,7 +1027,7 @@ SUB VARIABLE_VIEW
             SELECT CASE SearchIn
                 CASE VARIABLENAMES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).NAME), UCASE$(Filter$))
                 CASE DATATYPES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).DATATYPE), UCASE$(Filter$))
-                CASE VALUES: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).VALUE), UCASE$(Filter$))
+                CASE VALUES: Found = MULTI_SEARCH(UCASE$(VARIABLE_DATA(i).VALUE), UCASE$(Filter$))
                 CASE SCOPE: Found = MULTI_SEARCH(UCASE$(VARIABLES(i).SCOPE), UCASE$(Filter$))
             END SELECT
             IF Found THEN
@@ -1070,14 +1076,14 @@ SUB VARIABLE_VIEW
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
+            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
             printY = ((3 + ii) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
         FOR i = ((y \ _FONTHEIGHT) + 1) TO CLIENT.TOTALVARIABLES
-            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
+            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
             printY = ((3 + i) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
@@ -1119,21 +1125,21 @@ SUB VARIABLE_VIEW
 
     'Top buttons:
     b = 1
-    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5 = Run>": b = b + 1
-    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6 = Source>": b = b + 1
-    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8 = Step>", "<F8 = Pause>"): b = b + 1
+    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5=Run>": b = b + 1
+    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6=Source>": b = b + 1
+    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8=Step>", "<F8=Pause>"): b = b + 1
     Buttons(b).ID = 7: Buttons(b).CAPTION = "<Highlight " + IIFSTR$(VARIABLE_HIGHLIGHT, "ON>", "OFF>"): b = b + 1
     IF STEPMODE THEN
         IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
-            Buttons(b).ID = 5: Buttons(b).CAPTION = "<F10 = Clear Breakpoints>": b = b + 1
+            Buttons(b).ID = 5: Buttons(b).CAPTION = "<F10=Clear Breakpoints>": b = b + 1
         ELSE
-            Buttons(b).ID = 4: Buttons(b).CAPTION = "<F9 = Toggle Breakpoint>": b = b + 1
+            Buttons(b).ID = 4: Buttons(b).CAPTION = "<F9=Toggle Breakpoint>": b = b + 1
         END IF
     ELSE
         Buttons(b).ID = 4: Buttons(b).CAPTION = "": b = b + 1
         Buttons(b).ID = 5: Buttons(b).CAPTION = "": b = b + 1
     END IF
-    Buttons(b).ID = 6: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
+    Buttons(b).ID = 6: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC=Clear filter>", "<ESC=Exit>"): b = b + 1
 
     FOR cb = b TO TotalButtons
         Buttons(cb).CAPTION = ""
@@ -1509,12 +1515,12 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
 
     'Top buttons:
     b = 1
-    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F2 = Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>"): b = b + 1
+    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F2=Select" + IIFSTR$(LEN(Filter$), " all filtered>", " all>"): b = b + 1
     IF TotalSelected > 0 THEN
-        Buttons(b).ID = 2: Buttons(b).CAPTION = "<F3 = Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>"): b = b + 1
+        Buttons(b).ID = 2: Buttons(b).CAPTION = "<F3=Clear" + IIFSTR$(LEN(Filter$), " all filtered>", " all>"): b = b + 1
     END IF
-    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and Continue>", "<F5 = Continue>"): b = b + 1
-    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
+    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(TotalSelected > 0, "<F5=Save and Continue>", "<F5=Continue>"): b = b + 1
+    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC=Clear filter>", "<ESC=Exit>"): b = b + 1
 
     FOR cb = b TO TotalButtons
         Buttons(cb).CAPTION = ""
@@ -2358,7 +2364,10 @@ SUB PROCESSFILE
         PRINT #OutputFile, "    SCOPE AS STRING * 50"
         PRINT #OutputFile, "    UDT AS STRING * 40"
         PRINT #OutputFile, "    DATATYPE AS STRING * 20"
-        PRINT #OutputFile, "    VALUE AS STRING * 255"
+        PRINT #OutputFile, "END TYPE"
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "TYPE vwatch64_VARIABLEVALUETYPE"
+        PRINT #OutputFile, "    VALUE AS STRING * 256"
         PRINT #OutputFile, "END TYPE"
     END IF
     PRINT #OutputFile, ""
@@ -2370,7 +2379,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_CLIENTBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_CLIENTFILE AS INTEGER"
     PRINT #OutputFile, "DIM SHARED vwatch64_LOGFILE AS INTEGER"
+    PRINT #OutputFile, "DIM SHARED vwatch64_DATAINFOBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_DATABLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADERBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_LOF AS LONG"
@@ -2381,6 +2392,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
+        PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLEDATA(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLEVALUETYPE"
         PRINT #OutputFile, "DIM SHARED vwatch64_PREVVARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
@@ -2397,7 +2409,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "vwatch64_CLIENTBLOCK = LEN(vwatch64_HEADER) + 1"
     PRINT #OutputFile, "vwatch64_BREAKPOINTBLOCK = vwatch64_CLIENTBLOCK + LEN(vwatch64_CLIENT) + 1"
     PRINT #OutputFile, "vwatch64_BREAKPOINTLISTBLOCK = vwatch64_BREAKPOINTBLOCK + LEN(vwatch64_BREAKPOINT) + 1"
-    PRINT #OutputFile, "vwatch64_DATABLOCK = vwatch64_BREAKPOINTLISTBLOCK + LEN(vwatch64_BREAKPOINTLIST) + 1"
+    PRINT #OutputFile, "vwatch64_DATAINFOBLOCK = vwatch64_BREAKPOINTLISTBLOCK + LEN(vwatch64_BREAKPOINTLIST) + 1"
+    PRINT #OutputFile, "vwatch64_DATABLOCK = vwatch64_DATAINFOBLOCK + LEN(vwatch64_VARIABLES()) + 1"
+    PRINT #OutputFile, "vwatch64_EXCHANGEBLOCK = vwatch64_DATABLOCK + LEN(vwatch64_VARIABLEDATA()) + 1"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
     PRINT #OutputFile, ""
@@ -2472,6 +2486,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    vwatch64_HEADER.VERSION = vwatch64_VERSION"
     PRINT #OutputFile, "    vwatch64_HEADER.CONNECTED = -1"
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATAINFOBLOCK, vwatch64_VARIABLES()"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Wait for authorization:"
     PRINT #OutputFile, "    vwatch64_WAITSTART# = TIMER"
@@ -2611,28 +2626,28 @@ SUB PROCESSFILE
             IF ASC(AddedList$, i) = 1 AND INSTR(VARIABLES(i).SCOPE, "MAIN MODULE") > 0 THEN
                 tempindex = tempindex + 1
                 IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
-                    SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
+                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
                     PRINT #OutputFile, SourceLine
                 ELSE
-                    SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
+                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
                     PRINT #OutputFile, SourceLine
                 END IF
             END IF
         NEXT i
         PRINT #OutputFile, "    IF vwatch64_LOGOPEN = -1 THEN"
         PRINT #OutputFile, "        FOR vwatch64_i = 1 to " + LTRIM$(STR$(TotalSelected))
-        PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(vwatch64_i) <> vwatch64_VARIABLES(vwatch64_i).VALUE THEN"
-        PRINT #OutputFile, "                vwatch64_PREVVARIABLES(vwatch64_i) = vwatch64_VARIABLES(vwatch64_i).VALUE"
+        PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(vwatch64_i) <> vwatch64_VARIABLEDATA(vwatch64_i).VALUE THEN"
+        PRINT #OutputFile, "                vwatch64_PREVVARIABLES(vwatch64_i) = vwatch64_VARIABLEDATA(vwatch64_i).VALUE"
         PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, "
         PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "Value changed:" + Q$
         PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(vwatch64_i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).DATATYPE) + " + Q$ + ")" + Q$
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).VALUE)"
+        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLEDATA(vwatch64_i).VALUE)"
         PRINT #OutputFile, "            END IF"
         PRINT #OutputFile, "        NEXT vwatch64_i"
         PRINT #OutputFile, "    END IF"
         PRINT #OutputFile, ""
         PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
-        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLES()"
+        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLEDATA().VALUE"
         PRINT #OutputFile, "END SUB"
         PRINT #OutputFile, ""
     END IF
@@ -2841,9 +2856,9 @@ SUB PROCESSFILE
             tempindex.SFvar = tempindex.SFvar + 1
             IF TRIM$(VARIABLES(sf.Var).SCOPE) = CurrentSubFunc$ THEN
                 IF INSTR(VARIABLES(sf.Var).DATATYPE, "STRING") THEN
-                    PRINT #OutputFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = " + TRIM$(VARIABLES(sf.Var).NAME)
+                    PRINT #OutputFile, "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = " + TRIM$(VARIABLES(sf.Var).NAME)
                 ELSE
-                    PRINT #OutputFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = STR$(" + TRIM$(VARIABLES(sf.Var).NAME) + ")"
+                    PRINT #OutputFile, "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = STR$(" + TRIM$(VARIABLES(sf.Var).NAME) + ")"
                 END IF
             END IF
         END IF
@@ -3196,7 +3211,7 @@ SUB SETUP_CONNECTION
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
     b = 1
     Buttons(b).CAPTION = "<Open and Process .BAS>": b = b + 1
-    Buttons(b).CAPTION = "<ESC = Exit>": b = b + 1
+    Buttons(b).CAPTION = "<ESC=Exit>": b = b + 1
 
     StartSetup:
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
@@ -3270,8 +3285,12 @@ SUB SETUP_CONNECTION
     IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN SYSTEM_BEEP: GOTO StartSetup
 
     REDIM VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
+    REDIM VARIABLE_DATA(1 TO CLIENT.TOTALVARIABLES) AS VARIABLEVALUETYPE
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
-    DATABLOCK = BREAKPOINTLISTBLOCK + LEN(BREAKPOINTLIST) + 1
+    DATAINFOBLOCK = BREAKPOINTLISTBLOCK + LEN(BREAKPOINTLIST) + 1
+    GET #FILE, DATAINFOBLOCK, VARIABLES()
+    DATABLOCK = DATAINFOBLOCK + LEN(VARIABLES()) + 1
+    EXCHANGEBLOCK = DATABLOCK + LEN(VARIABLE_DATA())
 
     'Load the source file, if it still exists.
     IF _FILEEXISTS(TRIM$(CLIENT.NAME)) THEN
@@ -3377,7 +3396,7 @@ SUB SETUP_CONNECTION
                 IF my > _FONTHEIGHT THEN RETURN
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
-                IF INSTR(Buttons(cb).CAPTION, "ESC =") THEN MENU% = 102: RETURN
+                IF INSTR(Buttons(cb).CAPTION, "ESC=") THEN MENU% = 102: RETURN
                 SYSTEM_BEEP 'in case a button was added but not yet assigned
                 RETURN
             END IF
