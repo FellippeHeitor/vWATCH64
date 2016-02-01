@@ -73,7 +73,7 @@ END TYPE
 
 TYPE VARIABLESTYPE
     NAME AS STRING * 256
-    SCOPE AS STRING * 7
+    SCOPE AS STRING * 50
     UDT AS STRING * 40
     DATATYPE AS STRING * 20
     VALUE AS STRING * 255
@@ -862,9 +862,11 @@ SUB VARIABLE_VIEW
     ListEnd_Label = "(end of list)"
     _KEYCLEAR
     longestVarName = 1
+    longestScopeSpec = 1
 
     FOR i = 1 TO CLIENT.TOTALVARIABLES
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
+        IF LEN(TRIM$(VARIABLES(i).SCOPE)) > longestScopeSpec THEN longestScopeSpec = LEN(TRIM$(VARIABLES(i).SCOPE))
     NEXT i
 
     SWITCH_VIEW = 0
@@ -1066,26 +1068,26 @@ SUB VARIABLE_VIEW
     'Place a light gray rectangle under the column that can currently be filtered
     SELECT CASE SearchIn
         CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(longestScopeSpec + 1))
             columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
         CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(longestScopeSpec + 1))
             columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
         CASE VALUES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(7)) + 16
+            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(longestScopeSpec + 1)) + 16
             columnHighlightW = _WIDTH
         CASE SCOPE
             columnHighlightX = 0
-            columnHighlightW = _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(longestScopeSpec)) + 8
     END SELECT
     columnHighlightY = 51
 
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
+        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + _FONTHEIGHT
     ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
         columnHightlighH = _FONTHEIGHT
     ELSE
-        columnHightlighH = (CLIENT.TOTALVARIABLES * _FONTHEIGHT) + 8
+        columnHightlighH = (CLIENT.TOTALVARIABLES * _FONTHEIGHT) + _FONTHEIGHT
     END IF
     CLS , _RGB32(255, 255, 255)
     LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
@@ -1095,14 +1097,14 @@ SUB VARIABLE_VIEW
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
+            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
             printY = ((3 + ii) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
         FOR i = ((y \ _FONTHEIGHT) + 1) TO CLIENT.TOTALVARIABLES
-            v$ = VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
+            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLES(i).VALUE)
             printY = ((3 + i) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
@@ -1155,6 +1157,10 @@ SUB VARIABLE_VIEW
     END IF
     Buttons(b).ID = 6: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
 
+    FOR cb = b TO TotalButtons
+        Buttons(cb).CAPTION = ""
+    NEXT cb
+
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
         c$ = TRIM$(Buttons(cb).CAPTION)
@@ -1202,7 +1208,7 @@ SUB VARIABLE_VIEW
     'Indicate that this variable is used in the current source line
     vs$ = TRIM$(VARIABLES(i).NAME)
     IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
-    IF FIND_KEYWORD(SourceLine, vs$, FoundAt) THEN
+    IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT.CURRENTMODULE)) > 0 THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
     END IF
     RETURN
@@ -1265,8 +1271,10 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     _KEYCLEAR
 
     longestVarName = 1
+    longestScopeSpec = 1
     FOR i = 1 TO TOTALVARIABLES
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
+        IF LEN(TRIM$(VARIABLES(i).SCOPE)) > longestScopeSpec THEN longestScopeSpec = LEN(TRIM$(VARIABLES(i).SCOPE))
     NEXT i
 
     LEAVE_INTERACTIVE_MODE = 0
@@ -1451,23 +1459,23 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     'Place a light gray rectangle under the column that can currently be filtered:
     SELECT CASE searchIn
         CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(13))
+            columnHighlightX = _PRINTWIDTH(SPACE$(longestScopeSpec + 7))
             columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
         CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(27)) + _PRINTWIDTH(SPACE$(7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(longestScopeSpec + 28))
             columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
         CASE SCOPE
             columnHighlightX = _PRINTWIDTH(SPACE$(6))
-            columnHighlightW = _PRINTWIDTH(SPACE$(7))
+            columnHighlightW = _PRINTWIDTH(SPACE$(longestScopeSpec + 1))
     END SELECT
     columnHighlightY = 51
 
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
-        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + 8
+        columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + _FONTHEIGHT
     ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
         columnHightlighH = _FONTHEIGHT
     ELSE
-        columnHightlighH = (TOTALVARIABLES * _FONTHEIGHT) + 8
+        columnHightlighH = (TOTALVARIABLES * _FONTHEIGHT) + _FONTHEIGHT
     END IF
     CLS , _RGB32(255, 255, 255)
     LINE (columnHighlightX, columnHighlightY)-STEP(columnHighlightW, columnHightlighH), _RGB32(230, 230, 230), BF
@@ -1485,7 +1493,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
             IF printY > SCREEN_HEIGHT THEN EXIT FOR
             GOSUB ColorizeSelection
             IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
             _PRINTSTRING (5, printY), v$
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
@@ -1494,7 +1502,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
             IF printY > SCREEN_HEIGHT THEN EXIT FOR
             GOSUB ColorizeSelection
             IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + VARIABLES(i).SCOPE + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
             _PRINTSTRING (5, printY), v$
         NEXT i
     END IF
@@ -1526,6 +1534,10 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     END IF
     Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(TotalSelected > 0, "<F5 = Save and Continue>", "<F5 = Continue>"): b = b + 1
     Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, "<ESC = Clear filter>", "<ESC = Exit>"): b = b + 1
+
+    FOR cb = b TO TotalButtons
+        Buttons(cb).CAPTION = ""
+    NEXT cb
 
     ButtonLine$ = ""
     FOR cb = 1 TO TotalButtons
@@ -1649,6 +1661,7 @@ SUB PROCESSFILE
     DIM TotalUDTs AS INTEGER
     DIM TotalUDTsAdded AS INTEGER
     DIM TotalLines AS LONG
+    DIM TotalSubFunc AS LONG
     DIM ThisKeyword AS STRING
     DIM DefiningType AS _BIT
     DIM InBetweenSubs AS _BIT
@@ -1669,6 +1682,8 @@ SUB PROCESSFILE
     REDIM KeywordList(1) AS STRING
     REDIM OutputLines(1) AS STRING
     REDIM SetNextLineData(1) AS STRING
+    REDIM SUBFUNC(1) AS STRING * 50
+    REDIM SUBFUNC.END(1) AS LONG
 
     RESTORE KeyWordsDATA
     'Populate KeywordList() with DATA TYPES:
@@ -1814,6 +1829,7 @@ SUB PROCESSFILE
     SEEK #InputFile, 1
 
     MainModule = -1
+    CurrentSubFunc$ = ""
     TotalOutputLines = 0
     'Look for variables inside the main module and stores information in VARIABLES()
     'and LOCALVARIABLES. If SUB or FUNCTION is found, injects CURRENTMODULE verification
@@ -1858,6 +1874,9 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
                 ELSE
+                    IF NOT MainModule THEN
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCH"
+                    END IF
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ": vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
                     GOSUB AddNextLineData
                 END IF
@@ -1889,18 +1908,18 @@ SUB PROCESSFILE
 
         IF MULTILINE THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE = 0
 
-        IF LEFT$(SourceLine, 4) = "DIM " AND MainModule THEN
+        IF LEFT$(SourceLine, 4) = "DIM " THEN
             LocalVariable = 0
             IF MID$(SourceLine, 5, 7) <> "SHARED " THEN LocalVariable = -1
 
             IF LEN(caseBkpNextVar$) > 0 THEN
                 NextVar$ = UCASE$(caseBkpNextVar$)
             ELSE
-                caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine)
+                caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, TotalSourceLines)
                 NextVar$ = UCASE$(caseBkpNextVar$)
             END IF
 
-            IF INSTR(NextVar$, " AS ") = 0 THEN
+            IF LEN(NextVar$) > 0 AND INSTR(NextVar$, " AS ") = 0 THEN
                 'Attempt to infer DATA TYPE from suffixes:
                 FoundType = SUFFIXLOOKUP$(NextVar$)
                 DefaultTypeUsed = 0
@@ -1919,7 +1938,11 @@ SUB PROCESSFILE
                             TOTALVARIABLES = TOTALVARIABLES + 1
                             REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                             VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(caseBkpNextVar$, "(")) + TRIM$(STR$(i)) + ")"
-                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                            IF MainModule THEN
+                                VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                            ELSE
+                                VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                            END IF
                             VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
                         NEXT i
                     END IF
@@ -1927,11 +1950,15 @@ SUB PROCESSFILE
                     TOTALVARIABLES = TOTALVARIABLES + 1
                     REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                     VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
-                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                    IF MainModule THEN
+                        VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                    ELSE
+                        VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                    END IF
                     VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
                 END IF
 
-                IF LocalVariable THEN
+                IF LocalVariable AND MainModule THEN
                     TotalLocalVariables = TotalLocalVariables + 1
                     REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
                     LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
@@ -1958,7 +1985,11 @@ SUB PROCESSFILE
                                 TOTALVARIABLES = TOTALVARIABLES + 1
                                 REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                                 VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(caseBkpNextVar$, "(")) + TRIM$(STR$(i)) + ")"
-                                VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                                IF MainModule THEN
+                                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                ELSE
+                                    VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                                END IF
                                 VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
                             NEXT i
                         END IF
@@ -1966,11 +1997,15 @@ SUB PROCESSFILE
                         TOTALVARIABLES = TOTALVARIABLES + 1
                         REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                         VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1)
-                        VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                        IF MainModule THEN
+                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                        ELSE
+                            VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                        END IF
                         VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
                     END IF
 
-                    IF LocalVariable THEN
+                    IF LocalVariable AND MainModule THEN
                         TotalLocalVariables = TotalLocalVariables + 1
                         REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
                         LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
@@ -1978,7 +2013,12 @@ SUB PROCESSFILE
                     END IF
 
                     IF VERBOSE THEN
-                        PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
+                        PRINT TOTALVARIABLES;
+                        IF MainModule THEN
+                            PRINT IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED");
+                        ELSE
+                            PRINT CurrentSubFunc$;
+                        END IF
                         PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
                         PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
                         _DELAY .05
@@ -1997,11 +2037,15 @@ SUB PROCESSFILE
                                         TOTALVARIABLES = TOTALVARIABLES + 1
                                         REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                                         VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, "(")) + TRIM$(STR$(ItemsinArray)) + ")." + TRIM$(UDT(i).ELEMENT)
-                                        VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                                        IF MainModule THEN
+                                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                        ELSE
+                                            VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                                        END IF
                                         VARIABLES(TOTALVARIABLES).UDT = UDT(i).UDT
                                         VARIABLES(TOTALVARIABLES).DATATYPE = TRIM$(UDT(i).DATATYPE)
 
-                                        IF LocalVariable THEN
+                                        IF LocalVariable AND MainModule THEN
                                             TotalLocalVariables = TotalLocalVariables + 1
                                             REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
                                             LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
@@ -2009,7 +2053,12 @@ SUB PROCESSFILE
                                         END IF
 
                                         IF VERBOSE THEN
-                                            PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
+                                            PRINT TOTALVARIABLES;
+                                            IF MainModule THEN
+                                                PRINT IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED");
+                                            ELSE
+                                                PRINT CurrentSubFunc$;
+                                            END IF
                                             PRINT UDT(i).DATATYPE;
                                             PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
                                             _DELAY .05
@@ -2025,11 +2074,15 @@ SUB PROCESSFILE
                                 TOTALVARIABLES = TOTALVARIABLES + 1
                                 REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                                 VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1) + "." + TRIM$(UDT(i).ELEMENT)
-                                VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "LOCAL", "SHARED")
+                                IF MainModule THEN
+                                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                ELSE
+                                    VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                                END IF
                                 VARIABLES(TOTALVARIABLES).UDT = UDT(i).UDT
                                 VARIABLES(TOTALVARIABLES).DATATYPE = TRIM$(UDT(i).DATATYPE)
 
-                                IF LocalVariable THEN
+                                IF LocalVariable AND MainModule THEN
                                     TotalLocalVariables = TotalLocalVariables + 1
                                     REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
                                     LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
@@ -2037,7 +2090,12 @@ SUB PROCESSFILE
                                 END IF
 
                                 IF VERBOSE THEN
-                                    PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
+                                    PRINT TOTALVARIABLES;
+                                    IF MainModule THEN
+                                        PRINT IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED");
+                                    ELSE
+                                        PRINT CurrentSubFunc$;
+                                    END IF
                                     PRINT UDT(i).DATATYPE;
                                     PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
                                     _DELAY .05
@@ -2047,7 +2105,7 @@ SUB PROCESSFILE
                     END IF
                 END IF
             END IF
-            caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine)
+            caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, TotalSourceLines)
             IF LEN(caseBkpNextVar$) = 0 THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1
@@ -2098,14 +2156,20 @@ SUB PROCESSFILE
                 TotalNextLineData = 0
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
+                    CurrentSubFunc$ = TRIM$("SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5))
                     IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
-                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5) + Q$
+                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + TRIM$(MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)) + Q$
                 ELSE
+                    CurrentSubFunc$ = caseBkpSourceLine
                     IF VERBOSE THEN PRINT "Found: "; caseBkpSourceLine
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = SourceLine
                 IF VERBOSE THEN _DELAY .05
+                TotalSubFunc = TotalSubFunc + 1
+                REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
+                SUBFUNC(TotalSubFunc) = CurrentSubFunc$
+                REDIM _PRESERVE SUBFUNC.END(1 TO TotalSubFunc) AS LONG
             ELSE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             END IF
@@ -2120,14 +2184,20 @@ SUB PROCESSFILE
                 TotalNextLineData = 0
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
+                    CurrentSubFunc$ = TRIM$("FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10))
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
-                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10) + Q$
+                    SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + TRIM$(MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)) + Q$
                 ELSE
+                    CurrentSubFunc$ = caseBkpSourceLine
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; caseBkpSourceLine
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + caseBkpSourceLine + Q$
                 END IF
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = SourceLine
                 IF VERBOSE THEN _DELAY .05
+                TotalSubFunc = TotalSubFunc + 1
+                REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
+                SUBFUNC(TotalSubFunc) = CurrentSubFunc$
+                REDIM _PRESERVE SUBFUNC.END(1 TO TotalSubFunc) AS LONG
             ELSE
                 IF LEFT$(SourceLine, 28) <> UCASE$("FUNCTION GetModuleFileNameA ") THEN
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
@@ -2138,6 +2208,7 @@ SUB PROCESSFILE
             END IF
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCHRESET"
             IF INSTR(SourceLine, "END SUB") > 0 THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "EXIT SUB"
             ELSEIF INSTR(SourceLine, "END FUNCTION") > 0 THEN
@@ -2145,7 +2216,9 @@ SUB PROCESSFILE
             END IF
             GOSUB AddGotoNextLineCode
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+            SUBFUNC.END(TotalSubFunc) = TotalOutputLines
             InBetweenSubs = -1
+            CurrentSubFunc$ = ""
         ELSEIF INSTR(SourceLine, "EXIT SUB") OR INSTR(SourceLine, "EXIT FUNCTION") THEN
             IF LEFT$(SourceLine, 5) <> "CASE " THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "MAIN MODULE" + Q$
@@ -2273,7 +2346,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, ""
         PRINT #OutputFile, "TYPE vwatch64_VARIABLESTYPE"
         PRINT #OutputFile, "    NAME AS STRING * 256"
-        PRINT #OutputFile, "    SCOPE AS STRING * 7"
+        PRINT #OutputFile, "    SCOPE AS STRING * 50"
         PRINT #OutputFile, "    UDT AS STRING * 40"
         PRINT #OutputFile, "    DATATYPE AS STRING * 20"
         PRINT #OutputFile, "    VALUE AS STRING * 255"
@@ -2307,6 +2380,9 @@ SUB PROCESSFILE
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + TRIM$(VARIABLES(i).NAME) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + TRIM$(VARIABLES(i).SCOPE) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + TRIM$(VARIABLES(i).DATATYPE) + Q$
+                IF INSTR(VARIABLES(i).SCOPE, "MAIN MODULE") = 0 THEN
+                    PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + Q$ + "<out of scope>" + Q$
+                END IF
             END IF
         NEXT i
         PRINT #OutputFile, ""
@@ -2324,8 +2400,15 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, ""
 
-    'Dump the processed source into the output file:
+    'Dump the processed source into the output file.
+    'Add end of SUB/FUNCTION variable watch.
     FOR i = 1 TO TotalOutputLines
+        FOR j = 1 TO TotalSubFunc
+            IF SUBFUNC.END(j) = i THEN
+                CurrentSubFunc$ = TRIM$(SUBFUNC(j))
+                GOSUB AddSFVariableWatchCode
+            END IF
+        NEXT j
         PRINT #OutputFile, OutputLines(i)
     NEXT i
 
@@ -2520,7 +2603,7 @@ SUB PROCESSFILE
 
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
-            IF ASC(AddedList$, i) = 1 THEN
+            IF ASC(AddedList$, i) = 1 AND INSTR(VARIABLES(i).SCOPE, "MAIN MODULE") > 0 THEN
                 tempindex = tempindex + 1
                 IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
                     SourceLine = "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
@@ -2740,6 +2823,39 @@ SUB PROCESSFILE
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     RETURN
 
+    AddSFVariableWatchCode:
+    PRINT #OutputFile, "vwatch64_VARIABLEWATCH:"
+    tempindex.SFvar = 0
+    FOR sf.Var = 1 TO TOTALVARIABLES
+        IF ASC(AddedList$, sf.Var) = 1 THEN
+            tempindex.SFvar = tempindex.SFvar + 1
+            IF TRIM$(VARIABLES(sf.Var).SCOPE) = CurrentSubFunc$ THEN
+                IF INSTR(VARIABLES(sf.Var).DATATYPE, "STRING") THEN
+                    PRINT #OutputFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = " + TRIM$(VARIABLES(sf.Var).NAME)
+                ELSE
+                    PRINT #OutputFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = STR$(" + TRIM$(VARIABLES(sf.Var).NAME) + ")"
+                END IF
+            END IF
+        END IF
+    NEXT sf.Var
+    PRINT #OutputFile, "RETURN"
+    PRINT #OutputFile, ""
+
+    PRINT #OutputFile, "vwatch64_VARIABLEWATCHRESET:"
+    tempindex.SFvar = 0
+    FOR sf.Var = 1 TO TOTALVARIABLES
+        IF ASC(AddedList$, sf.Var) = 1 THEN
+            tempindex.SFvar = tempindex.SFvar + 1
+            IF TRIM$(VARIABLES(sf.Var).SCOPE) = CurrentSubFunc$ THEN
+                PRINT #OutputFile, "    vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = " + Q$ + "<out of scope>" + Q$
+            END IF
+        END IF
+    NEXT sf.Var
+    PRINT #OutputFile, "RETURN"
+    PRINT #OutputFile, ""
+    RETURN
+
+
     AddGotoNextLineCode:
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_SETNEXTLINE:"
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "SELECT CASE vwatch64_NEXTLINE"
@@ -2938,15 +3054,17 @@ FUNCTION IIFSTR$ (Condition, IfTrue$, IfFalse$)
 END FUNCTION
 
 '------------------------------------------------------------------------------
-FUNCTION GETNEXTVARIABLE$ (Text$)
+FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
     'Parses a line of code in which more than one variable
     'may have been defined using commas. Returns an empty
     'string if there are no more variables in the line.
 
     DIM InBrackets AS INTEGER
-    STATIC LastInput$
+    STATIC LastLine AS LONG
     STATIC Position%
     STATIC EndOfStatement AS _BIT
+
+    IF LEN(Text$) = 0 THEN EXIT FUNCTION
 
     Result$ = ""
     IF EndOfStatement THEN
@@ -2955,27 +3073,27 @@ FUNCTION GETNEXTVARIABLE$ (Text$)
         EXIT FUNCTION
     END IF
 
-    IF LastInput$ <> Text$ THEN
+    IF WhichLine <> LastLine THEN
         'First time this line is passed
         Position% = 1
-        LastInput$ = Text$
+        LastLine = WhichLine
 
-        IF UCASE$(LEFT$(LastInput$, 4)) = "DIM " THEN
+        IF UCASE$(LEFT$(Text$, 4)) = "DIM " THEN
             Position% = 4
-            IF MID$(LastInput$, 5, 7) = "SHARED " THEN Position% = 11
+            IF MID$(Text$, 5, 7) = "SHARED " THEN Position% = 11
         END IF
     END IF
 
     DO
         Position% = Position% + 1
-        IF Position% > LEN(LastInput$) THEN EXIT DO
-        Char$ = MID$(LastInput$, Position%, 1)
+        IF Position% > LEN(Text$) THEN EXIT DO
+        Char$ = MID$(Text$, Position%, 1)
         SELECT CASE Char$
             CASE "(": InBrackets = InBrackets + 1
             CASE ")": InBrackets = InBrackets - 1
             CASE ",": IF InBrackets = 0 THEN EXIT DO
             CASE ":": EndOfStatement = -1: EXIT DO
-            CASE "_": IF Position% = LEN(LastInput$) THEN EXIT DO
+            CASE "_": IF Position% = LEN(Text$) THEN EXIT DO
         END SELECT
         Result$ = Result$ + Char$
     LOOP
