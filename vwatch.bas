@@ -1803,6 +1803,11 @@ SUB PROCESSFILE
         GOSUB CheckButtons
         FOR cb = 1 TO TotalButtons
             _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
+            IF cb = 5 THEN
+                COLOR _RGB32(255, 255, 0)
+                _PRINTSTRING (Buttons(cb).X - 1, Buttons(cb).Y - 1), "<    >"
+                COLOR _RGB32(0, 0, 0)
+            END IF
         NEXT cb
         'end of drawing buttons
 
@@ -1922,7 +1927,7 @@ SUB PROCESSFILE
                 NextVar$ = UCASE$(caseBkpNextVar$)
             END IF
 
-            IF LEN(NextVar$) > 0 AND INSTR(NextVar$, " AS ") = 0 THEN
+            IF INSTR(NextVar$, " AS ") = 0 THEN
                 'Attempt to infer DATA TYPE from suffixes:
                 FoundType = SUFFIXLOOKUP$(NextVar$)
                 DefaultTypeUsed = 0
@@ -2178,6 +2183,7 @@ SUB PROCESSFILE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
                     CurrentSubFunc$ = TRIM$("SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5))
+                    GOSUB AddSFParametersAsVariables
                     IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "SUB " + TRIM$(MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)) + Q$
                 ELSE
@@ -2206,6 +2212,7 @@ SUB PROCESSFILE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF INSTR(SourceLine, "(") THEN
                     CurrentSubFunc$ = TRIM$("FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10))
+                    GOSUB AddSFParametersAsVariables
                     IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
                     SourceLine = "vwatch64_CLIENT.CURRENTMODULE = " + Q$ + "FUNCTION " + TRIM$(MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)) + Q$
                 ELSE
@@ -2890,6 +2897,72 @@ SUB PROCESSFILE
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     RETURN
 
+    AddSFParametersAsVariables:
+    DO
+        caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, -1)
+        NextVar$ = UCASE$(caseBkpNextVar$)
+        IF NextVar$ = "" THEN EXIT DO
+
+        IF INSTR(NextVar$, " AS ") = 0 THEN
+            'Attempt to infer DATA TYPE from suffixes:
+            FoundType = SUFFIXLOOKUP$(NextVar$)
+            DefaultTypeUsed = 0
+
+            IF LEN(FoundType) = 0 THEN
+                FoundType = DEFAULTDATATYPE(ASC(NextVar$, 1)) 'Assume default data type
+                DefaultTypeUsed = -1
+            END IF
+
+            IsArray = 0
+            IF INSTR(NextVar$, "(") THEN IsArray = -1
+            IF IsArray THEN
+                'Arrays as parameters are ignored, as they will have already been defined elsewhere.
+            ELSE
+                TOTALVARIABLES = TOTALVARIABLES + 1
+                REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+                VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
+                VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+            END IF
+
+            IF VERBOSE THEN
+                PRINT TOTALVARIABLES; CurrentSubFunc$;
+                PRINT VARIABLES(TOTALVARIABLES).DATATYPE,
+                PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                _DELAY .05
+            END IF
+        ELSE
+            FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
+
+            IF CHECKLIST(FoundType, KeywordList(), INTERNALKEYWORDS) THEN
+                'Variable is defined as an internal DATA TYPE.
+                IsArray = 0
+                IF INSTR(NextVar$, "(") THEN IsArray = -1
+                IF IsArray THEN
+                    'Arrays as parameters are ignored, as they will have already been defined elsewhere.
+                ELSE
+                    TOTALVARIABLES = TOTALVARIABLES + 1
+                    REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+                    VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1)
+                    VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
+                    VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+                END IF
+
+                IF VERBOSE THEN
+                    PRINT TOTALVARIABLES;
+                    PRINT CurrentSubFunc$;
+                    PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
+                    PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                    _DELAY .05
+                END IF
+            ELSE
+                'Variable is defined as a user defined type.
+                'UDTs as parameters are ignored, as they will have already been defined elsewhere.
+            END IF
+        END IF
+    LOOP
+    RETURN
+
     CheckButtons:
     'Hover highlight:
     WHILE _MOUSEINPUT: WEND
@@ -3083,6 +3156,7 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
 
     DIM InBrackets AS INTEGER
     STATIC LastLine AS LONG
+    STATIC LastSF$
     STATIC Position%
     STATIC EndOfStatement AS _BIT
 
@@ -3095,7 +3169,7 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
         EXIT FUNCTION
     END IF
 
-    IF WhichLine <> LastLine THEN
+    IF (WhichLine > 0) AND (WhichLine <> LastLine) THEN
         'First time this line is passed
         Position% = 1
         LastLine = WhichLine
@@ -3104,21 +3178,42 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
             Position% = 4
             IF MID$(Text$, 5, 7) = "SHARED " THEN Position% = 11
         END IF
+    ELSEIF (WhichLine = -1) THEN
+        'Process SUB/FUNCTION parameters instead of DIM variables
+        IF LastSF$ <> Text$ THEN
+            LastSF$ = Text$
+            Position% = INSTR(Text$, "(")
+        END IF
     END IF
 
-    DO
-        Position% = Position% + 1
-        IF Position% > LEN(Text$) THEN EXIT DO
-        Char$ = MID$(Text$, Position%, 1)
-        SELECT CASE Char$
-            CASE "(": InBrackets = InBrackets + 1
-            CASE ")": InBrackets = InBrackets - 1
-            CASE ",": IF InBrackets = 0 THEN EXIT DO
-            CASE ":": EndOfStatement = -1: EXIT DO
-            CASE "_": IF Position% = LEN(Text$) THEN EXIT DO
-        END SELECT
-        Result$ = Result$ + Char$
-    LOOP
+    IF WhichLine > 0 THEN
+        DO
+            Position% = Position% + 1
+            IF Position% > LEN(Text$) THEN EXIT DO
+            Char$ = MID$(Text$, Position%, 1)
+            SELECT CASE Char$
+                CASE "(": InBrackets = InBrackets + 1
+                CASE ")": InBrackets = InBrackets - 1
+                CASE ",": IF InBrackets = 0 THEN EXIT DO
+                CASE ":": EndOfStatement = -1: EXIT DO
+                CASE "_": IF Position% = LEN(Text$) THEN EXIT DO
+            END SELECT
+            Result$ = Result$ + Char$
+        LOOP
+    ELSEIF WhichLine = -1 THEN
+        DO
+            Position% = Position% + 1
+            IF Position% > LEN(Text$) THEN EXIT DO
+            Char$ = MID$(Text$, Position%, 1)
+            SELECT CASE Char$
+                CASE "(": InBrackets = InBrackets + 1
+                CASE ")": InBrackets = InBrackets - 1: IF InBrackets = -1 THEN EXIT DO
+                CASE ",": EXIT DO
+                CASE ":": EndOfStatement = -1: EXIT DO
+            END SELECT
+            Result$ = Result$ + Char$
+        LOOP
+    END IF
 
     GETNEXTVARIABLE$ = TRIM$(Result$)
 END FUNCTION
