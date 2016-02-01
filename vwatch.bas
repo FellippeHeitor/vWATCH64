@@ -305,12 +305,8 @@ SUB SOURCE_VIEW
         GOSUB ProcessInput
         GET #FILE, CLIENTBLOCK, CLIENT
         FIND_CURRENTMODULE
-        IF CLIENT.LINENUMBER <> prev_LineNumber AND ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
-            STEPMODE = -1
-            TRACE = -1
-            prev_LineNumber = CLIENT.LINENUMBER
-        END IF
         PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+        IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
         GOSUB UpdateList
         IF _EXIT THEN USERQUIT = -1
         SEND_PING
@@ -664,6 +660,7 @@ SUB SOURCE_VIEW
         TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     ELSE
         TopLine$ = "Set next line (must be inside " + TRIM$(CLIENT_CURRENTMODULE) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+        LINE (0, (_FONTHEIGHT * 2 + 3))-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(255, 255, 0), BF
     END IF
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
@@ -1851,6 +1848,20 @@ SUB PROCESSFILE
             caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generate a version without comments or extra spaces
             SourceLine = UCASE$(caseBkpSourceLine) 'Generate an all upper case version
 
+            'Detect '$DYNAMIC OR REM $DYNAMIC and activate SKIPARRAYS (only static arrays are watchable)
+            temp.Sourceline$ = UCASE$(TRIM$(bkpSourceLine$))
+            IF LEFT$(temp.Sourceline$, 1) = "'" THEN
+                temp.Sourceline$ = TRIM$(RIGHT$(temp.Sourceline$, LEN(temp.Sourceline$) - 1))
+                IF LEFT$(temp.Sourceline$, 8) = "$DYNAMIC" THEN
+                    SKIPARRAYS = -1
+                END IF
+            ELSEIF LEFT$(temp.Sourceline$, 4) = "REM " THEN
+                temp.Sourceline$ = TRIM$(RIGHT$(temp.Sourceline$, LEN(temp.Sourceline$) - 4))
+                IF LEFT$(temp.Sourceline$, 8) = "$DYNAMIC" THEN
+                    SKIPARRAYS = -1
+                END IF
+            END IF
+
             'BREAKPOINTS: Handle exceptions - cases in which a call to vwatch64_CHECKBREAKPOINT is
             'not necessary (comments, CONST, etc...) or not allowed (CASE, TYPE, etc...):
             IF DefiningType = 0 AND InBetweenSubs = 0 AND DeclaringLibrary = 0 THEN
@@ -2629,6 +2640,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    STATIC FirstRunDone AS _BIT"
     PRINT #OutputFile, "    STATIC StepMode AS _BIT"
     PRINT #OutputFile, "    STATIC RunCount AS INTEGER"
+    PRINT #OutputFile, "    DIM k AS LONG"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
     PRINT #OutputFile, "        IF vwatch64_LOGOPEN = 0 THEN"
@@ -2697,6 +2709,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
+    PRINT #OutputFile, "            k = _KEYHIT"
+    PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
@@ -2718,6 +2732,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
+    PRINT #OutputFile, "            k = _KEYHIT"
+    PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
@@ -4182,7 +4198,7 @@ SUB FIND_CURRENTMODULE
             ncthisline$ = UCASE$(thisline$)
             IF LEFT$(ncthisline$, 4) = "SUB " THEN isSF = 1
             IF LEFT$(ncthisline$, 9) = "FUNCTION " THEN isSF = 2
-            IF isSF THEN
+            IF isSF > 0 THEN
                 IF RIGHT$(ncthisline$, 7) = " STATIC" THEN
                     thisline$ = RTRIM$(LEFT$(thisline$, LEN(thisline$) - 7))
                 END IF
@@ -4209,6 +4225,7 @@ SUB FIND_CURRENTMODULE
                 IF InsideDECLARE = -1 THEN
                     sfname$ = "MAIN MODULE"
                 END IF
+                EXIT FOR
             END IF
         NEXT
     END IF
