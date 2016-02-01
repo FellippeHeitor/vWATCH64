@@ -1911,7 +1911,7 @@ SUB PROCESSFILE
 
         IF MULTILINE THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE = 0
 
-        IF LEFT$(SourceLine, 4) = "DIM " THEN
+        IF LEFT$(SourceLine, 4) = "DIM " OR (LEFT$(SourceLine, 7) = "STATIC " AND NOT MainModule) THEN
             LocalVariable = 0
             IF MID$(SourceLine, 5, 7) <> "SHARED " THEN LocalVariable = -1
 
@@ -3144,6 +3144,8 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
         IF UCASE$(LEFT$(Text$, 4)) = "DIM " THEN
             Position% = 4
             IF MID$(Text$, 5, 7) = "SHARED " THEN Position% = 11
+        ELSEIF UCASE$(LEFT$(Text$, 7)) = "STATIC " THEN
+            Position% = 7
         END IF
     ELSEIF (WhichLine = -1) THEN
         'Process SUB/FUNCTION parameters instead of DIM variables
