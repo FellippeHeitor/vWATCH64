@@ -140,7 +140,6 @@ DIM SHARED HEADER AS HEADERTYPE
 DIM SHARED DONTCOMPILE AS _BIT
 DIM SHARED FIRSTPROCESSING AS _BIT
 DIM SHARED INTERACTIVE AS _BIT
-DIM SHARED MULTILINE AS _BIT
 DIM SHARED NO_TTFONT AS _BIT
 DIM SHARED STEPMODE AS _BIT
 DIM SHARED SKIPARRAYS AS _BIT
@@ -232,9 +231,11 @@ IF SCREEN_WIDTH < DEFAULT_WIDTH OR SCREEN_HEIGHT < DEFAULT_HEIGHT THEN CHECK_RES
 _RESIZE OFF
 CLS , _RGB32(255, 255, 255)
 _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(ID) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), ID
+t$ = "Fetching file list..."
+_PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - (_FONTHEIGHT / 2) + _FONTHEIGHT), t$
+_DISPLAY
 FILENAME$ = SelectFile$("*.BAS;*.*", _WIDTH(MAINSCREEN) / 2 - 320, _HEIGHT(MAINSCREEN) / 2 - 240)
 _RESIZE ON
-_AUTODISPLAY
 
 'Reset flags:
 FOR i = 65 TO 90
@@ -319,7 +320,6 @@ SUB SOURCE_VIEW
     LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT OR CLOSE_SESSION
 
     EndMessage:
-    _AUTODISPLAY
     IF USERQUIT THEN EXIT SUB
 
     IF CLOSE_SESSION THEN
@@ -1276,7 +1276,6 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
         END IF
     LOOP UNTIL LEAVE_INTERACTIVE_MODE
 
-    _AUTODISPLAY
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
 
     EXIT SUB
@@ -1330,7 +1329,6 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
                 Filter$ = ""
             ELSE
                 AddedList$ = CHR$(3)
-                _AUTODISPLAY
                 COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
                 EXIT SUB
             END IF
@@ -1665,6 +1663,8 @@ SUB PROCESSFILE
     DIM DefaultTypeUsed AS _BIT
     DIM CHECKSUM AS STRING * 8
     DIM TotalNextLineData AS LONG
+    DIM MULTILINE_DIM AS _BIT
+    DIM MULTILINE AS _BIT
     REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM LOCALSHAREDADDED(1) AS STRING
@@ -1741,7 +1741,7 @@ SUB PROCESSFILE
 
     DIALOGRESULT = 0
     DO
-        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(200, 200, 200), BF
+        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(170, 170, 170), BF
         DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -1832,6 +1832,7 @@ SUB PROCESSFILE
     IF VERBOSE THEN PRINT
     row = CSRLIN: col = POS(1)
     TotalSourceLines = 0
+    MULTILINE_DIM = 0
     MULTILINE = 0
     DO
         k$ = INKEY$
@@ -1881,16 +1882,16 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
                 ELSE
-                    IF MainModule = 0 AND PrecompilerBlock = 0 AND CheckingOff = 0 THEN
+                    IF MainModule = 0 AND PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCH"
                     END IF
-                    IF PrecompilerBlock = 0 AND CheckingOff = 0 THEN
+                    IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ": vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
                         GOSUB AddNextLineData
                     END IF
                 END IF
             END IF
-
+            IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1 ELSE MULTILINE = 0
             IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (SEEK(InputFile) / LOF(InputFile)) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
         ELSE
             NextVar$ = UCASE$(caseBkpNextVar$)
@@ -1915,7 +1916,7 @@ SUB PROCESSFILE
             END IF
         END IF
 
-        IF MULTILINE THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE = 0
+        IF MULTILINE_DIM THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE_DIM = 0
 
         IF LEFT$(SourceLine, 4) = "DIM " OR (LEFT$(SourceLine, 7) = "STATIC " AND NOT MainModule) THEN
             LocalVariable = 0
@@ -2117,7 +2118,7 @@ SUB PROCESSFILE
             caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, TotalSourceLines)
             IF LEN(caseBkpNextVar$) = 0 THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-                IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1
+                IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE_DIM = -1
             END IF
         ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
             IF INSTR(SourceLine, " LIBRARY") THEN DeclaringLibrary = -1
@@ -2906,13 +2907,6 @@ SUB PROCESSFILE
                 VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                 VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
             END IF
-
-            IF VERBOSE THEN
-                PRINT TOTALVARIABLES; CurrentSubFunc$;
-                PRINT VARIABLES(TOTALVARIABLES).DATATYPE,
-                PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                _DELAY .05
-            END IF
         ELSE
             FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
 
@@ -2928,14 +2922,6 @@ SUB PROCESSFILE
                     VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1)
                     VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                     VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
-                END IF
-
-                IF VERBOSE THEN
-                    PRINT TOTALVARIABLES;
-                    PRINT CurrentSubFunc$;
-                    PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
-                    PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                    _DELAY .05
                 END IF
             ELSE
                 'Variable is defined as a user defined type.
@@ -3251,7 +3237,6 @@ SUB SETUP_CONNECTION
         SYSTEM
     END IF
 
-    _AUTODISPLAY
     CLS , _RGB32(255, 255, 255)
     'Connected! Check if client is compatible:
     IF HEADER.CLIENT_ID <> ID OR HEADER.VERSION <> VERSION THEN
@@ -3260,6 +3245,7 @@ SUB SETUP_CONNECTION
         PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.CLIENT_ID + CHR$(34)
         PRINT "Reported version: "; HEADER.VERSION
         PRINT "Press any key to go back..."
+        _DISPLAY
         SLEEP
         GOTO StartSetup
     END IF
