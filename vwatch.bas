@@ -26,10 +26,17 @@ CONST VERSION = ".953b"
 
 CONST TIMEOUTLIMIT = 3 'SECONDS
 
+'Messagebox type
+CONST OK_ONLY = 0
+CONST YN_QUESTION = 1
+CONST MB_YES = 6
+CONST MB_NO = 7
+
 'Breakpoint control:
 CONST CONTINUE = 1
 CONST NEXTSTEP = 2
 CONST READY = 3
+CONST SETNEXT = 7
 
 'Filters:
 CONST VARIABLENAMES = 1
@@ -38,7 +45,7 @@ CONST SCOPE = 3
 CONST DATATYPES = 4
 CONST CODE = 5
 CONST LINENUMBERS = 6
-CONST SETNEXT = 7
+'CONST SETNEXT = 7
 
 'Screen:
 CONST DEFAULT_WIDTH = 1000
@@ -110,6 +117,7 @@ DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
 DIM SHARED MAINSCREEN AS LONG
 DIM SHARED MENU%
+DIM SHARED MESSAGEBOX_RESULT AS INTEGER
 DIM SHARED NEWFILENAME$
 DIM SHARED SB_TRACK AS INTEGER
 DIM SHARED SCREEN_WIDTH AS INTEGER
@@ -217,10 +225,10 @@ $END IF
 
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP 0
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     ELSEIF _COMMANDCOUNT > 1 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP 0
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     END IF
 END IF
@@ -339,7 +347,7 @@ SUB SOURCE_VIEW
     END IF
 
     IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
-        MESSAGEBOX EndMessage$, -1
+        MESSAGEBOX_RESULT = MESSAGEBOX(EndMessage$, OK_ONLY, 1, -1)
     END IF
     EXIT SUB
 
@@ -438,15 +446,15 @@ SUB SOURCE_VIEW
                         ELSEIF CanGo = 1 OR CanGo = 2 THEN
                             Message$ = "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$)
                             Message$ = Message$ + CHR$(LF) + "(you can only set the next statement within the same scope)."
-                            MESSAGEBOX Message$, -1
+                            MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
                         ELSE
                             Message$ = "The specified source line can't be set as the next statement"
-                            Message$ = Message$ + CHR$(LF) + "(usually a nonexecutable statement)."
-                            MESSAGEBOX Message$, -1
+                            Message$ = Message$ + CHR$(LF) + "(likely to be a nonexecutable statement)"
+                            MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
                         END IF
                     ELSE
                         Message$ = "Invalid line number."
-                        MESSAGEBOX Message$, -1
+                        MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
                     END IF
                 END IF
             END IF
@@ -482,7 +490,7 @@ SUB SOURCE_VIEW
             ELSE
                 Message$ = "There are no watchable variables (defined with DIM) in your program,"
                 Message$ = Message$ + CHR$(LF) + "or you didn't select any variables when processing your source file."
-                MESSAGEBOX Message$, -1
+                MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
@@ -588,6 +596,7 @@ SUB SOURCE_VIEW
         DO
             i = i + 1
             IF i > CLIENT.TOTALSOURCELINES THEN EXIT DO
+            Found = 0
             IF SearchIn = CODE THEN Found = MULTI_SEARCH(UCASE$(GETLINE$(i)), UCASE$(Filter$))
             IF SearchIn = LINENUMBERS THEN Found = INTERVAL_SEARCH(Filter$, i)
             IF Found THEN
@@ -628,7 +637,7 @@ SUB SOURCE_VIEW
                 COLOR _RGB32(0, 0, 0)
             END IF
         NEXT ii
-    ELSE
+    ELSEIF LEN(Filter$) = 0 THEN
         ListStart = ((y \ _FONTHEIGHT) + 1)
         ListEnd = CLIENT.TOTALSOURCELINES
         FOR i = ListStart TO ListEnd
@@ -663,7 +672,7 @@ SUB SOURCE_VIEW
     TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + TRIM$(CLIENT_CURRENTMODULE) + ")"
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
     IF SearchIn = CODE OR SearchIn = LINENUMBERS THEN
-        TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "code", "line") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+        TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "source code", "line numbers") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     ELSE
         TopLine$ = "Set next line (must be inside " + TRIM$(CLIENT_CURRENTMODULE) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
         LINE (0, (_FONTHEIGHT * 2 + 3))-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(255, 255, 0), BF
@@ -769,8 +778,16 @@ SUB SOURCE_VIEW
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb = 0
-
-        IF LEN(STRIPCOMMENTS$(SourceLine)) = 0 THEN
+        temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+        IF LEN(temp.SourceLine$) = 0 THEN
+        ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
+        ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
+        ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
+        ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
+        ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
+        ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
+        ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
         ELSEIF STEPMODE = 0 THEN
             GOTO StepButton_Click
         ELSE
@@ -817,7 +834,7 @@ SUB SOURCE_VIEW
                     CASE 6: GOSUB ClearButton_Click
                     CASE 7: GOSUB ExitButton_Click
                     CASE 8: Filter$ = "": SearchIn = SETNEXT
-                    CASE ELSE: SYSTEM_BEEP
+                    CASE ELSE: SYSTEM_BEEP 0
                 END SELECT
             END IF
         NEXT cb
@@ -1225,7 +1242,7 @@ SUB VARIABLE_VIEW
                     CASE 5: GOSUB ClearButton_CLICK
                     CASE 6: GOSUB ExitButton_Click
                     CASE 7: VARIABLE_HIGHLIGHT = NOT VARIABLE_HIGHLIGHT
-                    CASE ELSE: SYSTEM_BEEP
+                    CASE ELSE: SYSTEM_BEEP 0
                 END SELECT
             END IF
         NEXT cb
@@ -1619,7 +1636,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
                     CASE 2: GOSUB ClearButton_Click
                     CASE 3: GOSUB SaveButton_Click
                     CASE 4: GOSUB CancelButton_Click
-                    CASE ELSE: SYSTEM_BEEP
+                    CASE ELSE: SYSTEM_BEEP 0
                 END SELECT
             END IF
         NEXT cb
@@ -1741,7 +1758,7 @@ SUB PROCESSFILE
 
     DIALOGRESULT = 0
     DO
-        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(170, 170, 170), BF
+        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(200, 200, 200), BF
         DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
@@ -1837,7 +1854,7 @@ SUB PROCESSFILE
     DO
         k$ = INKEY$
         IF k$ = CHR$(27) THEN
-            SYSTEM_BEEP
+            SYSTEM_BEEP 0
             PRINT
             PRINT
             COLOR _RGB32(255, 0, 0)
@@ -2684,7 +2701,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            EXIT SUB"
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    ELSE"
-    PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
+    PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CLIENT.LINENUMBER = LineNumber"
@@ -2697,8 +2714,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Indicate to the host we're ready to go and get the breakpoint list:"
     PRINT #OutputFile, "    vwatch64_HEADER.CLIENT_PING = -1"
-    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "    vwatch64_BREAKPOINT.ACTION = vwatch64_READY"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTLISTBLOCK, vwatch64_BREAKPOINTLIST"
     PRINT #OutputFile, ""
@@ -2712,7 +2729,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        'It is safe to change the client's title at this point because"
     PRINT #OutputFile, "        'it's the first line to be run so no _TITLE has yet been set."
     PRINT #OutputFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
-    PRINT #OutputFile, "        FirstRunDone = -1"
     PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
     PRINT #OutputFile, "        DO: _LIMIT 500"
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
@@ -2723,6 +2739,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "                FirstRunDone = -1"
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            k = _KEYHIT"
@@ -2732,7 +2749,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$
-    PRINT #OutputFile, "        EXIT SUB"
+    PRINT #OutputFile, "        FirstRunDone = -1"
+    PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF (ASC(vwatch64_BREAKPOINTLIST, LineNumber) = 1) OR (StepMode = -1) THEN"
@@ -2756,17 +2774,23 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "    EXIT SUB"
+    PRINT #OutputFile, "    EXIT FUNCTION"
     PRINT #OutputFile, "    vwatch64_PING:"
     PRINT #OutputFile, "    'Check if connection is still alive on host's end"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN CLOSE vwatch64_CLIENTFILE: VWATCH64_STARTTIMERS: EXIT SUB"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
+    PRINT #OutputFile, "        CLOSE vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "        IF FirstRunDone = 0 THEN FirstRunDone = -1: _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
+    PRINT #OutputFile, "        EXIT FUNCTION"
+    PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
     PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
     PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
     PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "            IF FirstRunDone = 0 THEN FirstRunDone = -1: _TITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "            VWATCH64_STARTTIMERS"
-    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "            EXIT FUNCTION"
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    ELSE"
     PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
@@ -2956,7 +2980,7 @@ SUB PROCESSFILE
                         CASE 4: VERBOSE = NOT VERBOSE: RETURN
                         CASE 5: DIALOGRESULT = 1: RETURN
                         CASE 6: DIALOGRESULT = 2: RETURN
-                        CASE ELSE: SYSTEM_BEEP 'in case a button was added but not yet assigned
+                        CASE ELSE: SYSTEM_BEEP 0 'in case a button was added but not yet assigned
                     END SELECT
                     RETURN
                 END IF
@@ -3202,6 +3226,19 @@ SUB SETUP_CONNECTION
     StartSetup:
     COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
 
+    'Initialize variables:
+    HEADER.CONNECTED = 0
+    HEADER.CLIENT_ID = ""
+    HEADER.VERSION = ""
+    HEADER.RESPONSE = 0
+
+    CLIENT.NAME = ""
+    CLIENT.CHECKSUM = ""
+    CLIENT.TOTALSOURCELINES = 0
+    CLIENT.EXENAME = ""
+    CLIENT.LINENUMBER = 0
+    CLIENT.TOTALVARIABLES = 0
+
     CLOSE #FILE
     FILE = FREEFILE
     ON ERROR GOTO FileError
@@ -3240,7 +3277,7 @@ SUB SETUP_CONNECTION
     CLS , _RGB32(255, 255, 255)
     'Connected! Check if client is compatible:
     IF HEADER.CLIENT_ID <> ID OR HEADER.VERSION <> VERSION THEN
-        SYSTEM_BEEP
+        SYSTEM_BEEP 0
         PRINT "Client not compatible."
         PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.CLIENT_ID + CHR$(34)
         PRINT "Reported version: "; HEADER.VERSION
@@ -3268,7 +3305,7 @@ SUB SETUP_CONNECTION
     LOOP UNTIL LEN(TRIM$(CLIENT.CHECKSUM)) > 0
 
     'No CHECKSUM received = connection closed.
-    IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN SYSTEM_BEEP: GOTO StartSetup
+    IF LEN(TRIM$(CLIENT.CHECKSUM)) = 0 THEN SYSTEM_BEEP 0: GOTO StartSetup
 
     REDIM VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
     REDIM VARIABLE_DATA(1 TO CLIENT.TOTALVARIABLES) AS VARIABLEVALUETYPE
@@ -3289,6 +3326,17 @@ SUB SETUP_CONNECTION
 
         IF CLIENT.CHECKSUM <> ADLER32(SOURCEFILE) THEN
             SOURCEFILE = ""
+            Message$ = ""
+            Message$ = Message$ + "The original source file was changed since" + CHR$(LF)
+            Message$ = Message$ + "it was processed with vWATCH64. Source view" + CHR$(LF)
+            Message$ = Message$ + "will be empty (you can still watch variables)." + CHR$(LF)
+            Message$ = Message$ + "Continue?"
+            IF MESSAGEBOX(Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+                HEADER.CONNECTED = 0
+                PUT #FILE, HEADERBLOCK, HEADER
+                '_DELAY 1
+                GOTO StartSetup
+            END IF
         ELSE
             IF INSTR(SOURCEFILE, CHR$(13)) THEN LF = 13 ELSE LF = 10
             REDIM LINE_STARTS(1 TO CLIENT.TOTALSOURCELINES) AS LONG
@@ -3307,6 +3355,16 @@ SUB SETUP_CONNECTION
         CLOSE SOURCEFILENUM%
     ELSE
         SOURCEFILE = ""
+        Message$ = ""
+        Message$ = Message$ + "The original source file could not be found." + CHR$(LF)
+        Message$ = Message$ + "Source view will be empty (you can still watch" + CHR$(LF)
+        Message$ = Message$ + "variables). Continue?"
+        IF MESSAGEBOX(Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+            HEADER.CONNECTED = 0
+            PUT #FILE, HEADERBLOCK, HEADER
+            '_DELAY 1
+            GOTO StartSetup
+        END IF
     END IF
 
     TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
@@ -3383,7 +3441,7 @@ SUB SETUP_CONNECTION
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
                 IF INSTR(Buttons(cb).CAPTION, "ESC=") THEN MENU% = 102: RETURN
-                SYSTEM_BEEP 'in case a button was added but not yet assigned
+                SYSTEM_BEEP 0 'in case a button was added but not yet assigned
                 RETURN
             END IF
         NEXT cb
@@ -3782,7 +3840,7 @@ SUB RESTORE_LIBRARY
     FILEERRORRAISED = 0
     ON ERROR GOTO FileError
     OPEN "timers.h" FOR OUTPUT AS #LibOutput
-    IF FILEERRORRAISED THEN SYSTEM_BEEP: PRINT "Cannot write timers.h to "; _CWD$: SLEEP: SYSTEM
+    IF FILEERRORRAISED THEN SYSTEM_BEEP 0: PRINT "Cannot write timers.h to "; _CWD$: SLEEP: SYSTEM
 
     SourceLine$ = "extern int32 ontimerthread_lock;" + LF$: PRINT #LibOutput, SourceLine$;
     SourceLine$ = "void stop_timers() {" + LF$: PRINT #LibOutput, SourceLine$;
@@ -3827,6 +3885,7 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
     DIM LineLength AS LONG
     DIM SourceLine AS STRING
 
+    IF LEN(SOURCEFILE) = 0 THEN EXIT FUNCTION
     IF TargetLine = 0 THEN EXIT FUNCTION
     IF TargetLine > CLIENT.TOTALSOURCELINES THEN EXIT FUNCTION
 
@@ -4081,16 +4140,21 @@ SUB SET_DEF (Range$, DataType$)
 END SUB
 
 '------------------------------------------------------------------------------
-SUB SYSTEM_BEEP
+SUB SYSTEM_BEEP (MessageType AS INTEGER)
     $IF WIN THEN
-        x = PlaySound("SystemDefault" + CHR$(0), 0, 65536 + 1)
+        DIM SoundID AS STRING
+        SELECT CASE MessageType
+            CASE OK_ONLY: SoundID = "SystemDefault"
+            CASE YN_QUESTION: SoundID = "SystemExclamation"
+        END SELECT
+        x = PlaySound(SoundID + CHR$(0), 0, 65536 + 1)
     $ELSE
         BEEP
     $END IF
 END SUB
 
 '------------------------------------------------------------------------------
-SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
+FUNCTION MESSAGEBOX (tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, SendPing AS _BYTE)
     Message$ = tMessage$
     CharW = _PRINTWIDTH("_")
     REDIM MessageLines(1) AS STRING
@@ -4124,12 +4188,37 @@ SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
     DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
 
-    TotalButtons = 1
-    DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    SELECT CASE MessageType
+        CASE OK_ONLY
+            TotalButtons = 1
+            DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+            b = 1
+            Buttons(b).ID = 1
+            Buttons(b).CAPTION = "< OK >"
+            Buttons(b).Y = DialogY + 5 + _FONTHEIGHT * (4 + totalLines)
+            Buttons(b).X = _WIDTH / 2 - _PRINTWIDTH(TRIM$(Buttons(b).CAPTION)) / 2
+            Buttons(b).W = _PRINTWIDTH(TRIM$(Buttons(b).CAPTION))
+        CASE YN_QUESTION
+            TotalButtons = 2
+            DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+            b = 1
+            Buttons(b).ID = 1: Buttons(b).CAPTION = "< Yes >": b = b + 1
+            Buttons(b).ID = 2: Buttons(b).CAPTION = "< No  >": b = b + 1
+            ButtonLine$ = " "
+            FOR cb = 1 TO TotalButtons
+                ButtonLine$ = ButtonLine$ + TRIM$(Buttons(cb).CAPTION) + " "
+                Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (4 + totalLines)
+                Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
+            NEXT cb
+            Buttons(1).X = _WIDTH / 2 - _PRINTWIDTH(ButtonLine$) / 2
+            FOR cb = 2 TO TotalButtons
+                Buttons(cb).X = Buttons(1).X + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION))))
+            NEXT cb
+    END SELECT
 
+    SYSTEM_BEEP MessageType
     DIALOGRESULT = 0
     _KEYCLEAR
-    SYSTEM_BEEP
     DO
         LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(255, 255, 255), BF
         DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
@@ -4140,28 +4229,44 @@ SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
         NEXT i
 
         'Draw buttons
-        b = 1
-        Buttons(b).ID = 1
-        Buttons(b).CAPTION = "< OK >"
-        Buttons(b).Y = DialogY + 5 + _FONTHEIGHT * (4 + totalLines)
-        Buttons(b).X = _WIDTH / 2 - _PRINTWIDTH(TRIM$(Buttons(b).CAPTION)) / 2
-        Buttons(b).W = _PRINTWIDTH(TRIM$(Buttons(b).CAPTION))
-
         GOSUB CheckButtons
         FOR cb = 1 TO TotalButtons
             _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
+            IF cb = DefaultButton THEN
+                COLOR _RGB32(255, 255, 0)
+                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), "<" + SPACE$(LEN(TRIM$(Buttons(cb).CAPTION)) - 2) + ">"
+                COLOR _RGB32(0, 178, 179)
+                _PRINTSTRING (Buttons(cb).X - 1, Buttons(cb).Y - 1), "<" + SPACE$(LEN(TRIM$(Buttons(cb).CAPTION)) - 2) + ">"
+                COLOR _RGB32(0, 0, 0)
+            END IF
         NEXT cb
         'end of drawing buttons
 
         _DISPLAY
-        k$ = INKEY$
-        IF k$ = CHR$(13) THEN DIALOGRESULT = 1
-        IF k$ = CHR$(27) THEN DIALOGRESULT = 2
+        modKey = _KEYHIT: k = modKey
+        IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+        IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+        IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+        IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
+
+        SELECT CASE MessageType
+            CASE OK_ONLY
+                IF k = 13 THEN DIALOGRESULT = 1
+                IF k = 27 THEN DIALOGRESULT = 2
+            CASE YN_QUESTION
+                IF k = 13 THEN DIALOGRESULT = DefaultButton + 5
+                IF k = 27 THEN DIALOGRESULT = MB_NO
+                IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
+                IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                IF k = 25 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                IF k = 89 OR k = 121 THEN DIALOGRESULT = MB_YES
+                IF k = 78 OR k = 110 THEN DIALOGRESULT = MB_NO
+        END SELECT
         IF _EXIT THEN USERQUIT = -1: EXIT DO
         IF SendPing THEN SEND_PING
     LOOP UNTIL DIALOGRESULT > 0
     _KEYCLEAR
-
+    MESSAGEBOX = DIALOGRESULT
     EXIT SUB
     CheckButtons:
     'Hover highlight:
@@ -4181,9 +4286,9 @@ SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
                     WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
                     mb = 0: mx = _MOUSEX: my = _MOUSEY
-                    SELECT CASE cb
-                        CASE 1: DIALOGRESULT = 1
-                        CASE ELSE: SYSTEM_BEEP 'in case a button was added but not yet assigned
+                    SELECT CASE MessageType
+                        CASE OK_ONLY: DIALOGRESULT = cb
+                        CASE YN_QUESTION: DIALOGRESULT = cb + 5
                     END SELECT
                     RETURN
                 END IF
@@ -4191,7 +4296,7 @@ SUB MESSAGEBOX (tMessage$, SendPing AS _BYTE)
         NEXT cb
     END IF
     RETURN
-END SUB
+END FUNCTION
 
 '------------------------------------------------------------------------------
 SUB FIND_CURRENTMODULE
