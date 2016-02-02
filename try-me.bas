@@ -26,7 +26,8 @@ DO: _LIMIT 60
         i = _CEIL(RND * 100000)
         k$ = INKEY$
         fe(temp) = a
-        temp = temp + 1: IF temp > UBOUND(fe) THEN temp = 0
+        temp = temp + 1: IF temp > UBOUND(fe) THEN temp = 0: _
+            used$6 = "RESET!"
         IF k$ = CHR$(27) THEN EXIT DO
     NEXT j
     $CHECKING:OFF
