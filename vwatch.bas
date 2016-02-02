@@ -293,6 +293,7 @@ SUB SOURCE_VIEW
     DIM SourceLine AS STRING
     DIM ListEnd_Label AS STRING
     STATIC SearchIn
+    STATIC PrevSearchIn, PrevFilter$
 
     TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -373,7 +374,12 @@ SUB SOURCE_VIEW
                 CASE CODE
                     Filter$ = Filter$ + CHR$(k)
                 CASE LINENUMBERS
-                    IF (k >= 48 AND k <= 57) OR (k = 45) OR (k = 44) THEN Filter$ = Filter$ + CHR$(k)
+                    IF (k >= 48 AND k <= 57) OR (k = 45) OR (k = 44) THEN
+                        Filter$ = Filter$ + CHR$(k)
+                    ELSE
+                        Filter$ = Filter$ + CHR$(k)
+                        SearchIn = CODE
+                    END IF
                 CASE SETNEXT
                     IF (k >= 48 AND k <= 57) THEN Filter$ = Filter$ + CHR$(k)
             END SELECT
@@ -393,7 +399,8 @@ SUB SOURCE_VIEW
         CASE 13 'ENTER confirms SET NEXT LINE, after proper evaluation of Filter$
             IF SearchIn = SETNEXT THEN
                 IF LEN(Filter$) = 0 THEN
-                    SearchIn = CODE
+                    SearchIn = PrevSearchIn
+                    Filter$ = PrevFilter$
                 ELSEIF LEN(Filter$) > 0 AND VAL(Filter$) > 0 THEN
                     DesiredLine = VAL(Filter$)
                     IF DesiredLine <= CLIENT.TOTALSOURCELINES THEN
@@ -441,15 +448,17 @@ SUB SOURCE_VIEW
                             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
                             BREAKPOINT.ACTION = 0
                             BREAKPOINT.LINENUMBER = 0
-                            SearchIn = CODE
-                            Filter$ = ""
+                            SearchIn = PrevSearchIn
+                            Filter$ = PrevFilter$
                         ELSEIF CanGo = 1 OR CanGo = 2 THEN
-                            Message$ = "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$)
-                            Message$ = Message$ + CHR$(LF) + "(you can only set the next statement within the same scope)."
+                            Message$ = ""
+                            Message$ = Message$ + "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$) + CHR$(LF)
+                            Message$ = Message$ + "(you can only set the next statement within the same scope)."
                             MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
                         ELSE
-                            Message$ = "The specified source line can't be set as the next statement"
-                            Message$ = Message$ + CHR$(LF) + "(likely to be a nonexecutable statement)"
+                            Message$ = ""
+                            Message$ = Message$ + "The specified source line can't be set as the next statement" + CHR$(LF)
+                            Message$ = Message$ + "(likely to be a nonexecutable statement)"
                             MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
                         END IF
                     ELSE
@@ -463,8 +472,8 @@ SUB SOURCE_VIEW
             IF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
                 Filter$ = ""
             ELSEIF SearchIn = SETNEXT THEN
-                SearchIn = CODE
-                Filter$ = ""
+                SearchIn = PrevSearchIn
+                Filter$ = PrevFilter$
             ELSE
                 CLOSE_SESSION = -1
             END IF
@@ -637,7 +646,7 @@ SUB SOURCE_VIEW
                 COLOR _RGB32(0, 0, 0)
             END IF
         NEXT ii
-    ELSEIF LEN(Filter$) = 0 THEN
+    ELSEIF LEN(Filter$) = 0 OR SearchIn = SETNEXT THEN
         ListStart = ((y \ _FONTHEIGHT) + 1)
         ListEnd = CLIENT.TOTALSOURCELINES
         FOR i = ListStart TO ListEnd
@@ -833,7 +842,7 @@ SUB SOURCE_VIEW
                     CASE 5: GOSUB ToggleButton_Click
                     CASE 6: GOSUB ClearButton_Click
                     CASE 7: GOSUB ExitButton_Click
-                    CASE 8: Filter$ = "": SearchIn = SETNEXT
+                    CASE 8: PrevFilter$ = Filter$: PrevSearchIn = SearchIn: Filter$ = "": SearchIn = SETNEXT
                     CASE ELSE: SYSTEM_BEEP 0
                 END SELECT
             END IF
@@ -3327,9 +3336,8 @@ SUB SETUP_CONNECTION
         IF CLIENT.CHECKSUM <> ADLER32(SOURCEFILE) THEN
             SOURCEFILE = ""
             Message$ = ""
-            Message$ = Message$ + "The original source file was changed since" + CHR$(LF)
-            Message$ = Message$ + "it was processed with vWATCH64. Source view" + CHR$(LF)
-            Message$ = Message$ + "will be empty (you can still watch variables)." + CHR$(LF)
+            Message$ = Message$ + "The original source file was changed since it was processed with vWATCH64." + CHR$(LF)
+            Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
             Message$ = Message$ + "Continue?"
             IF MESSAGEBOX(Message$, YN_QUESTION, 1, -1) = MB_NO THEN
                 HEADER.CONNECTED = 0
@@ -3357,8 +3365,8 @@ SUB SETUP_CONNECTION
         SOURCEFILE = ""
         Message$ = ""
         Message$ = Message$ + "The original source file could not be found." + CHR$(LF)
-        Message$ = Message$ + "Source view will be empty (you can still watch" + CHR$(LF)
-        Message$ = Message$ + "variables). Continue?"
+        Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
+        Message$ = Message$ + "Continue?"
         IF MESSAGEBOX(Message$, YN_QUESTION, 1, -1) = MB_NO THEN
             HEADER.CONNECTED = 0
             PUT #FILE, HEADERBLOCK, HEADER
