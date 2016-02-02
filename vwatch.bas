@@ -348,7 +348,7 @@ SUB SOURCE_VIEW
     END IF
 
     IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
-        MESSAGEBOX_RESULT = MESSAGEBOX(EndMessage$, OK_ONLY, 1, -1)
+        MESSAGEBOX_RESULT = MESSAGEBOX(ID, EndMessage$, OK_ONLY, 1, -1)
     END IF
     EXIT SUB
 
@@ -454,16 +454,16 @@ SUB SOURCE_VIEW
                             Message$ = ""
                             Message$ = Message$ + "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$) + CHR$(LF)
                             Message$ = Message$ + "(you can only set the next statement within the same scope)."
-                            MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
                         ELSE
                             Message$ = ""
                             Message$ = Message$ + "The specified source line can't be set as the next statement" + CHR$(LF)
                             Message$ = Message$ + "(likely to be a nonexecutable statement)"
-                            MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
                         END IF
                     ELSE
                         Message$ = "Invalid line number."
-                        MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
+                        MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
                     END IF
                 END IF
             END IF
@@ -499,7 +499,7 @@ SUB SOURCE_VIEW
             ELSE
                 Message$ = "There are no watchable variables (defined with DIM) in your program,"
                 Message$ = Message$ + CHR$(LF) + "or you didn't select any variables when processing your source file."
-                MESSAGEBOX_RESULT = MESSAGEBOX(Message$, OK_ONLY, 1, -1)
+                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
@@ -1768,9 +1768,10 @@ SUB PROCESSFILE
     DIALOGRESULT = 0
     DO
         LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(200, 200, 200), BF
+        LINE (DialogX, DialogY)-STEP(DialogW, _FONTHEIGHT + 5), _RGB32(0, 178, 179), BF
         DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING (DialogX + 5, DialogY + 5), "vWATCH64 - v" + VERSION
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH("vWATCH64 - v" + VERSION) / 2, DialogY + 5), "vWATCH64 - v" + VERSION
         tempFilename$ = NOPATH$(FILENAME$)
         tempFilename.len = LEN(tempFilename$) + 1
         DO
@@ -1817,7 +1818,7 @@ SUB PROCESSFILE
         FOR cb = 1 TO TotalButtons
             _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
             IF cb = 5 THEN
-                COLOR _RGB32(255, 255, 0)
+                COLOR _RGB32(0, 178, 179)
                 _PRINTSTRING (Buttons(cb).X - 1, Buttons(cb).Y - 1), "<    >"
                 COLOR _RGB32(0, 0, 0)
             END IF
@@ -3339,7 +3340,7 @@ SUB SETUP_CONNECTION
             Message$ = Message$ + "The original source file was changed since it was processed with vWATCH64." + CHR$(LF)
             Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
             Message$ = Message$ + "Continue?"
-            IF MESSAGEBOX(Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+            IF MESSAGEBOX("Checksum error", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
                 HEADER.CONNECTED = 0
                 PUT #FILE, HEADERBLOCK, HEADER
                 '_DELAY 1
@@ -3367,7 +3368,7 @@ SUB SETUP_CONNECTION
         Message$ = Message$ + "The original source file could not be found." + CHR$(LF)
         Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
         Message$ = Message$ + "Continue?"
-        IF MESSAGEBOX(Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+        IF MESSAGEBOX("Source not available", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
             HEADER.CONNECTED = 0
             PUT #FILE, HEADERBLOCK, HEADER
             '_DELAY 1
@@ -4162,8 +4163,11 @@ SUB SYSTEM_BEEP (MessageType AS INTEGER)
 END SUB
 
 '------------------------------------------------------------------------------
-FUNCTION MESSAGEBOX (tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, SendPing AS _BYTE)
+FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, SendPing AS _BYTE)
     Message$ = tMessage$
+    Title$ = TRIM$(tTitle$)
+    IF Title$ = "" THEN Title$ = ID
+
     CharW = _PRINTWIDTH("_")
     REDIM MessageLines(1) AS STRING
 
@@ -4192,7 +4196,7 @@ FUNCTION MESSAGEBOX (tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, 
     LOOP
 
     DialogW = (CharW * MaxLen) + 20
-    DialogH = _FONTHEIGHT * (5 + totalLines) + 10
+    DialogH = _FONTHEIGHT * (4 + totalLines) + 10
     DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
 
@@ -4203,7 +4207,7 @@ FUNCTION MESSAGEBOX (tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, 
             b = 1
             Buttons(b).ID = 1
             Buttons(b).CAPTION = "< OK >"
-            Buttons(b).Y = DialogY + 5 + _FONTHEIGHT * (4 + totalLines)
+            Buttons(b).Y = DialogY + 5 + _FONTHEIGHT * (3 + totalLines)
             Buttons(b).X = _WIDTH / 2 - _PRINTWIDTH(TRIM$(Buttons(b).CAPTION)) / 2
             Buttons(b).W = _PRINTWIDTH(TRIM$(Buttons(b).CAPTION))
         CASE YN_QUESTION
@@ -4215,7 +4219,7 @@ FUNCTION MESSAGEBOX (tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, 
             ButtonLine$ = " "
             FOR cb = 1 TO TotalButtons
                 ButtonLine$ = ButtonLine$ + TRIM$(Buttons(cb).CAPTION) + " "
-                Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (4 + totalLines)
+                Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (3 + totalLines)
                 Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
             NEXT cb
             Buttons(1).X = _WIDTH / 2 - _PRINTWIDTH(ButtonLine$) / 2
@@ -4229,6 +4233,9 @@ FUNCTION MESSAGEBOX (tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, 
     _KEYCLEAR
     DO
         LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(255, 255, 255), BF
+        LINE (DialogX, DialogY)-STEP(DialogW, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Title$) / 2, DialogY + 1), Title$
+
         DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         FOR i = 1 TO totalLines
@@ -4309,6 +4316,9 @@ END FUNCTION
 '------------------------------------------------------------------------------
 SUB FIND_CURRENTMODULE
     'Get the name of the SUB/FUNCTION CLIENT.LINENUMBER is in.
+
+    IF LEN(SOURCEFILE) = 0 THEN CLIENT_CURRENTMODULE = "<source unavailable>": EXIT SUB
+
     sfname$ = "MAIN MODULE"
     IF CLIENT.LINENUMBER > 0 THEN
         FOR currSF_CHECK = CLIENT.LINENUMBER TO 1 STEP -1
