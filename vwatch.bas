@@ -124,6 +124,7 @@ DIM SHARED SCREEN_WIDTH AS INTEGER
 DIM SHARED SCREEN_HEIGHT AS INTEGER
 DIM SHARED SET_OPTIONBASE AS INTEGER
 DIM SHARED SOURCEFILE AS STRING
+DIM SHARED CHECKINGOFF_LINES AS STRING
 DIM SHARED TITLESTRING AS STRING
 DIM SHARED TOTALBREAKPOINTS AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
@@ -292,6 +293,7 @@ SUB SOURCE_VIEW
     DIM SB_Ratio AS SINGLE
     DIM SourceLine AS STRING
     DIM ListEnd_Label AS STRING
+
     STATIC SearchIn
     STATIC PrevSearchIn, PrevFilter$
 
@@ -803,9 +805,9 @@ SUB SOURCE_VIEW
             IF FadeStep# < 1 THEN FadeStep# = 0
             LINE (TempMessage.X, TempMessage.Y)-STEP(TempMessage.W - 1, TempMessage.H - 1), _RGBA32(0, 178, 179, 255 - (170 * FadeStep#)), BF
             COLOR _RGBA32(0, 0, 0, 255 - (170 * FadeStep#))
-            _PRINTSTRING (TempMessage.X, TempMessage.Y + 4), " Nonexecutable statement "
+            _PRINTSTRING (TempMessage.X, TempMessage.Y + 4), TempMessage$
             COLOR _RGBA32(255, 255, 255, 255 - (170 * FadeStep#))
-            _PRINTSTRING (TempMessage.X - 1, TempMessage.Y + 3), " Nonexecutable statement "
+            _PRINTSTRING (TempMessage.X - 1, TempMessage.Y + 3), TempMessage$
             COLOR _RGB32(0, 0, 0)
         ELSE
             ShowTempMessage = 0
@@ -833,13 +835,14 @@ SUB SOURCE_VIEW
         COLOR _RGB32(255, 255, 255)
     END IF
     '...and if it was right-clicked before.
-    IF (ShowContextualMenu AND ContextualMenu.printY = printY) OR (ShowTempMessage AND TempMessage.printY = printY) THEN
-        IF ShowTempMessage THEN
-            LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 255 - (170 * FadeStep#)), BF
-        ELSEIF ShowContextualMenu THEN
-            LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 200), BF
-        END IF
+    IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 200), BF
     END IF
+    IF (ShowTempMessage AND TempMessage.printY = printY) THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 255 - (170 * FadeStep#)), BF
+    END IF
+    'If this line is in a $CHECKING:OFF/ON block, it'll be printed in gray, not black
+    IF ASC(CHECKINGOFF_LINES, i) THEN COLOR _RGB32(170, 170, 170)
     RETURN
 
     DetectClick:
@@ -872,6 +875,8 @@ SUB SOURCE_VIEW
         ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
             GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
             GOSUB TurnOnNonexecutableMessage
         ELSE
             IF ShowContextualMenu AND (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
@@ -931,6 +936,8 @@ SUB SOURCE_VIEW
             GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
             GOSUB TurnOnNonexecutableMessage
+        ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSE
             IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
                 'Set contextual menu coordinates relative to this item
@@ -953,7 +960,12 @@ SUB SOURCE_VIEW
         ShowTempMessage = -1
         TempMessageYRef = y
         TempMessage.printY = printY
-        TempMessage.W = _PRINTWIDTH(" Nonexecutable statement ") + 6
+        IF ASC(CHECKINGOFF_LINES, i) THEN
+            TempMessage$ = " $CHECKING:OFF block (not accessible) "
+        ELSE
+            TempMessage$ = " Nonexecutable statement "
+        END IF
+        TempMessage.W = _PRINTWIDTH(TempMessage$) + 6
         TempMessage.H = _FONTHEIGHT * 1.5
         TempMessage.X = mx: IF TempMessage.X + TempMessage.W > _WIDTH THEN TempMessage.X = _WIDTH - TempMessage.W
         TempMessage.Y = my: IF TempMessage.Y + TempMessage.H > _HEIGHT THEN TempMessage.Y = _HEIGHT - TempMessage.H
@@ -3402,6 +3414,8 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 SUB SETUP_CONNECTION
+    DIM InsideCheckingOffBlock AS _BIT
+
     _KEYCLEAR 'Clears the keyboard buffer
 
     TotalButtons = 2
@@ -3526,14 +3540,24 @@ SUB SETUP_CONNECTION
         ELSE
             IF INSTR(SOURCEFILE, CHR$(13)) THEN LF = 13 ELSE LF = 10
             REDIM LINE_STARTS(1 TO CLIENT.TOTALSOURCELINES) AS LONG
+            CHECKINGOFF_LINES = STRING$(CLIENT.TOTALSOURCELINES, 0)
 
             'Scan the file for line starts:
             CurrentLineNo = 1
             LONGESTLINE = 1
+            InsideCheckingOffBlock = 0
             DO
                 NextLineStart = SEEK(SOURCEFILENUM%)
                 LINE_STARTS(CurrentLineNo) = NextLineStart
                 LINE INPUT #SOURCEFILENUM%, bkpSourceLine$
+                SourceLine$ = UCASE$(TRIM$(bkpSourceLine$))
+                IF SourceLine$ = "$CHECKING:OFF" THEN
+                    InsideCheckingOffBlock = -1
+                END IF
+                IF InsideCheckingOffBlock THEN ASC(CHECKINGOFF_LINES, CurrentLineNo) = 1
+                IF SourceLine$ = "$CHECKING:ON" THEN
+                    InsideCheckingOffBlock = 0
+                END IF
                 IF LEN(bkpSourceLine$) > LONGESTLINE THEN LONGESTLINE = LEN(bkpSourceLine$)
                 CurrentLineNo = CurrentLineNo + 1
             LOOP UNTIL EOF(SOURCEFILENUM%)
