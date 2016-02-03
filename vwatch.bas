@@ -2223,7 +2223,7 @@ SUB PROCESSFILE
                     IF VERBOSE THEN
                         PRINT TOTALVARIABLES;
                         IF MainModule THEN
-                            PRINT IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED");
+                            PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "MAIN MODULE SHARED ");
                         ELSE
                             PRINT CurrentSubFunc$;
                         END IF
@@ -2263,7 +2263,7 @@ SUB PROCESSFILE
                                         IF VERBOSE THEN
                                             PRINT TOTALVARIABLES;
                                             IF MainModule THEN
-                                                PRINT IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED");
+                                                PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "MAIN MODULE SHARED ");
                                             ELSE
                                                 PRINT CurrentSubFunc$;
                                             END IF
@@ -2300,7 +2300,7 @@ SUB PROCESSFILE
                                 IF VERBOSE THEN
                                     PRINT TOTALVARIABLES;
                                     IF MainModule THEN
-                                        PRINT IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED");
+                                        PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "MAIN MODULE SHARED ");
                                     ELSE
                                         PRINT CurrentSubFunc$;
                                     END IF
