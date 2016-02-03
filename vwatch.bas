@@ -1109,11 +1109,7 @@ SUB VARIABLE_VIEW
         CASE 32 TO 126 'Printable ASCII characters
             Filter$ = Filter$ + CHR$(k)
         CASE 8 'Backspace
-            IF SearchIn <> SCOPE THEN
-                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-            ELSE
-                Filter$ = ""
-            END IF
+            IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
         CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
             IF SearchIn = SCOPE THEN Filter$ = ""
             SELECT CASE SearchIn
@@ -1122,7 +1118,6 @@ SUB VARIABLE_VIEW
                 CASE VARIABLENAMES: IF shiftDown = 0 THEN SearchIn = VALUES ELSE SearchIn = DATATYPES
                 CASE VALUES: IF shiftDown = 0 THEN SearchIn = SCOPE ELSE SearchIn = VARIABLENAMES
             END SELECT
-            IF SearchIn = SCOPE THEN Filter$ = ""
         CASE 27 'ESC clears the current search filter or exits MONITOR_MODE
             ExitButton_Click:
             IF LEN(Filter$) THEN
@@ -1278,7 +1273,7 @@ SUB VARIABLE_VIEW
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + _FONTHEIGHT
     ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
-        columnHightlighH = _FONTHEIGHT
+        columnHightlighH = 0
     ELSE
         columnHightlighH = (CLIENT.TOTALVARIABLES * _FONTHEIGHT) + _FONTHEIGHT
     END IF
@@ -1514,21 +1509,9 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
                 k = 0
             END IF
         CASE 32 TO 126 'Printable ASCII characters
-            IF searchIn <> SCOPE THEN
-                Filter$ = Filter$ + CHR$(k)
-            ELSE
-                IF k = ASC("L") OR k = ASC("l") THEN
-                    Filter$ = "LOCAL"
-                ELSEIF k = ASC("S") OR k = ASC("s") THEN
-                    Filter$ = "SHARED"
-                END IF
-            END IF
+            Filter$ = Filter$ + CHR$(k)
         CASE 8 'Backspace
-            IF searchIn <> SCOPE THEN
-                IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
-            ELSE
-                Filter$ = ""
-            END IF
+            IF LEN(Filter$) THEN Filter$ = LEFT$(Filter$, LEN(Filter$) - 1)
         CASE 9, 25 'TAB alternates between what is filtered (VARIABLENAMES, DATATYPES)
             IF searchIn = SCOPE THEN Filter$ = ""
             SELECT CASE searchIn
@@ -1536,7 +1519,6 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
                 CASE SCOPE: IF shiftDown = 0 THEN searchIn = DATATYPES ELSE searchIn = VARIABLENAMES
                 CASE DATATYPES: IF shiftDown = 0 THEN searchIn = VARIABLENAMES ELSE searchIn = SCOPE
             END SELECT
-            IF searchIn = SCOPE THEN Filter$ = ""
         CASE 27 'ESC clears the current search filter or exits interactive mode
             CancelButton_Click:
             IF LEN(Filter$) THEN
@@ -1673,7 +1655,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         columnHightlighH = (LEN(FilteredList$) / 4 * _FONTHEIGHT) + _FONTHEIGHT
     ELSEIF LEN(Filter$) > 0 AND LEN(FilteredList$) = 0 THEN
-        columnHightlighH = _FONTHEIGHT
+        columnHightlighH = 0
     ELSE
         columnHightlighH = (TOTALVARIABLES * _FONTHEIGHT) + _FONTHEIGHT
     END IF
@@ -2489,6 +2471,7 @@ SUB PROCESSFILE
             BackupScreen = _COPYIMAGE(0)
             INTERACTIVE_MODE AddedList$, TotalSelected
             CLS , _RGB32(230, 230, 230)
+            _AUTODISPLAY
             _PUTIMAGE (0, 0), BackupScreen
             _FREEIMAGE BackupScreen
             LOCATE bkpy%, bkpx%
