@@ -311,6 +311,8 @@ SUB SOURCE_VIEW
     SB_ThumbY = 0
     grabbedY = -1
     ListEnd_Label = "(end of source file)"
+    ShowContextualMenu = 0
+    ShowTempMessage = 0
     STEPMODE = -1
     TRACE = -1
     _KEYCLEAR
@@ -322,8 +324,13 @@ SUB SOURCE_VIEW
         GET #FILE, CLIENTBLOCK, CLIENT
         FIND_CURRENTMODULE
         PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
-        IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
+        IF CLIENT.LINENUMBER <> prevLineNumber THEN
+            prevLineNumber = CLIENT.LINENUMBER
+            IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
+        END IF
+
         GOSUB UpdateList
+
         IF _EXIT THEN USERQUIT = -1
         SEND_PING
     LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT OR CLOSE_SESSION
@@ -366,7 +373,10 @@ SUB SOURCE_VIEW
         mx = _MOUSEX
         my = _MOUSEY
         mb = _MOUSEBUTTON(1)
+        mb2 = _MOUSEBUTTON(2)
     LOOP WHILE _MOUSEINPUT
+
+    IF my < SCREEN_TOPBAR AND ShowContextualMenu THEN ShowContextualMenu = 0
 
     SELECT EVERYCASE k
         CASE 32 TO 126 'Printable ASCII characters
@@ -403,6 +413,7 @@ SUB SOURCE_VIEW
                     Filter$ = PrevFilter$
                 ELSEIF LEN(Filter$) > 0 AND VAL(Filter$) > 0 THEN
                     DesiredLine = VAL(Filter$)
+                    SetNext_Click:
                     IF DesiredLine <= CLIENT.TOTALSOURCELINES THEN
                         DesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(DesiredLine)))
                         CanGo = -1
@@ -448,23 +459,24 @@ SUB SOURCE_VIEW
                             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
                             BREAKPOINT.ACTION = 0
                             BREAKPOINT.LINENUMBER = 0
-                            SearchIn = PrevSearchIn
-                            Filter$ = PrevFilter$
+                            IF NOT Clicked THEN
+                                SearchIn = PrevSearchIn
+                                Filter$ = PrevFilter$
+                            END IF
                         ELSEIF CanGo = 1 OR CanGo = 2 THEN
                             Message$ = ""
                             Message$ = Message$ + "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$) + CHR$(LF)
-                            Message$ = Message$ + "(you can only set the next statement within the same scope)."
-                            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX("Outside boundaries", Message$, OK_ONLY, 1, -1)
                         ELSE
                             Message$ = ""
                             Message$ = Message$ + "The specified source line can't be set as the next statement" + CHR$(LF)
-                            Message$ = Message$ + "(likely to be a nonexecutable statement)"
-                            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX("Nonexecutable statement", Message$, OK_ONLY, 1, -1)
                         END IF
                     ELSE
                         Message$ = "Invalid line number."
                         MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
                     END IF
+                    IF Clicked THEN Clicked = 0: RETURN
                 END IF
             END IF
         CASE 27 'ESC clears the current search filter or exits interactive mode
@@ -499,7 +511,7 @@ SUB SOURCE_VIEW
             ELSE
                 Message$ = "There are no watchable variables (defined with DIM) in your program,"
                 Message$ = Message$ + CHR$(LF) + "or you didn't select any variables when processing your source file."
-                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
+                MESSAGEBOX_RESULT = MESSAGEBOX("No variables", Message$, OK_ONLY, 1, -1)
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
@@ -546,6 +558,7 @@ SUB SOURCE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
     END SELECT
 
+    'Scrollbar check:
     IF PAGE_HEIGHT > LIST_AREA THEN
         IF mb THEN
             IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
@@ -598,80 +611,109 @@ SUB SOURCE_VIEW
     cursorBlink% = cursorBlink% + 1
     IF cursorBlink% > 50 THEN cursorBlink% = 0
 
-    'Build a filtered list, if a filter is active:
-    i = 0: FilteredList$ = ""
-    PAGE_HEIGHT = _FONTHEIGHT * (CLIENT.TOTALSOURCELINES + 3)
-    IF LEN(Filter$) > 0 AND SearchIn <> SETNEXT THEN
-        DO
-            i = i + 1
-            IF i > CLIENT.TOTALSOURCELINES THEN EXIT DO
-            Found = 0
-            IF SearchIn = CODE THEN Found = MULTI_SEARCH(UCASE$(GETLINE$(i)), UCASE$(Filter$))
-            IF SearchIn = LINENUMBERS THEN Found = INTERVAL_SEARCH(Filter$, i)
-            IF Found THEN
-                FilteredList$ = FilteredList$ + MKL$(i)
-            END IF
-        LOOP
-        IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
-    END IF
-
-    'Scroll to the next line of code that will be run
-    IF TRACE THEN
-        CurrentLineY = (CLIENT.LINENUMBER - 1) * _FONTHEIGHT
-        IF CurrentLineY > y + LIST_AREA - _FONTHEIGHT THEN
-            y = (CurrentLineY - LIST_AREA) + SCREEN_TOPBAR
-        ELSEIF CurrentLineY < y THEN
-            y = CurrentLineY - SCREEN_TOPBAR + (_FONTHEIGHT * 3)
+    IF LEN(SOURCEFILE) > 0 THEN
+        'Build a filtered list, if a filter is active:
+        i = 0: FilteredList$ = ""
+        PAGE_HEIGHT = _FONTHEIGHT * (CLIENT.TOTALSOURCELINES + 3)
+        IF LEN(Filter$) > 0 AND SearchIn <> SETNEXT THEN
+            DO
+                i = i + 1
+                IF i > CLIENT.TOTALSOURCELINES THEN EXIT DO
+                Found = 0
+                IF SearchIn = CODE THEN Found = MULTI_SEARCH(UCASE$(GETLINE$(i)), UCASE$(Filter$))
+                IF SearchIn = LINENUMBERS THEN Found = INTERVAL_SEARCH(Filter$, i)
+                IF Found THEN
+                    FilteredList$ = FilteredList$ + MKL$(i)
+                END IF
+            LOOP
+            IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
         END IF
-    END IF
 
-    CHECK_SCREEN_LIMITS y
+        IF ShowContextualMenu AND (ContextualMenu.FilteredList$ <> FilteredList$) THEN ShowContextualMenu = 0
 
-    CLS , _RGB32(255, 255, 255)
-    'Print list items to the screen:
-    IF LEN(FilteredList$) > 0 THEN
-        ListStart = ((y \ _FONTHEIGHT) + 1)
-        ListEnd = LEN(FilteredList$) / 4
-        FOR ii = ListStart TO ListEnd
-            i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            SourceLine = GETLINE$(i)
-            printY = (SCREEN_TOPBAR + 3 + ((ii - 1) * _FONTHEIGHT)) - y
-            IF printY > SCREEN_HEIGHT THEN EXIT FOR
-            IF (printY >= (SCREEN_TOPBAR - _FONTHEIGHT)) AND printY < SCREEN_HEIGHT THEN
+        'Scroll to the next line of code that will be run
+        IF TRACE AND LEN(FilteredList$) = 0 THEN
+            CurrentLineY = (CLIENT.LINENUMBER - 1) * _FONTHEIGHT
+            IF CurrentLineY > y + LIST_AREA - _FONTHEIGHT THEN
+                y = (CurrentLineY - LIST_AREA) + SCREEN_TOPBAR
+            ELSEIF CurrentLineY < y THEN
+                y = CurrentLineY - SCREEN_TOPBAR + (_FONTHEIGHT * 3)
+            END IF
+        END IF
+
+        CHECK_SCREEN_LIMITS y
+
+        IF ShowContextualMenu AND (y <> ContextualMenuYRef) THEN
+            ShowContextualMenu = 0
+        END IF
+
+        CLS , _RGB32(255, 255, 255)
+        'Print list items to the screen:
+        IF LEN(FilteredList$) > 0 THEN
+            ListStart = ((y \ _FONTHEIGHT) + 1)
+            ListEnd = LEN(FilteredList$) / 4
+            FOR ii = ListStart TO ListEnd
+                i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
+                SourceLine = GETLINE$(i)
+                printY = (SCREEN_TOPBAR + 3 + ((ii - 1) * _FONTHEIGHT)) - y
+                IF printY > SCREEN_HEIGHT THEN EXIT FOR
+                IF (printY >= (SCREEN_TOPBAR - _FONTHEIGHT)) AND printY < SCREEN_HEIGHT THEN
+                    'Print only inside the program area
+                    GOSUB ColorizeList
+                    IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                    v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
+                    _PRINTSTRING (5, printY), v$
+                    COLOR _RGB32(0, 0, 0)
+                END IF
+            NEXT ii
+        ELSEIF LEN(Filter$) = 0 OR SearchIn = SETNEXT THEN
+            ListStart = ((y \ _FONTHEIGHT) + 1)
+            ListEnd = CLIENT.TOTALSOURCELINES
+            FOR i = ListStart TO ListEnd
+                SourceLine = GETLINE$(i)
+                printY = (SCREEN_TOPBAR + 3 + ((i - 1) * _FONTHEIGHT)) - y
+                IF printY > SCREEN_HEIGHT THEN EXIT FOR
                 'Print only inside the program area
                 GOSUB ColorizeList
                 IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
                 v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                 _PRINTSTRING (5, printY), v$
                 COLOR _RGB32(0, 0, 0)
-            END IF
-        NEXT ii
-    ELSEIF LEN(Filter$) = 0 OR SearchIn = SETNEXT THEN
-        ListStart = ((y \ _FONTHEIGHT) + 1)
-        ListEnd = CLIENT.TOTALSOURCELINES
-        FOR i = ListStart TO ListEnd
-            SourceLine = GETLINE$(i)
-            printY = (SCREEN_TOPBAR + 3 + ((i - 1) * _FONTHEIGHT)) - y
-            IF printY > SCREEN_HEIGHT THEN EXIT FOR
-            'Print only inside the program area
-            GOSUB ColorizeList
-            IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-            v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-            _PRINTSTRING (5, printY), v$
-            COLOR _RGB32(0, 0, 0)
-        NEXT i
-    END IF
+            NEXT i
+        END IF
 
-    IF LEN(Filter$) AND LEN(FilteredList$) = 0 AND SearchIn <> SETNEXT THEN 'A filter is on, but nothing was found
-        _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
-        _PRINTSTRING (5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to reset filter)"
+        IF LEN(Filter$) AND LEN(FilteredList$) = 0 AND SearchIn <> SETNEXT THEN 'A filter is on, but nothing was found
+            _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
+            _PRINTSTRING (5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to reset filter)"
+        END IF
+
+        IF PAGE_HEIGHT > LIST_AREA THEN
+            IF LEN(FilteredList$) > 0 THEN
+                _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+            ELSE
+                _PRINTSTRING (5, ((5 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), ListEnd_Label
+            END IF
+            DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
+        ELSE
+            'End of list message:
+            IF LEN(FilteredList$) > 0 THEN
+                _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+            ELSE
+                _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT * 2) - y), ListEnd_Label
+            END IF
+        END IF
+    ELSE
+        LINE (0, SCREEN_TOPBAR)-STEP(_WIDTH, _HEIGHT - SCREEN_TOPBAR), _RGB32(200, 200, 200), BF
+        Message$ = "<Source file changed/not found>"
+        COLOR _RGB32(255, 0, 0)
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Message$) / 2, SCREEN_TOPBAR + (_HEIGHT - SCREEN_TOPBAR) / 2 - _FONTHEIGHT / 2), Message$
     END IF
 
     'Top bar:
     '  SOURCE VIEW: <F5 = Run> <Trace ???> <F6 = View Variables> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
     '  Breakpoints 0 * Next line: ####
     '  Filter (code):
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(179, 255, 255), BF
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), SCREEN_TOPBAR), _RGB32(179, 255, 255), BF
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     ModeTitle$ = "SOURCE VIEW: "
     _PRINTSTRING (5, 3), ModeTitle$
@@ -739,7 +781,11 @@ SUB SOURCE_VIEW
         Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
     NEXT cb
 
-    GOSUB CheckButtons
+    IF NOT ShowContextualMenu THEN
+        GOSUB CheckButtons
+    ELSE
+        _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+    END IF
 
     FOR i = 1 TO LEN(ButtonLine$)
         IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
@@ -750,103 +796,230 @@ SUB SOURCE_VIEW
     _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 2), ButtonLine$
     COLOR _RGB32(0, 0, 0)
 
-    IF PAGE_HEIGHT > LIST_AREA THEN
-        IF LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
+    'Show 'nonexecutable statement' message
+    IF ShowTempMessage THEN
+        FadeStep# = (TIMER - TempMessage.Start#)
+        IF (FadeStep# <= 1.5) THEN
+            IF FadeStep# < 1 THEN FadeStep# = 0
+            LINE (TempMessage.X, TempMessage.Y)-STEP(TempMessage.W - 1, TempMessage.H - 1), _RGBA32(0, 178, 179, 255 - (170 * FadeStep#)), BF
+            COLOR _RGBA32(0, 0, 0, 255 - (170 * FadeStep#))
+            _PRINTSTRING (TempMessage.X, TempMessage.Y + 4), " Nonexecutable statement "
+            COLOR _RGBA32(255, 255, 255, 255 - (170 * FadeStep#))
+            _PRINTSTRING (TempMessage.X - 1, TempMessage.Y + 3), " Nonexecutable statement "
+            COLOR _RGB32(0, 0, 0)
         ELSE
-            _PRINTSTRING (5, ((5 + CLIENT.TOTALSOURCELINES) * _FONTHEIGHT) - y), ListEnd_Label
+            ShowTempMessage = 0
         END IF
-        DISPLAYSCROLLBAR y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio, mx, my
-    ELSE
-        'End of list message:
-        IF LEN(FilteredList$) > 0 THEN
-            _PRINTSTRING (5, ((5 + (LEN(FilteredList$) / 4)) * _FONTHEIGHT) - y), ListEnd_Label + "(filtered)"
-        ELSE
-            _PRINTSTRING (5, PAGE_HEIGHT + (_FONTHEIGHT * 2) - y), ListEnd_Label
-        END IF
+    END IF
+
+    'Show contextual menu
+    IF ShowContextualMenu THEN
+        LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(200, 200, 200), BF
+        LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(0, 0, 0), B
+        GOSUB CheckButtons
     END IF
 
     _DISPLAY
     RETURN
 
     ColorizeList:
-    'Colorize the line if it's the next to be run...
+    'Colorize the line if it's the next to be run,...
     IF CLIENT.LINENUMBER = i THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 200), BF
     END IF
-    '...and if a breakpoint is set
+    '...if a breakpoint is set,...
     IF ASC(BREAKPOINTLIST, i) = 1 THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
         COLOR _RGB32(255, 255, 255)
     END IF
+    '...and if it was right-clicked before.
+    IF (ShowContextualMenu AND ContextualMenu.printY = printY) OR (ShowTempMessage AND TempMessage.printY = printY) THEN
+        IF ShowTempMessage THEN
+            LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 255 - (170 * FadeStep#)), BF
+        ELSEIF ShowContextualMenu THEN
+            LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 200), BF
+        END IF
+    END IF
     RETURN
 
     DetectClick:
+    'Hover:
+    IF ShowContextualMenu = 0 AND STEPMODE THEN LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
+
     'Select/Clear the item if a mouse click was detected.
     IF mb THEN
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb = 0
+
+        IF STEPMODE = 0 THEN GOTO StepButton_Click: RETURN
+
         temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
         IF LEN(temp.SourceLine$) = 0 THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
-        ELSEIF STEPMODE = 0 THEN
-            GOTO StepButton_Click
+            GOSUB TurnOnNonexecutableMessage
+        ELSE
+            IF ShowContextualMenu AND (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
+                ShowContextualMenu = 0
+                IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
+                    Clicked = -1
+                    DesiredLine = ContextualMenuLineRef
+                    GOSUB SetNext_Click
+                ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
+                    'Toggle breakpoint:
+                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
+                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                    ELSE
+                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                    END IF
+                END IF
+            ELSEIF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+                IF ShowContextualMenu THEN
+                    ShowContextualMenu = 0
+                ELSE
+                    'Toggle breakpoint:
+                    IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                        ASC(BREAKPOINTLIST, i) = 0
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                    ELSE
+                        ASC(BREAKPOINTLIST, i) = 1
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+
+    'Turn on contextual options if right mouse click and while in step mode.
+    IF mb2 AND STEPMODE THEN
+        'Wait until a mouse up event is received:
+        WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
+        mb2 = 0
+        temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+        IF LEN(temp.SourceLine$) = 0 THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSE
             IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
-                'Toggle breakpoint:
-                IF ASC(BREAKPOINTLIST, i) = 1 THEN
-                    ASC(BREAKPOINTLIST, i) = 0
-                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
-                ELSE
-                    ASC(BREAKPOINTLIST, i) = 1
-                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
-                END IF
+                'Set contextual menu coordinates relative to this item
+                ShowContextualMenu = -1
+                ContextualMenuYRef = y
+                ContextualMenuLineRef = i
+                ContextualMenu.printY = printY
+                ContextualMenu.FilteredList$ = FilteredList$
+                ContextualMenu.W = _PRINTWIDTH(" Set next statement ") + 6
+                ContextualMenu.H = _FONTHEIGHT * 2.5
+                ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
+                ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
             END IF
         END IF
     END IF
     RETURN
 
-    CheckButtons:
-    Clicked = 0
-    IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
-    'Hover highlight:
-    FOR cb = 1 TO TotalButtons
-        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
-        END IF
-    NEXT cb
-    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+    TurnOnNonexecutableMessage:
+    IF NOT ShowContextualMenu THEN
+        ShowTempMessage = -1
+        TempMessageYRef = y
+        TempMessage.printY = printY
+        TempMessage.W = _PRINTWIDTH(" Nonexecutable statement ") + 6
+        TempMessage.H = _FONTHEIGHT * 1.5
+        TempMessage.X = mx: IF TempMessage.X + TempMessage.W > _WIDTH THEN TempMessage.X = _WIDTH - TempMessage.W
+        TempMessage.Y = my: IF TempMessage.Y + TempMessage.H > _HEIGHT THEN TempMessage.Y = _HEIGHT - TempMessage.H
+        TempMessage.Start# = TIMER
+    ELSE
+        ShowContextualMenu = 0
+    END IF
+    RETURN
 
-    IF mb THEN
+    CheckButtons:
+    IF ShowContextualMenu THEN
+        Clicked = 0
+        'Hover highlight:
+        IF (mx >= ContextualMenu.X) AND (mx <= ContextualMenu.X + ContextualMenu.W) THEN
+            IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
+                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
+            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
+                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
+            END IF
+        END IF
+
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set next statement "
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1, " Clear breakpoint   ", " Set breakpoint     ")
+    ELSE
+        Clicked = 0
+        IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
+        'Hover highlight:
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
-                mb = 0: mx = _MOUSEX: my = _MOUSEY
-                'Check if the user moved the mouse out of the button before releasing it (=cancel)
-                IF my > _FONTHEIGHT THEN RETURN
-                IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
-                Clicked = -1
-                SELECT CASE Buttons(cb).ID
-                    CASE 1: GOSUB RunButton_Click
-                    CASE 2: GOSUB WindowButton_Click
-                    CASE 3: TRACE = NOT TRACE
-                    CASE 4: GOSUB StepButton_Click
-                    CASE 5: GOSUB ToggleButton_Click
-                    CASE 6: GOSUB ClearButton_Click
-                    CASE 7: GOSUB ExitButton_Click
-                    CASE 8: PrevFilter$ = Filter$: PrevSearchIn = SearchIn: Filter$ = "": SearchIn = SETNEXT
-                    CASE ELSE: SYSTEM_BEEP 0
-                END SELECT
+                LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
             END IF
         NEXT cb
+        _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
+
+        IF mb THEN
+            FOR cb = 1 TO TotalButtons
+                IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+                    WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+                    mb = 0: mx = _MOUSEX: my = _MOUSEY
+                    'Check if the user moved the mouse out of the button before releasing it (=cancel)
+                    IF my > _FONTHEIGHT THEN RETURN
+                    IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
+                    Clicked = -1
+                    SELECT CASE Buttons(cb).ID
+                        CASE 1: GOSUB RunButton_Click
+                        CASE 2: GOSUB WindowButton_Click
+                        CASE 3: TRACE = NOT TRACE
+                        CASE 4: GOSUB StepButton_Click
+                        CASE 5: GOSUB ToggleButton_Click
+                        CASE 6: GOSUB ClearButton_Click
+                        CASE 7: GOSUB ExitButton_Click
+                        CASE 8
+                            IF SearchIn <> SETNEXT THEN
+                                PrevFilter$ = Filter$
+                                PrevSearchIn = SearchIn
+                                Filter$ = ""
+                                SearchIn = SETNEXT
+                            ELSE
+                                Filter$ = PrevFilter$
+                                SearchIn = PrevSearchIn
+                            END IF
+                        CASE ELSE: SYSTEM_BEEP 0
+                    END SELECT
+                END IF
+            NEXT cb
+        END IF
     END IF
     RETURN
 END SUB
@@ -993,6 +1166,7 @@ SUB VARIABLE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
     END SELECT
 
+    'Scrollbar check:
     IF PAGE_HEIGHT > LIST_AREA THEN
         IF mb THEN
             IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
@@ -1398,6 +1572,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
             IF Clicked THEN Clicked = 0: RETURN
     END SELECT
 
+    'Scrollbar check:
     IF PAGE_HEIGHT > LIST_AREA THEN
         IF mb THEN
             IF mx > _WIDTH(MAINSCREEN) - 30 AND mx < _WIDTH(MAINSCREEN) THEN
@@ -3255,7 +3430,7 @@ SUB SETUP_CONNECTION
     FILE = FREEFILE
     ON ERROR GOTO FileError
     'Try killing vwatch64.dat. Won't work if open, so we'll try to reconnect to client.
-    KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
+    IF _FILEEXISTS(_CWD$ + PATHSEP$ + "vwatch64.dat") THEN KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
     ON ERROR GOTO 0
 
     'Opens "vwatch64.dat" to wait for a connection:
