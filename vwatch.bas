@@ -1935,7 +1935,7 @@ SUB PROCESSFILE
     'Dialog buttons:
     TotalButtons = 6
     REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
-
+    DefaultButton = 5
     DIALOGRESULT = 0
     DO
         LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(200, 200, 200), BF
@@ -1988,18 +1988,45 @@ SUB PROCESSFILE
         GOSUB CheckButtons
         FOR cb = 1 TO TotalButtons
             _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
-            IF cb = 5 THEN
+            IF cb = DefaultButton THEN
                 COLOR _RGB32(0, 178, 179)
-                _PRINTSTRING (Buttons(cb).X - 1, Buttons(cb).Y - 1), "<    >"
+                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), "<" + SPACE$(LEN(TRIM$(Buttons(cb).CAPTION)) - 2) + ">"
+                COLOR _RGB32(255, 255, 0)
+                _PRINTSTRING (Buttons(cb).X - 1, Buttons(cb).Y - 1), "<" + SPACE$(LEN(TRIM$(Buttons(cb).CAPTION)) - 2) + ">"
                 COLOR _RGB32(0, 0, 0)
             END IF
         NEXT cb
         'end of drawing buttons
 
         _DISPLAY
-        k$ = INKEY$
-        IF k$ = CHR$(13) THEN DIALOGRESULT = 1
-        IF k$ = CHR$(27) THEN DIALOGRESULT = 2
+        modKey = _KEYHIT: k = modKey
+        IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
+        IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
+        IF k = 13 THEN DIALOGRESULT = 1
+        IF k = 27 THEN DIALOGRESULT = 2
+        IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
+        IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+        IF k = 25 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+
+        IF k = 19200 OR k = 19712 OR k = 32 THEN
+            SELECT CASE DefaultButton
+                CASE 1: SKIPARRAYS = NOT SKIPARRAYS
+                CASE 2: INTERACTIVE = NOT INTERACTIVE
+                CASE 3: DONTCOMPILE = NOT DONTCOMPILE
+                CASE 4: VERBOSE = NOT VERBOSE
+                CASE 5: DefaultButton = 6
+                CASE 6: DefaultButton = 5
+            END SELECT
+        ELSEIF k = 18432 THEN
+            SELECT CASE DefaultButton
+                CASE 2 TO 5: DefaultButton = DefaultButton - 1
+                CASE 6: DefaultButton = 4
+            END SELECT
+        ELSEIF k = 20480 THEN
+            SELECT CASE DefaultButton
+                CASE 1 TO 4: DefaultButton = DefaultButton + 1
+            END SELECT
+        END IF
     LOOP UNTIL DIALOGRESULT > 0
     IF DIALOGRESULT = 2 THEN EXIT SUB
 
@@ -3142,8 +3169,8 @@ SUB PROCESSFILE
     WHILE _MOUSEINPUT: WEND
     mb = _MOUSEBUTTON(1): mx = _MOUSEX: my = _MOUSEY
     FOR cb = 1 TO TotalButtons
-        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-            IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) OR cb = DefaultButton THEN
+            IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) OR cb = DefaultButton THEN
                 LINE (Buttons(cb).X, Buttons(cb).Y)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
             END IF
         END IF
