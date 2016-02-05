@@ -1465,8 +1465,7 @@ SUB VARIABLE_VIEW
             ShowContextualMenu = 0
             IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
                 'Create a watchpoint
-                _TITLE "Create a watchpoint"
-                SYSTEM_BEEP 0
+                MESSAGEBOX_RESULT = MESSAGEBOX("In the works", "This feature is still being implemented. Wait for the next beta! :)", OK_ONLY, 1, -1)
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                 'Edit
                 IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
