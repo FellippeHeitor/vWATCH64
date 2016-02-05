@@ -112,6 +112,7 @@ DIM SHARED EXCHANGEDATA AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
 DIM SHARED FILEERRORRAISED AS _BIT
+DIM SHARED CONVERSIONERRORRAISED AS _BIT
 DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LAST_PING#
@@ -280,6 +281,10 @@ SYSTEM
 
 FileError:
 FILEERRORRAISED = -1
+RESUME NEXT
+
+DataConversionERROR:
+CONVERSIONERRORRAISED = -1
 RESUME NEXT
 
 KeyWordsDATA:
@@ -1085,7 +1090,7 @@ SUB VARIABLE_VIEW
         GET #FILE, DATABLOCK, VARIABLE_DATA()
         FOR i = 1 TO CLIENT.TOTALVARIABLES
             IF LEN(SOURCEFILE) > 0 THEN
-                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND INSTR(VARIABLES(i).SCOPE, " SHARED") = 0 THEN VARIABLE_DATA(i).VALUE = "<out of scope>"
+                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN VARIABLE_DATA(i).VALUE = "<out of scope>"
             END IF
         NEXT i
 
@@ -1464,7 +1469,7 @@ SUB VARIABLE_VIEW
                 SYSTEM_BEEP 0
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                 'Edit
-                IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, " SHARED") = 0 THEN
+                IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                     Message$ = ""
                     Message$ = Message$ + "Cannot edit " + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + " (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
                     Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
@@ -1480,6 +1485,8 @@ SUB VARIABLE_VIEW
                         '3- Actual data.
                         EXCHANGEDATASIZE$4 = MKL$(ContextualMenuLineRef)
                         PUT #FILE, EXCHANGEBLOCK, EXCHANGEDATASIZE$4
+                        CONVERSIONERRORRAISED = 0
+                        ON ERROR GOTO DataConversionERROR
                         SELECT CASE UCASE$(TRIM$(DataType$))
                             CASE "_BIT"
                                 EXCHANGEDATA = _MK$(_BIT, VAL(NewValue$))
@@ -1510,11 +1517,18 @@ SUB VARIABLE_VIEW
                             CASE "STRING"
                                 EXCHANGEDATA = NewValue$
                         END SELECT
-                        EXCHANGEDATASIZE$4 = MKL$(LEN(EXCHANGEDATA))
-                        PUT #FILE, , EXCHANGEDATASIZE$4
-                        PUT #FILE, , EXCHANGEDATA
-                        BREAKPOINT.ACTION = SETVAR
-                        PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+                        ON ERROR GOTO 0
+                        IF CONVERSIONERRORRAISED THEN
+                            Message$ = ""
+                            Message$ = Message$ + "Value could not be set (variable type is " + TRIM$(DataType$) + ")." + CHR$(LF)
+                            MESSAGEBOX_RESULT = MESSAGEBOX("Invalid input", Message$, OK_ONLY, 1, -1)
+                        ELSE
+                            EXCHANGEDATASIZE$4 = MKL$(LEN(EXCHANGEDATA))
+                            PUT #FILE, , EXCHANGEDATASIZE$4
+                            PUT #FILE, , EXCHANGEDATA
+                            BREAKPOINT.ACTION = SETVAR
+                            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+                        END IF
                     END IF
                 END IF
             END IF
@@ -2332,7 +2346,7 @@ SUB PROCESSFILE
                             REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                             VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(caseBkpNextVar$, "(")) + TRIM$(STR$(i)) + ")"
                             IF MainModule THEN
-                                VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
                             ELSE
                                 VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                             END IF
@@ -2344,7 +2358,7 @@ SUB PROCESSFILE
                     REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                     VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
                     IF MainModule THEN
-                        VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                        VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
                     ELSE
                         VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                     END IF
@@ -2379,7 +2393,7 @@ SUB PROCESSFILE
                                 REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                                 VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(caseBkpNextVar$, "(")) + TRIM$(STR$(i)) + ")"
                                 IF MainModule THEN
-                                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
                                 ELSE
                                     VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                                 END IF
@@ -2391,7 +2405,7 @@ SUB PROCESSFILE
                         REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                         VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1)
                         IF MainModule THEN
-                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
                         ELSE
                             VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                         END IF
@@ -2408,7 +2422,7 @@ SUB PROCESSFILE
                     IF VERBOSE THEN
                         PRINT TOTALVARIABLES;
                         IF MainModule THEN
-                            PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "MAIN MODULE SHARED ");
+                            PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "SHARED ");
                         ELSE
                             PRINT CurrentSubFunc$;
                         END IF
@@ -2431,7 +2445,7 @@ SUB PROCESSFILE
                                         REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                                         VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, "(")) + TRIM$(STR$(ItemsinArray)) + ")." + TRIM$(UDT(i).ELEMENT)
                                         IF MainModule THEN
-                                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                            VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
                                         ELSE
                                             VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                                         END IF
@@ -2448,7 +2462,7 @@ SUB PROCESSFILE
                                         IF VERBOSE THEN
                                             PRINT TOTALVARIABLES;
                                             IF MainModule THEN
-                                                PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "MAIN MODULE SHARED ");
+                                                PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "SHARED ");
                                             ELSE
                                                 PRINT CurrentSubFunc$;
                                             END IF
@@ -2468,7 +2482,7 @@ SUB PROCESSFILE
                                 REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                                 VARIABLES(TOTALVARIABLES).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1) + "." + TRIM$(UDT(i).ELEMENT)
                                 IF MainModule THEN
-                                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "MAIN MODULE SHARED")
+                                    VARIABLES(TOTALVARIABLES).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
                                 ELSE
                                     VARIABLES(TOTALVARIABLES).SCOPE = CurrentSubFunc$
                                 END IF
@@ -2485,7 +2499,7 @@ SUB PROCESSFILE
                                 IF VERBOSE THEN
                                     PRINT TOTALVARIABLES;
                                     IF MainModule THEN
-                                        PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "MAIN MODULE SHARED ");
+                                        PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "SHARED ");
                                     ELSE
                                         PRINT CurrentSubFunc$;
                                     END IF
@@ -3019,7 +3033,7 @@ SUB PROCESSFILE
 
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
-            IF ASC(AddedList$, i) = 1 AND INSTR(VARIABLES(i).SCOPE, "MAIN MODULE") > 0 THEN
+            IF ASC(AddedList$, i) = 1 AND (TRIM$(VARIABLES(i).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
                 tempindex = tempindex + 1
                 IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
                     SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
@@ -3264,7 +3278,7 @@ SUB PROCESSFILE
     FOR sf.Var = 1 TO TOTALVARIABLES
         IF ASC(AddedList$, sf.Var) = 1 THEN
             tempindex.SFvar = tempindex.SFvar + 1
-            IF TRIM$(VARIABLES(sf.Var).SCOPE) = CurrentSubFunc$ THEN
+            IF TRIM$(VARIABLES(sf.Var).SCOPE) = CurrentSubFunc$ OR TRIM$(VARIABLES(sf.Var).SCOPE) = "SHARED" THEN
                 IF INSTR(VARIABLES(sf.Var).DATATYPE, "STRING") THEN
                     PRINT #OutputFile, "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex.SFvar)) + ").VALUE = " + TRIM$(VARIABLES(sf.Var).NAME)
                 ELSE
@@ -3294,7 +3308,7 @@ SUB PROCESSFILE
     FOR sf.Var = 1 TO TOTALVARIABLES
         IF ASC(AddedList$, sf.Var) = 1 THEN
             tempindex.SFvar = tempindex.SFvar + 1
-            IF INSTR(TRIM$(VARIABLES(sf.Var).SCOPE), CurrentSubFunc$) > 0 THEN
+            IF INSTR(TRIM$(VARIABLES(sf.Var).SCOPE), CurrentSubFunc$) > 0 OR TRIM$(VARIABLES(sf.Var).SCOPE) = "SHARED" THEN
                 IF INSTR(VARIABLES(sf.Var).DATATYPE, "STRING") THEN
                     PRINT #OutputFile, "    CASE " + LTRIM$(STR$(tempindex.SFvar)) + ": " + TRIM$(VARIABLES(sf.Var).NAME) + " = vwatch64_EXCHANGEDATA"
                 ELSE
@@ -4773,25 +4787,6 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, DataType AS STRING, InitialValue AS STRIN
         prevlinebreak = lineBreak + 1
     LOOP
 
-    'IF INSTR(UCASE$(DataType), "STRING") > 0 THEN DataType = "STRING"
-    'SELECT CASE UCASE$(TRIM$(DataType))
-    '    CASE "_BIT"
-    '    CASE "_UNSIGNED _BIT"
-    '    CASE "_BYTE"
-    '    CASE "_UNSIGNED _BUTE"
-    '    CASE "INTEGER"
-    '    CASE "_UNSIGNED INTEGER"
-    '    CASE "LONG"
-    '    CASE "_UNSIGNED LONG"
-    '    CASE "_INTEGER64"
-    '    CASE "_UNSIGNED _INTEGER64"
-    '    CASE "SINGLE"
-    '    CASE "DOUBLE"
-    '    CASE "_FLOAT"
-    '    CASE "STRING"
-    'END SELECT
-
-
     Cursor = LEN(NewValue)
     Selection.Start = 0
     Selected = -1
@@ -4840,11 +4835,37 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, DataType AS STRING, InitialValue AS STRIN
         LINE (DialogX + 3, DialogY + 3 + _FONTHEIGHT * (3 + totalLines))-STEP(DialogW - 10, _FONTHEIGHT + 4), _RGB32(200, 200, 200), BF
         _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * (3 + totalLines)), MID$(NewValue, InputViewStart, FieldArea)
 
+        'Selection highlight:
+        IF Selected THEN
+            s1 = Selection.Start
+            s2 = Cursor
+            IF s1 > s2 THEN
+                SWAP s1, s2
+                IF InputViewStart > 1 THEN
+                    ss1 = s1 - InputViewStart + 1
+                ELSE
+                    ss1 = s1
+                END IF
+                ss2 = s2 - s1
+                IF ss1 + ss2 > FieldArea THEN ss2 = FieldArea - ss1
+            ELSE
+                ss1 = s1
+                ss2 = s2 - s1
+                IF ss1 < InputViewStart THEN ss1 = 0: ss2 = s2 - InputViewStart + 1
+                IF ss1 > InputViewStart THEN ss1 = ss1 - InputViewStart + 1: ss2 = s2 - s1
+            END IF
+            Selection.Value$ = MID$(NewValue, s1 + 1, s2 - s1)
+
+            LINE (DialogX + 5 + ss1 * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(ss2 * CharW, _FONTHEIGHT), _RGBA32(255, 255, 255, 150), BF
+        END IF
+
         'Cursor:
-        cursorBlink% = cursorBlink% + 1
-        IF cursorBlink% > 150 THEN cursorBlink% = 1
-        IF cursorBlink% < 75 THEN
-            LINE (DialogX + 5 + (Cursor - (InputViewStart - 1)) * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(0, _FONTHEIGHT), _RGB32(0, 0, 0)
+        IF NOT Selected THEN
+            cursorBlink% = cursorBlink% + 1
+            IF cursorBlink% > 70 THEN cursorBlink% = 1
+            IF cursorBlink% < 35 THEN
+                LINE (DialogX + 5 + (Cursor - (InputViewStart - 1)) * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(0, _FONTHEIGHT), _RGB32(0, 0, 0)
+            END IF
         END IF
 
         'Draw buttons
@@ -4874,55 +4895,108 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, DataType AS STRING, InitialValue AS STRIN
             CASE 32 TO 126 'Printable ASCII characters
                 IF k = ASC("v") OR k = ASC("V") THEN
                     IF ctrlDown THEN
-                        Clip$ = TRUNCATE$(_CLIPBOARD$, LF)
+                        Clip$ = TRUNCATE$(_CLIPBOARD$, 13)
+                        Clip$ = TRUNCATE$(Clip$, 10)
                         IF LEN(TRIM$(Clip$)) > 0 THEN
-                            IF Cursor = LEN(NewValue) THEN
-                                NewValue = NewValue + Clip$
-                                Cursor = LEN(NewValue)
+                            IF NOT Selected THEN
+                                IF Cursor = LEN(NewValue) THEN
+                                    NewValue = NewValue + Clip$
+                                    Cursor = LEN(NewValue)
+                                ELSE
+                                    NewValue = LEFT$(NewValue, Cursor) + Clip$ + MID$(NewValue, Cursor + 1)
+                                    Cursor = Cursor + LEN(Clip$)
+                                END IF
                             ELSE
-                                NewValue = LEFT$(NewValue, Cursor) + Clip$ + MID$(NewValue, Cursor + 1)
-                                Cursor = Cursor + LEN(Clip$)
+                                s1 = Selection.Start
+                                s2 = Cursor
+                                IF s1 > s2 THEN SWAP s1, s2
+                                NewValue = LEFT$(NewValue, s1) + Clip$ + MID$(NewValue, s2 + 1)
+                                Cursor = s1 + LEN(Clip$)
+                                Selected = 0
                             END IF
                         END IF
+                        k = 0
+                    END IF
+                ELSEIF k = ASC("c") OR k = ASC("C") THEN
+                    IF ctrlDown THEN
+                        _CLIPBOARD$ = Selection.Value$
+                        k = 0
+                    END IF
+                ELSEIF k = ASC("x") OR k = ASC("X") THEN
+                    IF ctrlDown THEN
+                        _CLIPBOARD$ = Selection.Value$
+                        GOSUB DeleteSelection
+                        k = 0
+                    END IF
+                ELSEIF k = ASC("a") OR k = ASC("A") THEN
+                    IF ctrlDown THEN
+                        Cursor = LEN(NewValue)
+                        Selection.Start = 0
+                        Selected = -1
                         k = 0
                     END IF
                 END IF
 
                 IF k > 0 THEN
-                    IF Cursor = LEN(NewValue) THEN
-                        NewValue = NewValue + CHR$(k)
-                        Cursor = Cursor + 1
+                    IF NOT Selected THEN
+                        IF Cursor = LEN(NewValue) THEN
+                            NewValue = NewValue + CHR$(k)
+                            Cursor = Cursor + 1
+                        ELSE
+                            NewValue = LEFT$(NewValue, Cursor) + CHR$(k) + MID$(NewValue, Cursor + 1)
+                            Cursor = Cursor + 1
+                        END IF
+                        IF Cursor > FieldArea THEN InputViewStart = (Cursor - FieldArea) + 2
                     ELSE
-                        NewValue = LEFT$(NewValue, Cursor) + CHR$(k) + MID$(NewValue, Cursor + 1)
-                        Cursor = Cursor + 1
+                        s1 = Selection.Start
+                        s2 = Cursor
+                        IF s1 > s2 THEN SWAP s1, s2
+                        NewValue = LEFT$(NewValue, s1) + CHR$(k) + MID$(NewValue, s2 + 1)
+                        Selected = 0
+                        Cursor = s1 + 1
                     END IF
-                    IF Cursor > FieldArea THEN InputViewStart = (Cursor - FieldArea) + 2
                 END IF
             CASE 8 'Backspace
                 IF LEN(NewValue) > 0 THEN
-                    IF Cursor = LEN(NewValue) THEN
-                        NewValue = LEFT$(NewValue, LEN(NewValue) - 1)
-                        Cursor = Cursor - 1
-                    ELSEIF Cursor > 1 THEN
-                        NewValue = LEFT$(NewValue, Cursor - 1) + MID$(NewValue, Cursor + 1)
-                        Cursor = Cursor - 1
-                    ELSEIF Cursor = 1 THEN
-                        NewValue = RIGHT$(NewValue, LEN(NewValue) - 1)
-                        Cursor = Cursor - 1
+                    IF NOT Selected THEN
+                        IF Cursor = LEN(NewValue) THEN
+                            NewValue = LEFT$(NewValue, LEN(NewValue) - 1)
+                            Cursor = Cursor - 1
+                        ELSEIF Cursor > 1 THEN
+                            NewValue = LEFT$(NewValue, Cursor - 1) + MID$(NewValue, Cursor + 1)
+                            Cursor = Cursor - 1
+                        ELSEIF Cursor = 1 THEN
+                            NewValue = RIGHT$(NewValue, LEN(NewValue) - 1)
+                            Cursor = Cursor - 1
+                        END IF
+                    ELSE
+                        GOSUB DeleteSelection
                     END IF
                 END IF
             CASE 21248 'Delete
-                IF LEN(NewValue) > 0 THEN
-                    IF Cursor = 0 THEN
-                        NewValue = RIGHT$(NewValue, LEN(NewValue) - 1)
-                    ELSEIF Cursor > 0 AND Cursor <= LEN(NewValue) - 1 THEN
-                        NewValue = LEFT$(NewValue, Cursor) + MID$(NewValue, Cursor + 2)
+                IF NOT Selected THEN
+                    IF LEN(NewValue) > 0 THEN
+                        IF Cursor = 0 THEN
+                            NewValue = RIGHT$(NewValue, LEN(NewValue) - 1)
+                        ELSEIF Cursor > 0 AND Cursor <= LEN(NewValue) - 1 THEN
+                            NewValue = LEFT$(NewValue, Cursor) + MID$(NewValue, Cursor + 2)
+                        END IF
                     END IF
+                ELSE
+                    GOSUB DeleteSelection
                 END IF
-            CASE 19200
+            CASE 19200 'Left arrow key
+                GOSUB CheckSelection
                 IF Cursor > 0 THEN Cursor = Cursor - 1
-            CASE 19712
+            CASE 19712 'Right arrow key
+                GOSUB CheckSelection
                 IF Cursor < LEN(NewValue) THEN Cursor = Cursor + 1
+            CASE 18176 'Home
+                GOSUB CheckSelection
+                Cursor = 0
+            CASE 20224 'End
+                GOSUB CheckSelection
+                Cursor = LEN(NewValue)
         END SELECT
 
         'Cursor adjustments:
@@ -4943,6 +5017,24 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, DataType AS STRING, InitialValue AS STRIN
     PCOPY 1, 0
 
     EXIT SUB
+
+    CheckSelection:
+    IF shiftDown = -1 THEN
+        IF Selected = 0 THEN
+            Selected = -1
+            Selection.Start = Cursor
+        END IF
+    ELSEIF shiftDown = 0 THEN
+        Selected = 0
+    END IF
+    RETURN
+
+    DeleteSelection:
+    NewValue = LEFT$(NewValue, s1) + MID$(NewValue, s2 + 1)
+    Selected = 0
+    Cursor = s1
+    RETURN
+
     CheckButtons:
     'Hover highlight:
     WHILE _MOUSEINPUT: WEND
