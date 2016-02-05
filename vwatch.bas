@@ -3119,7 +3119,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
     PRINT #OutputFile, "        'It is safe to change the client's title at this point because"
     PRINT #OutputFile, "        'it's the first line to be run so no _TITLE has yet been set."
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run; F8 to step through;" + Q$
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
+    PRINT #OutputFile, "        _PRINTSTRING(_WIDTH \ 2 - LEN(" + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$ + ") \ 2, _HEIGHT \ 2), " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
     PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
     PRINT #OutputFile, "        DO: _LIMIT 500"
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
@@ -3129,7 +3130,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                vwatch64_BREAKPOINT.LINENUMBER = 0"
     PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
     PRINT #OutputFile, "                FirstRunDone = -1"
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
@@ -3143,7 +3144,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            StepMode = -1"
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
     PRINT #OutputFile, "        FirstRunDone = -1"
     PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
