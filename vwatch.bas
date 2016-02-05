@@ -22,7 +22,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".953b"
+CONST VERSION = ".954b"
 
 CONST TIMEOUTLIMIT = 5 'SECONDS
 
@@ -1470,13 +1470,13 @@ SUB VARIABLE_VIEW
                 'Edit
                 IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                     Message$ = ""
-                    Message$ = Message$ + "Cannot edit " + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + " (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
+                    Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
                     Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
                     MESSAGEBOX_RESULT = MESSAGEBOX("Out of scope", Message$, OK_ONLY, 1, -1)
                 ELSE
                     DataType$ = VARIABLES(ContextualMenuLineRef).DATATYPE
                     Message$ = "New value for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")"
-                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, DataType$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$)
+                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$)
                     IF MESSAGEBOX_RESULT = 1 THEN
                         'Send to the client:
                         '1- Variable index to change;
@@ -3715,13 +3715,10 @@ SUB SETUP_CONNECTION
     CLS , _RGB32(255, 255, 255)
     'Connected! Check if client is compatible:
     IF HEADER.CLIENT_ID <> ID OR HEADER.VERSION <> VERSION THEN
-        SYSTEM_BEEP 0
-        PRINT "Client not compatible."
-        PRINT "Attempted connection by client with ID "; CHR$(34); HEADER.CLIENT_ID + CHR$(34)
-        PRINT "Reported version: "; HEADER.VERSION
-        PRINT "Press any key to go back..."
-        _DISPLAY
-        SLEEP
+        Message$ = ""
+        Message$ = Message$ + "Attempted connection by client with ID " + CHR$(34) + HEADER.CLIENT_ID + CHR$(34) + CHR$(LF)
+        Message$ = Message$ + "Reported version: " + HEADER.VERSION
+        MESSAGEBOX_RESULT = MESSAGEBOX("Client not compatible", Message$, OK_ONLY, 1, 0)
         GOTO StartSetup
     END IF
 
@@ -4753,10 +4750,9 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
 END FUNCTION
 
 '------------------------------------------------------------------------------
-FUNCTION INPUTBOX (tTitle$, tMessage$, DataType AS STRING, InitialValue AS STRING, NewValue AS STRING)
+FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRING)
     'Show a dialog and allow user input. Returns 1 = OK or 2 = Cancel.
-    'ReturnValue is always a string: either text or a numeric value
-    'converted using _MK$ based on the DataType informed.
+    'ReturnValue is always a string: caller procedure must convert it.
     Message$ = tMessage$
     Title$ = TRIM$(tTitle$)
     IF Title$ = "" THEN Title$ = ID
