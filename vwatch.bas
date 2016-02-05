@@ -2278,11 +2278,11 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
                 ELSE
                     IF MainModule = 0 AND PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "GOSUB vwatch64_VARIABLEWATCH"
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
                     END IF
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ": vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines))
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines))
                         GOSUB AddNextLineData
                     END IF
                 END IF
@@ -3136,6 +3136,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            k = _KEYHIT"
     PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
+    PRINT #OutputFile, "            _KEYCLEAR"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
@@ -3164,6 +3165,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            k = _KEYHIT"
     PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
+    PRINT #OutputFile, "            _KEYCLEAR"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
