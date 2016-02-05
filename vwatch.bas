@@ -5052,7 +5052,7 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, DataType AS STRING, InitialValue AS STRIN
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
-                    WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
+                    WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
                     mb = 0: mx = _MOUSEX: my = _MOUSEY
                     DIALOGRESULT = cb
                     RETURN
