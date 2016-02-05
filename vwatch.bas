@@ -3342,6 +3342,7 @@ SUB PROCESSFILE
         caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, -1)
         NextVar$ = UCASE$(caseBkpNextVar$)
         IF NextVar$ = "" THEN EXIT DO
+        IF TRIM$(NextVar$) = "STATIC" THEN GOTO StaticIsNotAParameter
 
         IF INSTR(NextVar$, " AS ") = 0 THEN
             'Attempt to infer DATA TYPE from suffixes:
@@ -3385,6 +3386,7 @@ SUB PROCESSFILE
                 'UDTs as parameters are ignored, as they will have already been defined elsewhere.
             END IF
         END IF
+        StaticIsNotAParameter:
     LOOP
     RETURN
 
