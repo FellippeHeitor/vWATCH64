@@ -304,6 +304,7 @@ SUB SOURCE_VIEW
 
     STATIC SearchIn
     STATIC PrevSearchIn, PrevFilter$
+    STATIC RunToThisLine AS LONG
 
     TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -334,9 +335,19 @@ SUB SOURCE_VIEW
         GET #FILE, CLIENTBLOCK, CLIENT
         FIND_CURRENTMODULE
         PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+
         IF CLIENT.LINENUMBER <> prevLineNumber THEN
             prevLineNumber = CLIENT.LINENUMBER
-            IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
+            IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+                STEPMODE = -1
+                SetPause# = TIMER
+                ShowPauseIcon = -1
+                ShowRunIcon = 0
+            END IF
+            IF CLIENT.LINENUMBER = RunToThisLine THEN
+                ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
+                RunToThisLine = 0
+            END IF
         END IF
 
         GOSUB UpdateList
@@ -510,6 +521,7 @@ SUB SOURCE_VIEW
             TRACE = 0
         CASE 16128 'F5
             RunButton_Click:
+            IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1: ShowPauseIcon = 0
             STEPMODE = 0
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
@@ -528,6 +540,7 @@ SUB SOURCE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
+            IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
             STEPMODE = -1
             TRACE = -1
             BREAKPOINT.ACTION = NEXTSTEP
@@ -808,12 +821,14 @@ SUB SOURCE_VIEW
     _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 2), ButtonLine$
     COLOR _RGB32(0, 0, 0)
 
+    PCOPY 0, 1
+
     'Show 'nonexecutable statement' message
     IF ShowTempMessage THEN
         FadeStep# = (TIMER - TempMessage.Start#)
         IF (FadeStep# <= 1.5) THEN
             IF FadeStep# < 1 THEN FadeStep# = 0
-            LINE (TempMessage.X, TempMessage.Y)-STEP(TempMessage.W - 1, TempMessage.H - 1), _RGBA32(0, 178, 179, 255 - (170 * FadeStep#)), BF
+            LINE (TempMessage.X, TempMessage.Y)-STEP(TempMessage.W - 1, TempMessage.H - 1), _RGBA32(0, 178, 179, 255 - (255 * FadeStep#)), BF
             COLOR _RGBA32(0, 0, 0, 255 - (170 * FadeStep#))
             _PRINTSTRING (TempMessage.X, TempMessage.Y + 4), TempMessage$
             COLOR _RGBA32(255, 255, 255, 255 - (170 * FadeStep#))
@@ -824,7 +839,38 @@ SUB SOURCE_VIEW
         END IF
     END IF
 
-    PCOPY 0, 1
+    'Show pause icon.
+    IF ShowPauseIcon THEN
+        PauseFadeStep# = TIMER - SetPause#
+        IF (PauseFadeStep# <= .75) THEN
+            PauseIconBar.W = 30
+            PauseIconBar.H = 100
+            PauseIcon.X = _WIDTH / 2 - (PauseIconBar.W * 2.5) / 2
+            PauseIcon.Y = _HEIGHT / 2 - PauseIconBar.H / 2
+
+            LINE (PauseIcon.X, PauseIcon.Y)-STEP(PauseIconBar.W - 1, PauseIconBar.H - 1), _RGBA32(0, 178, 179, 255 - (340 * PauseFadeStep#)), BF
+            LINE (PauseIcon.X + (PauseIconBar.W * 1.5), PauseIcon.Y)-STEP(PauseIconBar.W - 1, PauseIconBar.H - 1), _RGBA32(0, 178, 179, 255 - (340 * PauseFadeStep#)), BF
+        ELSE
+            ShowPauseIcon = 0
+        END IF
+    END IF
+
+    'Show run icon.
+    IF ShowRunIcon THEN
+        RunFadeStep# = TIMER - SetRun#
+        IF (RunFadeStep# <= .75) THEN
+            RunIcon.H = 100
+            RunIcon.W = 75
+            RunIcon.X = _WIDTH / 2 - RunIcon.W / 2
+            RunIcon.Y = _HEIGHT / 2 - RunIcon.H / 2
+
+            FOR DrawRunIcon = RunIcon.Y TO RunIcon.Y + RunIcon.H
+                LINE (RunIcon.X, DrawRunIcon)-(RunIcon.X + RunIcon.W, RunIcon.Y + RunIcon.H / 2), _RGBA32(0, 178, 179, 255 - (340 * RunFadeStep#))
+            NEXT
+        ELSE
+            ShowRunIcon = 0
+        END IF
+    END IF
 
     'Show contextual menu
     IF ShowContextualMenu THEN
@@ -842,8 +888,9 @@ SUB SOURCE_VIEW
     END IF
     '...if a breakpoint is set,...
     IF ASC(BREAKPOINTLIST, i) = 1 THEN
-        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
-        COLOR _RGB32(255, 255, 255)
+        BreakpointColor~& = _RGBA32(200, 0, 0, 200): COLOR _RGB32(255, 255, 255)
+        IF i = RunToThisLine THEN BreakpointColor~& = _RGBA32(255, 255, 0, 200): COLOR _RGB32(0, 0, 0)
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), BreakpointColor~&, BF
     END IF
     '...and if it was right-clicked before.
     IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
@@ -906,6 +953,16 @@ SUB SOURCE_VIEW
                         ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                     END IF
+                ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
+                    'Run to this line
+                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
+                        RunToThisLine = 0
+                    ELSE
+                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
+                        RunToThisLine = ContextualMenuLineRef
+                    END IF
+                    Clicked = -1
+                    GOSUB RunButton_Click
                 END IF
             ELSEIF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
                 'Click on source lines
@@ -960,7 +1017,7 @@ SUB SOURCE_VIEW
                 ContextualMenu.printY = printY
                 ContextualMenu.FilteredList$ = FilteredList$
                 ContextualMenu.W = _PRINTWIDTH(" Set next statement ") + 6
-                ContextualMenu.H = _FONTHEIGHT * 2.5
+                ContextualMenu.H = _FONTHEIGHT * 3.5
                 ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
                 ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
             END IF
@@ -997,11 +1054,14 @@ SUB SOURCE_VIEW
                 LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                 LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
+            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
+                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT * 2)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
             END IF
         END IF
 
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set next statement "
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1, " Clear breakpoint   ", " Set breakpoint     ")
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 2), " Run to this line   "
     ELSE
         Clicked = 0
         IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
@@ -1156,6 +1216,7 @@ SUB VARIABLE_VIEW
             END IF
         CASE 16128 'F5
             RunButton_Click:
+            IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1
             STEPMODE = 0
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
@@ -1167,6 +1228,7 @@ SUB VARIABLE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
+            IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1
             STEPMODE = -1
             BREAKPOINT.ACTION = NEXTSTEP
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
@@ -1349,7 +1411,7 @@ SUB VARIABLE_VIEW
     '  VARIABLE VIEW: <F5 = Run> <F6 = View Source> <F8 = Step> <F9 = Toggle Breakpoint> <ESC = Exit>
     '  Next line: ####
     '  Filter:                                                              Total variables: 10 (showing 7)
-    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), 50), _RGB32(102, 255, 102), BF
+    LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), SCREEN_TOPBAR), _RGB32(102, 255, 102), BF
     LINE (0, 0)-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     ModeTitle$ = "VARIABLE VIEW: "
     _PRINTSTRING (5, 3), ModeTitle$
@@ -1423,6 +1485,39 @@ SUB VARIABLE_VIEW
     COLOR _RGB32(0, 0, 0)
 
     PCOPY 0, 1
+
+    'Show pause icon.
+    IF ShowPauseIcon THEN
+        PauseFadeStep# = TIMER - SetPause#
+        IF (PauseFadeStep# <= .75) THEN
+            PauseIconBar.W = 30
+            PauseIconBar.H = 100
+            PauseIcon.X = _WIDTH / 2 - (PauseIconBar.W * 2.5) / 2
+            PauseIcon.Y = _HEIGHT / 2 - PauseIconBar.H / 2
+
+            LINE (PauseIcon.X, PauseIcon.Y)-STEP(PauseIconBar.W - 1, PauseIconBar.H - 1), _RGBA32(0, 178, 179, 255 - (340 * PauseFadeStep#)), BF
+            LINE (PauseIcon.X + (PauseIconBar.W * 1.5), PauseIcon.Y)-STEP(PauseIconBar.W - 1, PauseIconBar.H - 1), _RGBA32(0, 178, 179, 255 - (340 * PauseFadeStep#)), BF
+        ELSE
+            ShowPauseIcon = 0
+        END IF
+    END IF
+
+    'Show run icon.
+    IF ShowRunIcon THEN
+        RunFadeStep# = TIMER - SetRun#
+        IF (RunFadeStep# <= .75) THEN
+            RunIcon.H = 100
+            RunIcon.W = 75
+            RunIcon.X = _WIDTH / 2 - RunIcon.W / 2
+            RunIcon.Y = _HEIGHT / 2 - RunIcon.H / 2
+
+            FOR DrawRunIcon = RunIcon.Y TO RunIcon.Y + RunIcon.H
+                LINE (RunIcon.X, DrawRunIcon)-(RunIcon.X + RunIcon.W, RunIcon.Y + RunIcon.H / 2), _RGBA32(0, 178, 179, 255 - (340 * RunFadeStep#))
+            NEXT
+        ELSE
+            ShowRunIcon = 0
+        END IF
+    END IF
 
     'Show contextual menu
     IF ShowContextualMenu THEN
