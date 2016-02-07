@@ -1,4 +1,4 @@
-'Pointless code, made just for testing of vWATCH64
+'Pointless code, made just for testing vWATCH64
 'After you compile vWATCH64, drag this .bas file into vwatch.exe
 'to trace its execution, run it line by line and also monitor
 'the values of the variables below in real time.
