@@ -576,6 +576,8 @@ SUB SOURCE_VIEW
                 IF MESSAGEBOX_RESULT = MB_YES THEN
                     ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
                     WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
+                    PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
+                    PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
                 END IF
             END IF
             IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1: ShowPauseIcon = 0
@@ -1335,6 +1337,8 @@ SUB VARIABLE_VIEW
                 IF MESSAGEBOX_RESULT = MB_YES THEN
                     ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
                     WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
+                    PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
+                    PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
                 END IF
             END IF
             IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1
