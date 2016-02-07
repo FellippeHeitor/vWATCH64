@@ -487,6 +487,14 @@ SUB SOURCE_VIEW
                         IF LEFT$(DesiredSourceLine$, 6) = "REDIM " THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 6) = "CONST " THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 7) = "STATIC " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 7) = "DEFINT " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 7) = "DEFLNG " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 7) = "DEFSTR " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 7) = "DEFSNG " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 7) = "DEFDBL " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 8) = "DECLARE " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 8) = "_DEFINE " THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 11) = "END DECLARE" THEN CanGo = 3
                         IF CanGo = -1 THEN
                             IF TRIM$(CLIENT_CURRENTMODULE) = "MAIN MODULE" THEN
                                 CanGo = -1
@@ -542,13 +550,13 @@ SUB SOURCE_VIEW
             END IF
         CASE 27 'ESC clears the current search filter or exits interactive mode
             ExitButton_Click:
-            IF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
+            IF ShowContextualMenu THEN
+                ShowContextualMenu = 0
+            ELSEIF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
                 Filter$ = ""
             ELSEIF SearchIn = SETNEXT THEN
                 SearchIn = PrevSearchIn
                 Filter$ = PrevFilter$
-            ELSEIF ShowContextualMenu THEN
-                ShowContextualMenu = 0
             ELSE
                 CLOSE_SESSION = -1
             END IF
@@ -878,7 +886,12 @@ SUB SOURCE_VIEW
     IF ShowTempMessage THEN
         FadeStep# = (TIMER - TempMessage.Start#)
         IF (FadeStep# <= 1.5) THEN
-            IF FadeStep# < 1 THEN FadeStep# = 0
+            IF FadeStep# < 1 THEN
+                FadeStep# = 0
+                FOR popup.Shadow# = 0 TO 5 STEP .5
+                    LINE (TempMessage.X + popup.Shadow#, TempMessage.Y + popup.Shadow#)-STEP(TempMessage.W - 1, TempMessage.H - 1), _RGBA32(170, 170, 170, 170 - (34 * popup.Shadow#)), BF
+                NEXT popup.Shadow#
+            END IF
             LINE (TempMessage.X, TempMessage.Y)-STEP(TempMessage.W - 1, TempMessage.H - 1), _RGBA32(0, 178, 179, 255 - (255 * FadeStep#)), BF
             COLOR _RGBA32(0, 0, 0, 255 - (170 * FadeStep#))
             _PRINTSTRING (TempMessage.X, TempMessage.Y + 4), TempMessage$
@@ -985,6 +998,22 @@ SUB SOURCE_VIEW
             GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
             GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFINT " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFLNG " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSTR " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSNG " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFDBL " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 8) = "DECLARE " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 8) = "_DEFINE " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 11) = "END DECLARE" THEN
+            GOSUB TurnOnNonexecutableMessage
         ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
             GOSUB TurnOnNonexecutableMessage
         ELSE
@@ -1056,6 +1085,22 @@ SUB SOURCE_VIEW
         ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
             GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFINT " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFLNG " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSTR " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSNG " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFDBL " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 8) = "DECLARE " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 8) = "_DEFINE " THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF LEFT$(temp.SourceLine$, 11) = "END DECLARE" THEN
             GOSUB TurnOnNonexecutableMessage
         ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
             GOSUB TurnOnNonexecutableMessage
@@ -1243,7 +1288,7 @@ SUB VARIABLE_VIEW
         mb2 = _MOUSEBUTTON(2)
     LOOP WHILE _MOUSEINPUT
 
-    IF my < SCREEN_TOPBAR AND ShowContextualMenu THEN ShowContextualMenu = 0
+    IF my < SCREEN_TOPBAR AND (ShowContextualMenu OR ShowPopupWatchpoint) THEN ShowContextualMenu = 0: ShowPopupWatchpoint = 0
 
     SELECT EVERYCASE k
         CASE 86, 118 'V
@@ -1265,10 +1310,10 @@ SUB VARIABLE_VIEW
             END SELECT
         CASE 27 'ESC clears the current search filter or exits MONITOR_MODE
             ExitButton_Click:
-            IF LEN(Filter$) THEN
-                Filter$ = ""
-            ELSEIF ShowContextualMenu THEN
+            IF ShowContextualMenu THEN
                 ShowContextualMenu = 0
+            ELSEIF LEN(Filter$) THEN
+                Filter$ = ""
             ELSE
                 CLOSE_SESSION = -1
             END IF
@@ -1565,6 +1610,9 @@ SUB VARIABLE_VIEW
 
     'Show watchpoint hover popup
     IF ShowPopupWatchpoint THEN
+        FOR popup.Shadow# = 0 TO 5 STEP .5
+            LINE (PopupWatchpoint.X + popup.Shadow#, PopupWatchpoint.Y + popup.Shadow#)-STEP(PopupWatchpoint.W - 1, PopupWatchpoint.H - 1), _RGBA32(170, 170, 170, 170 - (34 * popup.Shadow#)), BF
+        NEXT popup.Shadow#
         LINE (PopupWatchpoint.X, PopupWatchpoint.Y)-STEP(PopupWatchpoint.W - 1, PopupWatchpoint.H - 1), _RGB32(0, 178, 179), BF
         _PRINTSTRING (PopupWatchpoint.X, PopupWatchpoint.Y + 4), WatchpointPopup$
     END IF
@@ -1616,7 +1664,7 @@ SUB VARIABLE_VIEW
     IF VARIABLE_HIGHLIGHT THEN
         vs$ = TRIM$(VARIABLES(i).NAME)
         IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
-        IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT_CURRENTMODULE)) > 0 OR INSTR(TRIM$(VARIABLES(i).SCOPE), " SHARED") > 0) THEN
+        IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT_CURRENTMODULE)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
             LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
         END IF
     END IF
@@ -2517,6 +2565,14 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 6) = "REDIM " THEN
                 ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
+                ELSEIF LEFT$(SourceLine, 7) = "DEFINT " THEN
+                ELSEIF LEFT$(SourceLine, 7) = "DEFLNG " THEN
+                ELSEIF LEFT$(SourceLine, 7) = "DEFSTR " THEN
+                ELSEIF LEFT$(SourceLine, 7) = "DEFSNG " THEN
+                ELSEIF LEFT$(SourceLine, 7) = "DEFDBL " THEN
+                ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
+                ELSEIF LEFT$(SourceLine, 8) = "_DEFINE " THEN
+                ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
                 ELSE
                     IF MainModule = 0 AND PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
@@ -2881,14 +2937,14 @@ SUB PROCESSFILE
             InBetweenSubs = -1
             CurrentSubFunc$ = ""
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_HEADER.CONNECTED = 0"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    PUT #vwatch64_CLIENTFILE, 1, vwatch64_HEADER"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END IF"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "CLOSE #vwatch64_CLIENTFILE"
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO vwatch64_FILEERROR"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO 0"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSE
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
@@ -3169,7 +3225,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        ELSE"
     PRINT #OutputFile, "            _TITLE " + Q$ + "LOGGING STARTED!" + Q$
     PRINT #OutputFile, "            OPEN " + Q$ + _CWD$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
-    PRINT #OutputFile, "             PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
+    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
     PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
     PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
     PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
@@ -3307,7 +3363,9 @@ SUB PROCESSFILE
         PRINT #OutputFile, "    END IF"
         PRINT #OutputFile, ""
         PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
+        PRINT #OutputFile, "    ON ERROR GOTO vwatch64_CLIENTFILEERROR"
         PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLEDATA().VALUE"
+        PRINT #OutputFile, "    ON ERROR GOTO 0"
         PRINT #OutputFile, "END SUB"
         PRINT #OutputFile, ""
     END IF
@@ -3347,6 +3405,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CLIENT.LINENUMBER = LineNumber"
+    PRINT #OutputFile, "    ON ERROR GOTO vwatch64_CLIENTFILEERROR"
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Check if step mode was initiated by the host:"
@@ -3384,6 +3443,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
     PRINT #OutputFile, "                FirstRunDone = -1"
+    PRINT #OutputFile, "                ON ERROR GOTO 0"
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            k = _KEYHIT"
@@ -3399,6 +3459,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
     PRINT #OutputFile, "        FirstRunDone = -1"
+    PRINT #OutputFile, "        ON ERROR GOTO 0"
     PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
@@ -3413,6 +3474,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                vwatch64_BREAKPOINT.LINENUMBER = 0"
     PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "                ON ERROR GOTO 0"
     PRINT #OutputFile, "                EXIT FUNCTION"
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            k = _KEYHIT"
@@ -3427,6 +3489,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
+    PRINT #OutputFile, "    ON ERROR GOTO 0"
     PRINT #OutputFile, "    EXIT FUNCTION"
     PRINT #OutputFile, "    vwatch64_PING:"
     PRINT #OutputFile, "    'Check if connection is still alive on host's end"
@@ -3613,6 +3676,10 @@ SUB PROCESSFILE
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_FILEERROR:"
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME NEXT"
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_CLIENTFILEERROR:"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "IF vwatch64_HEADER.CONNECTED THEN OPEN " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RESUME"
+    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     RETURN
 
     AddSFVariableWatchCode:
@@ -3638,6 +3705,7 @@ SUB PROCESSFILE
     AddSetVarCode:
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_SETVARIABLE:"
+    PRINT #OutputFile, "ON ERROR GOTO vwatch64_CLIENTFILEERROR"
     PRINT #OutputFile, "GET #vwatch64_CLIENTFILE, vwatch64_EXCHANGEBLOCK, vwatch64_EXCHANGEDATASIZE$4"
     PRINT #OutputFile, "vwatch64_TARGETVARINDEX = CVL(vwatch64_EXCHANGEDATASIZE$4)"
     PRINT #OutputFile, "GET #vwatch64_CLIENTFILE, , vwatch64_EXCHANGEDATASIZE$4"
@@ -3645,6 +3713,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "GET #vwatch64_CLIENTFILE, , vwatch64_EXCHANGEDATA"
     PRINT #OutputFile, "vwatch64_BREAKPOINT.ACTION = vwatch64_READY"
     PRINT #OutputFile, "PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
+    PRINT #OutputFile, "ON ERROR GOTO 0"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "SELECT CASE vwatch64_TARGETVARINDEX"
     tempindex.SFvar = 0
