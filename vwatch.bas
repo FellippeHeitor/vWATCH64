@@ -61,7 +61,6 @@ TYPE HEADERTYPE
     RESPONSE AS _BYTE
     HOST_PING AS _BYTE
     CLIENT_PING AS _BYTE
-    HISTORY_LOG AS _BYTE
 END TYPE
 
 TYPE CLIENTTYPE
@@ -2296,7 +2295,6 @@ SUB PROCESSFILE
     DIM BIFileName AS STRING
     DIM BMFile AS INTEGER
     DIM BMFileName AS STRING
-    DIM LOGFileName AS STRING
     DIM SourceLine AS STRING
     DIM caseBkpSourceLine AS STRING
     DIM TotalLocalVariables AS INTEGER
@@ -2370,7 +2368,6 @@ SUB PROCESSFILE
             IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
         LOOP
     END IF
-    LOGFileName = PATHONLY$(FILENAME$) + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ".log"
 
     'Process dialog:
     '-----------------------------------------------------------
@@ -3043,7 +3040,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    RESPONSE AS _BYTE"
     PRINT #OutputFile, "    HOST_PING AS _BYTE"
     PRINT #OutputFile, "    CLIENT_PING AS _BYTE"
-    PRINT #OutputFile, "    HISTORY_LOG AS _BYTE"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_CLIENTTYPE"
@@ -3083,7 +3079,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_CLIENT AS vwatch64_CLIENTTYPE"
     PRINT #OutputFile, "DIM SHARED vwatch64_CLIENTBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_CLIENTFILE AS INTEGER"
-    PRINT #OutputFile, "DIM SHARED vwatch64_LOGFILE AS INTEGER"
     PRINT #OutputFile, "DIM SHARED vwatch64_DATAINFOBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_DATABLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEBLOCK AS LONG"
@@ -3094,7 +3089,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_LOF AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BIT"
     PRINT #OutputFile, "DIM SHARED vwatch64_LAST_PING#"
-    PRINT #OutputFile, "DIM SHARED vwatch64_LOGOPEN AS _BIT"
     PRINT #OutputFile, "DIM SHARED vwatch64_NEXTLINE AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_TARGETVARINDEX AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEDATASIZE$4"
@@ -3105,7 +3099,6 @@ SUB PROCESSFILE
         PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLEDATA(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLEVALUETYPE"
         PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTLIST AS STRING *" + STR$(TotalSelected)
         PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINT(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLEVALUETYPE"
-        PRINT #OutputFile, "DIM SHARED vwatch64_PREVVARIABLES(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 THEN
@@ -3164,9 +3157,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
-    PRINT #OutputFile, "    vwatch64_LOGFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
-    PRINT #OutputFile, "    IF vwatch64_LOGFILE = vwatch64_CLIENTFILE THEN vwatch64_LOGFILE = vwatch64_LOGFILE + 1"
-    PRINT #OutputFile, "    'You may be wondering why such random file numbers..."
     PRINT #OutputFile, "    OPEN " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Check if a connection is already active"
@@ -3210,12 +3200,10 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'Wait for authorization:"
     PRINT #OutputFile, "    vwatch64_WAITSTART# = TIMER"
     PRINT #OutputFile, "    DO: _LIMIT 30"
-    'PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64 (F4 to cancel and start logging)... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
     PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
     PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "        k = _KEYHIT"
     PRINT #OutputFile, "        IF k = 27 THEN EXIT DO"
-    PRINT #OutputFile, "        IF k = 15872 THEN vwatch64_HEADER.HISTORY_LOG = -1: EXIT DO"
     PRINT #OutputFile, "        IF TIMER - vwatch64_WAITSTART# > vwatch64_TIMEOUTLIMIT THEN EXIT DO"
     PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
     PRINT #OutputFile, ""
@@ -3224,18 +3212,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
     PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
     PRINT #OutputFile, "        KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-    PRINT #OutputFile, "        IF vwatch64_HEADER.HISTORY_LOG = 0 THEN"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "FAILED!" + Q$
-    PRINT #OutputFile, "        ELSE"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "LOGGING STARTED!" + Q$
-    PRINT #OutputFile, "            OPEN " + Q$ + _CWD$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #OutputFile, "            vwatch64_LOGOPEN = -1"
-    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "        ON ERROR GOTO 0"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "FAILED!" + Q$
     PRINT #OutputFile, "    ELSE"
     PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
@@ -3354,18 +3332,6 @@ SUB PROCESSFILE
                 END IF
             END IF
         NEXT i
-        PRINT #OutputFile, "    IF vwatch64_LOGOPEN = -1 THEN"
-        PRINT #OutputFile, "        FOR vwatch64_i = 1 TO " + LTRIM$(STR$(TotalSelected))
-        PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(vwatch64_i) <> vwatch64_VARIABLEDATA(vwatch64_i).VALUE THEN"
-        PRINT #OutputFile, "                vwatch64_PREVVARIABLES(vwatch64_i) = vwatch64_VARIABLEDATA(vwatch64_i).VALUE"
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, "
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "Value changed:" + Q$
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, SPACE$(4) + RTRIM$(vwatch64_VARIABLES(vwatch64_i).NAME) + " + Q$ + "(" + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).SCOPE) + " + Q$ + " " + Q$ + " + RTRIM$(vwatch64_VARIABLES(vwatch64_i).DATATYPE) + " + Q$ + ")" + Q$
-        PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, " + Q$ + "    = " + Q$ + " + RTRIM$(vwatch64_VARIABLEDATA(vwatch64_i).VALUE)"
-        PRINT #OutputFile, "            END IF"
-        PRINT #OutputFile, "        NEXT vwatch64_i"
-        PRINT #OutputFile, "    END IF"
-        PRINT #OutputFile, ""
         PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         PRINT #OutputFile, "    ON ERROR GOTO vwatch64_CLIENTFILEERROR"
         PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLEDATA().VALUE"
@@ -3376,33 +3342,14 @@ SUB PROCESSFILE
     PRINT #OutputFile, "FUNCTION vwatch64_CHECKBREAKPOINT&(LineNumber AS LONG)"
     PRINT #OutputFile, "    STATIC FirstRunDone AS _BIT"
     PRINT #OutputFile, "    STATIC StepMode AS _BIT"
-    PRINT #OutputFile, "    STATIC RunCount AS INTEGER"
     PRINT #OutputFile, "    DIM k AS LONG"
-    PRINT #OutputFile, ""
-    PRINT #OutputFile, "    IF vwatch64_HEADER.HISTORY_LOG = -1 THEN"
-    PRINT #OutputFile, "        IF vwatch64_LOGOPEN = 0 THEN"
-    PRINT #OutputFile, "            OPEN " + Q$ + _CWD$ + PATHSEP$ + NOPATH$(LOGFileName) + Q$ + " FOR APPEND AS vwatch64_LOGFILE"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "vWATCH64 v" + Q$ + "; vwatch64_VERSION"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Logging: " + FILENAME$ + Q$
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, " + Q$ + "Started: " + Q$ + "; DATE$, TIME$"
-    PRINT #OutputFile, "            PRINT #vwatch64_LOGFILE, STRING$(80, 45)"
-    PRINT #OutputFile, "            vwatch64_LOGOPEN = -1"
-    PRINT #OutputFile, "        END IF"
-    IF TotalSelected > 0 THEN
-        PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN vwatch64_VARIABLEWATCH"
-    END IF
-    PRINT #OutputFile, "        RunCount = RunCount + 1"
-    PRINT #OutputFile, "        PRINT #vwatch64_LOGFILE, STR$(LineNumber); "
-    PRINT #OutputFile, "        IF RunCount = 30 THEN RunCount = 0: PRINT #vwatch64_LOGFILE,"
-    PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
     PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN"
     PRINT #OutputFile, "            _DELAY .5"
     PRINT #OutputFile, "            _TITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "            FirstRunDone = -1"
-    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "            EXIT FUNCTION"
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    ELSE"
     PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT FUNCTION"
