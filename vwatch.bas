@@ -138,6 +138,7 @@ DIM SHARED TOTALBREAKPOINTS AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
 DIM SHARED TTFONT AS LONG
 DIM SHARED WATCHPOINTLIST AS STRING
+DIM SHARED WATCHPOINTBREAK AS LONG
 DIM SHARED PATHSEP$
 
 'File structure:
@@ -377,12 +378,15 @@ SUB SOURCE_VIEW
             END IF
 
             IF WATCHPOINT_COMMAND.ACTION = NEXTSTEP THEN
+                WATCHPOINTBREAK = WATCHPOINT_COMMAND.LINENUMBER
                 STEPMODE = -1
                 SetPause# = TIMER
                 ShowPauseIcon = -1
                 ShowRunIcon = 0
                 WATCHPOINT_COMMAND.ACTION = READY
+                WATCHPOINT_COMMAND.LINENUMBER = 0
                 PUT #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
+                VARIABLE_VIEW
             END IF
         END IF
 
@@ -557,8 +561,18 @@ SUB SOURCE_VIEW
             TRACE = 0
         CASE 16128 'F5
             RunButton_Click:
+            IF WATCHPOINTBREAK > 0 THEN
+                Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
+                Message$ = Message$ + "Clear it before resuming?"
+                MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
+                IF MESSAGEBOX_RESULT = MB_YES THEN
+                    ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
+                    WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
+                END IF
+            END IF
             IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1: ShowPauseIcon = 0
             STEPMODE = 0
+            WATCHPOINTBREAK = 0
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
             IF Clicked THEN Clicked = 0: RETURN
@@ -1074,8 +1088,8 @@ SUB SOURCE_VIEW
         END IF
         TempMessage.W = _PRINTWIDTH(TempMessage$) + 6
         TempMessage.H = _FONTHEIGHT * 1.5
-        TempMessage.X = mx: IF TempMessage.X + TempMessage.W > _WIDTH THEN TempMessage.X = _WIDTH - TempMessage.W
-        TempMessage.Y = my: IF TempMessage.Y + TempMessage.H > _HEIGHT THEN TempMessage.Y = _HEIGHT - TempMessage.H
+        TempMessage.X = mx + _FONTWIDTH * 2: IF TempMessage.X + TempMessage.W > _WIDTH THEN TempMessage.X = _WIDTH - TempMessage.W
+        TempMessage.Y = my + _FONTHEIGHT: IF TempMessage.Y + TempMessage.H > _HEIGHT THEN TempMessage.Y = _HEIGHT - TempMessage.H
         TempMessage.Start# = TIMER
     ELSE
         ShowContextualMenu = 0
@@ -1199,11 +1213,13 @@ SUB VARIABLE_VIEW
 
         IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
         IF WATCHPOINT_COMMAND.ACTION = NEXTSTEP THEN
+            WATCHPOINTBREAK = WATCHPOINT_COMMAND.LINENUMBER
             STEPMODE = -1
             SetPause# = TIMER
             ShowPauseIcon = -1
             ShowRunIcon = 0
             WATCHPOINT_COMMAND.ACTION = READY
+            WATCHPOINT_COMMAND.LINENUMBER = 0
             PUT #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
         END IF
         GOSUB UpdateList
@@ -1267,8 +1283,18 @@ SUB VARIABLE_VIEW
             END IF
         CASE 16128 'F5
             RunButton_Click:
+            IF WATCHPOINTBREAK > 0 THEN
+                Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
+                Message$ = Message$ + "Clear it before resuming?"
+                MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
+                IF MESSAGEBOX_RESULT = MB_YES THEN
+                    ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
+                    WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
+                END IF
+            END IF
             IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1
             STEPMODE = 0
+            WATCHPOINTBREAK = 0
             BREAKPOINT.ACTION = CONTINUE
             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
             IF Clicked THEN Clicked = 0: RETURN
@@ -1537,6 +1563,12 @@ SUB VARIABLE_VIEW
 
     PCOPY 0, 1
 
+    'Show watchpoint hover popup
+    IF ShowPopupWatchpoint THEN
+        LINE (PopupWatchpoint.X, PopupWatchpoint.Y)-STEP(PopupWatchpoint.W - 1, PopupWatchpoint.H - 1), _RGB32(0, 178, 179), BF
+        _PRINTSTRING (PopupWatchpoint.X, PopupWatchpoint.Y + 4), WatchpointPopup$
+    END IF
+
     'Show pause icon.
     IF ShowPauseIcon THEN
         PauseFadeStep# = TIMER - SetPause#
@@ -1602,8 +1634,25 @@ SUB VARIABLE_VIEW
     RETURN
 
     DetectClick:
-    'Hover:
-    IF ShowContextualMenu = 0 AND STEPMODE THEN LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
+    'Hover/Watchpoint popup:
+    IF ShowContextualMenu = 0 AND STEPMODE THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
+
+        IF ASC(WATCHPOINTLIST, i) = 1 THEN
+            ShowPopupWatchpoint = -1
+            WatchpointPopup$ = " Watchpoint: " + TRIM$(VARIABLES(i).NAME) + TRIM$(WATCHPOINT(i).EXPRESSION) + " "
+            DO
+                WatchpointPopup$ = LEFT$(WatchpointPopup$, LEN(WatchpointPopup$) - 1)
+                PopupWatchpoint.W = _PRINTWIDTH(WatchpointPopup$) + 6
+            LOOP UNTIL PopupWatchpoint.W < _WIDTH
+
+            PopupWatchpoint.H = _FONTHEIGHT * 1.5
+            PopupWatchpoint.X = mx + _FONTWIDTH * 2: IF PopupWatchpoint.X + PopupWatchpoint.W > _WIDTH THEN PopupWatchpoint.X = _WIDTH - PopupWatchpoint.W
+            PopupWatchpoint.Y = my + _FONTHEIGHT: IF PopupWatchpoint.Y + PopupWatchpoint.H > _HEIGHT THEN PopupWatchpoint.Y = _HEIGHT - PopupWatchpoint.H
+        ELSE
+            ShowPopupWatchpoint = 0
+        END IF
+    END IF
 
     IF mb THEN
         'Wait until a mouse up event is received:
@@ -1738,11 +1787,12 @@ SUB VARIABLE_VIEW
         IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
             'Set contextual menu coordinates relative to this item
             ShowContextualMenu = -1
+            ShowPopupWatchpoint = 0
             ContextualMenuYRef = y
             ContextualMenuLineRef = i
             ContextualMenu.printY = printY
             ContextualMenu.FilteredList$ = FilteredList$
-            ContextualMenu.W = _PRINTWIDTH(" Create a watchpoint ") + 6
+            ContextualMenu.W = _PRINTWIDTH(" Set/Edit a watchpoint ") + 6
             ContextualMenu.H = _FONTHEIGHT * 2.5
             ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
             ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
@@ -1762,8 +1812,8 @@ SUB VARIABLE_VIEW
             END IF
         END IF
 
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Create a watchpoint "
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), " Edit                "
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set/Edit a watchpoint "
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), " Edit variable value   "
     ELSE
         IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
         'Hover highlight:
@@ -3100,7 +3150,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'Wait for authorization:"
     PRINT #OutputFile, "    vwatch64_WAITSTART# = TIMER"
     PRINT #OutputFile, "    DO: _LIMIT 30"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64 (F4 to cancel and start logging)... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
+    'PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64 (F4 to cancel and start logging)... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
     PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "        k = _KEYHIT"
     PRINT #OutputFile, "        IF k = 27 THEN EXIT DO"
@@ -3486,6 +3537,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, ""
         PRINT #OutputFile, "   WatchpointStop:"
         PRINT #OutputFile, "   vwatch64_WATCHPOINTCOMMAND.ACTION = vwatch64_NEXTSTEP"
+        PRINT #OutputFile, "   vwatch64_WATCHPOINTCOMMAND.LINENUMBER = i"
         PRINT #OutputFile, "   PUT #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTCOMMANDBLOCK, vwatch64_WATCHPOINTCOMMAND"
         PRINT #OutputFile, "   vwatch64_CHECKWATCHPOINT = -1"
         PRINT #OutputFile, "END FUNCTION"
