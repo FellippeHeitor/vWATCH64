@@ -89,6 +89,10 @@ TYPE VARIABLEVALUETYPE
     VALUE AS STRING * 256
 END TYPE
 
+TYPE WATCHPOINTTYPE
+    EXPRESSION AS STRING * 256
+END TYPE
+
 TYPE UDTTYPE
     UDT AS STRING * 40
     ELEMENT AS STRING * 256
@@ -133,6 +137,7 @@ DIM SHARED TITLESTRING AS STRING
 DIM SHARED TOTALBREAKPOINTS AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
 DIM SHARED TTFONT AS LONG
+DIM SHARED WATCHPOINTLIST AS STRING
 DIM SHARED PATHSEP$
 
 'File structure:
@@ -142,12 +147,19 @@ DIM SHARED BREAKPOINTBLOCK AS LONG
 DIM SHARED BREAKPOINTLISTBLOCK AS LONG
 DIM SHARED DATAINFOBLOCK AS LONG
 DIM SHARED DATABLOCK AS LONG
+DIM SHARED WATCHPOINTLISTBLOCK AS LONG
+DIM SHARED WATCHPOINTEXPBLOCK AS LONG
+DIM SHARED WATCHPOINTCOMMANDBLOCK AS LONG
 DIM SHARED EXCHANGEBLOCK AS LONG
 
 'Custom structures:
 DIM SHARED BREAKPOINT AS BREAKPOINTTYPE
+DIM SHARED WATCHPOINT_COMMAND AS BREAKPOINTTYPE
 DIM SHARED CLIENT AS CLIENTTYPE
 DIM SHARED HEADER AS HEADERTYPE
+
+'Eye-candy control
+DIM SHARED SetPause#, SetRun#, ShowPauseIcon, ShowRunIcon
 
 'Switches:
 DIM SHARED DONTCOMPILE AS _BIT
@@ -159,11 +171,13 @@ DIM SHARED SKIPARRAYS AS _BIT
 DIM SHARED TIMED_OUT AS _BIT
 DIM SHARED USERQUIT AS _BIT
 DIM SHARED CLOSE_SESSION AS _BIT
+DIM SHARED TRACE AS _BIT
 DIM SHARED VERBOSE AS _BIT
 DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
 REDIM SHARED VARIABLE_DATA(0) AS VARIABLEVALUETYPE
+REDIM SHARED WATCHPOINT(0) AS WATCHPOINTTYPE
 REDIM SHARED LINE_STARTS(0) AS LONG
 
 DIM i AS INTEGER
@@ -335,6 +349,18 @@ SUB SOURCE_VIEW
         GET #FILE, CLIENTBLOCK, CLIENT
         FIND_CURRENTMODULE
         PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+        PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
+        PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
+        GET #FILE, DATABLOCK, VARIABLE_DATA()
+        GET #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
+
+        IF LEN(SOURCEFILE) > 0 THEN
+            FOR i = 1 TO CLIENT.TOTALVARIABLES
+                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
+                    VARIABLE_DATA(i).VALUE = "<out of scope>"
+                END IF
+            NEXT i
+        END IF
 
         IF CLIENT.LINENUMBER <> prevLineNumber THEN
             prevLineNumber = CLIENT.LINENUMBER
@@ -344,9 +370,19 @@ SUB SOURCE_VIEW
                 ShowPauseIcon = -1
                 ShowRunIcon = 0
             END IF
+
             IF CLIENT.LINENUMBER = RunToThisLine THEN
                 ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                 RunToThisLine = 0
+            END IF
+
+            IF WATCHPOINT_COMMAND.ACTION = NEXTSTEP THEN
+                STEPMODE = -1
+                SetPause# = TIMER
+                ShowPauseIcon = -1
+                ShowRunIcon = 0
+                WATCHPOINT_COMMAND.ACTION = READY
+                PUT #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
             END IF
         END IF
 
@@ -530,7 +566,6 @@ SUB SOURCE_VIEW
             WindowButton_Click:
             IF CLIENT.TOTALVARIABLES > 0 THEN
                 _KEYCLEAR
-                GET #FILE, DATABLOCK, VARIABLE_DATA()
                 VARIABLE_VIEW
             ELSE
                 Message$ = "There are no watchable variables (defined with DIM) in your program,"
@@ -707,6 +742,8 @@ SUB SOURCE_VIEW
             NEXT i
         END IF
 
+        IF ShowContextualMenu THEN GOSUB DetectClick
+
         IF LEN(Filter$) AND LEN(FilteredList$) = 0 AND SearchIn <> SETNEXT THEN 'A filter is on, but nothing was found
             _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
             _PRINTSTRING (5, 4 * _FONTHEIGHT + _FONTHEIGHT), "(ESC to reset filter)"
@@ -756,42 +793,42 @@ SUB SOURCE_VIEW
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
 
     'Top buttons:
-    b = 1
-    Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5=Run>": b = b + 1
-    Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6=Variables>": b = b + 1
-    Buttons(b).ID = 3: Buttons(b).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): b = b + 1
-    Buttons(b).ID = 4: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8=Step>", "<F8=Pause>"): b = b + 1
+    B = 1
+    Buttons(B).ID = 1: Buttons(B).CAPTION = "<F5=Run>": B = B + 1
+    Buttons(B).ID = 2: Buttons(B).CAPTION = "<F6=Variables>": B = B + 1
+    Buttons(B).ID = 3: Buttons(B).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): B = B + 1
+    Buttons(B).ID = 4: Buttons(B).CAPTION = IIFSTR$(STEPMODE, "<F8=Step>", "<F8=Pause>"): B = B + 1
     IF STEPMODE THEN
-        Buttons(b).ID = 8: Buttons(b).CAPTION = "<Set Next>": b = b + 1
+        Buttons(B).ID = 8: Buttons(B).CAPTION = "<Set Next>": B = B + 1
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints (filtered)>": b = b + 1
+                Buttons(B).ID = 6: Buttons(B).CAPTION = "<F10=Clear Breakpoints (filtered)>": B = B + 1
             ELSE
-                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9=Set Breakpoint (filtered)>": b = b + 1
+                Buttons(B).ID = 5: Buttons(B).CAPTION = "<F9=Set Breakpoint (filtered)>": B = B + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints>": b = b + 1
+                Buttons(B).ID = 6: Buttons(B).CAPTION = "<F10=Clear Breakpoints>": B = B + 1
             ELSE
-                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9=Toggle Breakpoint>": b = b + 1
+                Buttons(B).ID = 5: Buttons(B).CAPTION = "<F9=Toggle Breakpoint>": B = B + 1
             END IF
         END IF
     ELSE
         IF LEN(FilteredList$) > 0 THEN
             IF (TOTALBREAKPOINTS > 0 AND shiftDown = -1) OR (TOTALBREAKPOINTS = LEN(FilteredList$) / 4) THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints (filtered)>": b = b + 1
+                Buttons(B).ID = 6: Buttons(B).CAPTION = "<F10=Clear Breakpoints (filtered)>": B = B + 1
             ELSE
-                Buttons(b).ID = 5: Buttons(b).CAPTION = "<F9=Set Breakpoint (filtered)>": b = b + 1
+                Buttons(B).ID = 5: Buttons(B).CAPTION = "<F9=Set Breakpoint (filtered)>": B = B + 1
             END IF
         ELSE
             IF TOTALBREAKPOINTS > 0 THEN
-                Buttons(b).ID = 6: Buttons(b).CAPTION = "<F10=Clear Breakpoints>": b = b + 1
+                Buttons(B).ID = 6: Buttons(B).CAPTION = "<F10=Clear Breakpoints>": B = B + 1
             END IF
         END IF
     END IF
-    Buttons(b).ID = 7: Buttons(b).CAPTION = IIFSTR$(LEN(Filter$) > 0, IIFSTR$(SearchIn <> SETNEXT, "<ESC=Clear filter>", "<ESC/TAB=Cancel>"), "<ESC=Exit>"): b = b + 1
+    Buttons(B).ID = 7: Buttons(B).CAPTION = IIFSTR$(LEN(Filter$) > 0, IIFSTR$(SearchIn <> SETNEXT, "<ESC=Clear filter>", "<ESC/TAB=Cancel>"), "<ESC=Exit>"): B = B + 1
 
-    FOR cb = b TO TotalButtons
+    FOR cb = B TO TotalButtons
         Buttons(cb).CAPTION = ""
     NEXT cb
 
@@ -1147,14 +1184,28 @@ SUB VARIABLE_VIEW
 
         GET #FILE, CLIENTBLOCK, CLIENT
         FIND_CURRENTMODULE
+        PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
+        PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
         GET #FILE, DATABLOCK, VARIABLE_DATA()
-        FOR i = 1 TO CLIENT.TOTALVARIABLES
-            IF LEN(SOURCEFILE) > 0 THEN
-                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN VARIABLE_DATA(i).VALUE = "<out of scope>"
-            END IF
-        NEXT i
+        GET #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
+
+        IF LEN(SOURCEFILE) > 0 THEN
+            FOR i = 1 TO CLIENT.TOTALVARIABLES
+                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
+                    VARIABLE_DATA(i).VALUE = "<out of scope>"
+                END IF
+            NEXT i
+        END IF
 
         IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN STEPMODE = -1
+        IF WATCHPOINT_COMMAND.ACTION = NEXTSTEP THEN
+            STEPMODE = -1
+            SetPause# = TIMER
+            ShowPauseIcon = -1
+            ShowRunIcon = 0
+            WATCHPOINT_COMMAND.ACTION = READY
+            PUT #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
+        END IF
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
@@ -1541,26 +1592,71 @@ SUB VARIABLE_VIEW
     IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(102, 255, 102, 200), BF
     END IF
+    COLOR _RGB(0, 0, 0)
+
+    'or that it has a watchpoint set
+    IF ASC(WATCHPOINTLIST, i) = 1 THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 0, 0, 200), BF
+        COLOR _RGB(255, 255, 255)
+    END IF
     RETURN
 
     DetectClick:
     'Hover:
     IF ShowContextualMenu = 0 AND STEPMODE THEN LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
 
-    'Select/Clear the item if a mouse click was detected.
     IF mb THEN
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb = 0
 
-        IF STEPMODE = 0 THEN RETURN
+        IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click: RETURN
 
         IF ShowContextualMenu AND (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
             'Click on contextual menu
             ShowContextualMenu = 0
             IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
                 'Create a watchpoint
-                MESSAGEBOX_RESULT = MESSAGEBOX("In the works", "This feature is still being implemented. Wait for the next beta! :)", OK_ONLY, 1, -1)
+                Message$ = "Run until '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")" + CHR$(LF)
+                Message$ = Message$ + "meets the following condition (you can use =, <>, >, >=, <, <=):"
+                InitialValue$ = "=" + VARIABLE_DATA(ContextualMenuLineRef).VALUE
+                InitialSelection = 1
+                IF LEN(TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION)) > 0 THEN InitialValue$ = TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION): InitialSelection = -1
+                MESSAGEBOX_RESULT = INPUTBOX("Set a watchpoint", Message$, InitialValue$, NewValue$, InitialSelection)
+                IF LEN(NewValue$) < 2 THEN
+                    ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
+                    WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
+                ELSE
+                    StartWatchPointEval:
+                    op1$ = MID$(NewValue$, 1, 1)
+                    op2$ = MID$(NewValue$, 2, 1)
+                    SELECT CASE op1$
+                        CASE "="
+                            IF op2$ = "<" OR op2$ = ">" THEN
+                                MID$(NewValue$, 1, 2) = op2$ + "="
+                                GOTO StartWatchPointEval
+                            END IF
+                            ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
+                            WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
+                        CASE ">"
+                            IF op2$ = "<" OR op2$ = ">" THEN
+                                GOTO WatchpointInvalidExpression
+                            END IF
+                            ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
+                            WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
+                        CASE "<"
+                            ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
+                            WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
+                        CASE ELSE
+                            GOTO WatchpointInvalidExpression
+                    END SELECT
+                END IF
+                GOTO WatchPointDone
+
+                WatchpointInvalidExpression:
+                MESSAGEBOX_RESULT = MESSAGEBOX("Set a watchpoint", "Invalid expression.", OK_ONLY, 1, -1)
+
+                WatchPointDone:
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                 'Edit
                 IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
@@ -1571,7 +1667,7 @@ SUB VARIABLE_VIEW
                 ELSE
                     DataType$ = VARIABLES(ContextualMenuLineRef).DATATYPE
                     Message$ = "New value for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")"
-                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$)
+                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$, -1)
                     IF MESSAGEBOX_RESULT = 1 THEN
                         'Send to the client:
                         '1- Variable index to change;
@@ -2869,6 +2965,8 @@ SUB PROCESSFILE
     END IF
     PRINT #OutputFile, ""
     PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINT AS vwatch64_BREAKPOINTTYPE"
+    PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTCOMMAND AS vwatch64_BREAKPOINTTYPE"
+    PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTCOMMANDBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINTBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINTLISTBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_BREAKPOINTLIST AS STRING *" + STR$(TotalSourceLines)
@@ -2879,6 +2977,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_DATAINFOBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_DATABLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEBLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTLISTBLOCK AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTEXPBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADERBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_LOF AS LONG"
@@ -2891,9 +2991,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEDATA AS STRING"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
-        PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
-        PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLEDATA(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLEVALUETYPE"
-        PRINT #OutputFile, "DIM SHARED vwatch64_PREVVARIABLES(1 TO " + TRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
+        PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLES(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLESTYPE"
+        PRINT #OutputFile, "DIM SHARED vwatch64_VARIABLEDATA(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLEVALUETYPE"
+        PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTLIST AS STRING *" + STR$(TotalSelected)
+        PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINT(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS vwatch64_VARIABLEVALUETYPE"
+        PRINT #OutputFile, "DIM SHARED vwatch64_PREVVARIABLES(1 TO " + LTRIM$(STR$(TotalSelected)) + ") AS STRING * 255"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 THEN
@@ -2911,7 +3013,10 @@ SUB PROCESSFILE
     PRINT #OutputFile, "vwatch64_BREAKPOINTLISTBLOCK = vwatch64_BREAKPOINTBLOCK + LEN(vwatch64_BREAKPOINT) + 1"
     PRINT #OutputFile, "vwatch64_DATAINFOBLOCK = vwatch64_BREAKPOINTLISTBLOCK + LEN(vwatch64_BREAKPOINTLIST) + 1"
     PRINT #OutputFile, "vwatch64_DATABLOCK = vwatch64_DATAINFOBLOCK + LEN(vwatch64_VARIABLES()) + 1"
-    PRINT #OutputFile, "vwatch64_EXCHANGEBLOCK = vwatch64_DATABLOCK + LEN(vwatch64_VARIABLEDATA()) + 1"
+    PRINT #OutputFile, "vwatch64_WATCHPOINTLISTBLOCK = vwatch64_DATABLOCK + LEN(vwatch64_VARIABLEDATA()) + 1"
+    PRINT #OutputFile, "vwatch64_WATCHPOINTEXPBLOCK = vwatch64_WATCHPOINTLISTBLOCK + LEN(vwatch64_WATCHPOINTLIST) + 1"
+    PRINT #OutputFile, "vwatch64_WATCHPOINTCOMMANDBLOCK = vwatch64_WATCHPOINTEXPBLOCK + LEN(vwatch64_WATCHPOINT()) + 1"
+    PRINT #OutputFile, "vwatch64_EXCHANGEBLOCK = vwatch64_WATCHPOINTCOMMANDBLOCK + LEN(vwatch64_WATCHPOINTCOMMAND) + 1"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
     PRINT #OutputFile, ""
@@ -3139,7 +3244,7 @@ SUB PROCESSFILE
             END IF
         NEXT i
         PRINT #OutputFile, "    IF vwatch64_LOGOPEN = -1 THEN"
-        PRINT #OutputFile, "        FOR vwatch64_i = 1 to " + LTRIM$(STR$(TotalSelected))
+        PRINT #OutputFile, "        FOR vwatch64_i = 1 TO " + LTRIM$(STR$(TotalSelected))
         PRINT #OutputFile, "            IF vwatch64_PREVVARIABLES(vwatch64_i) <> vwatch64_VARIABLEDATA(vwatch64_i).VALUE THEN"
         PRINT #OutputFile, "                vwatch64_PREVVARIABLES(vwatch64_i) = vwatch64_VARIABLEDATA(vwatch64_i).VALUE"
         PRINT #OutputFile, "                PRINT #vwatch64_LOGFILE, "
@@ -3207,6 +3312,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "    vwatch64_VARIABLEWATCH"
+        PRINT #OutputFile, "    IF vwatch64_CHECKWATCHPOINT = -1 THEN StepMode = -1"
     END IF
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'On the first time this procedure is called, execution is halted,"
@@ -3296,6 +3402,94 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "    RETURN"
     PRINT #OutputFile, "END SUB"
+    PRINT #OutputFile, ""
+    IF TotalSelected > 0 THEN
+        PRINT #OutputFile, "FUNCTION vwatch64_CHECKWATCHPOINT"
+        PRINT #OutputFile, "    DIM i AS LONG"
+        PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTLISTBLOCK, vwatch64_WATCHPOINTLIST"
+        PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTEXPBLOCK, vwatch64_WATCHPOINT()"
+        PRINT #OutputFile, "    FOR i = 1 TO " + LTRIM$(STR$(TotalSelected))
+        PRINT #OutputFile, "        IF ASC(vwatch64_WATCHPOINTLIST, i) = 1 THEN"
+        PRINT #OutputFile, "            DataType$ = UCASE$(RTRIM$(vwatch64_VARIABLES(i).DATATYPE))"
+        PRINT #OutputFile, "            IF INSTR(DataType$, " + Q$ + "STRING" + Q$ + ") THEN DataType$ = " + Q$ + "STRING" + Q$
+        PRINT #OutputFile, "            IF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 1) = " + Q$ + "=" + Q$ + " THEN"
+        PRINT #OutputFile, "                SELECT CASE DataType$"
+        PRINT #OutputFile, "                    CASE " + Q$ + "STRING" + Q$ + ""
+        PRINT #OutputFile, "                       IF RTRIM$(vwatch64_VARIABLEDATA(i).VALUE) = RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 2)) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                    CASE ELSE"
+        PRINT #OutputFile, "                       IF VAL(RTRIM$(vwatch64_VARIABLEDATA(i).VALUE)) = VAL(RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 2))) THEN"
+        PRINT #OutputFile, "                           GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                END SELECT"
+        PRINT #OutputFile, "            ELSEIF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 2) = " + Q$ + "<=" + Q$ + " THEN"
+        PRINT #OutputFile, "                SELECT CASE DataType$"
+        PRINT #OutputFile, "                    CASE " + Q$ + "STRING" + Q$
+        PRINT #OutputFile, "                        IF RTRIM$(vwatch64_VARIABLEDATA(i).VALUE) <= RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 3)) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                    CASE ELSE"
+        PRINT #OutputFile, "                        IF VAL(RTRIM$(vwatch64_VARIABLEDATA(i).VALUE)) <= VAL(RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 3))) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                END SELECT"
+        PRINT #OutputFile, "            ELSEIF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 2) = " + Q$ + ">=" + Q$ + " THEN"
+        PRINT #OutputFile, "                SELECT CASE DataType$"
+        PRINT #OutputFile, "                    CASE " + Q$ + "STRING" + Q$
+        PRINT #OutputFile, "                        IF RTRIM$(vwatch64_VARIABLEDATA(i).VALUE) >= RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 3)) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                    CASE ELSE"
+        PRINT #OutputFile, "                        IF VAL(RTRIM$(vwatch64_VARIABLEDATA(i).VALUE)) >= VAL(RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 3))) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                END SELECT"
+        PRINT #OutputFile, "            ELSEIF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 2) = " + Q$ + "<>" + Q$ + " THEN"
+        PRINT #OutputFile, "                SELECT CASE DataType$"
+        PRINT #OutputFile, "                    CASE " + Q$ + "STRING" + Q$
+        PRINT #OutputFile, "                        IF RTRIM$(vwatch64_VARIABLEDATA(i).VALUE) <> RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 3)) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                    CASE ELSE"
+        PRINT #OutputFile, "                        IF VAL(RTRIM$(vwatch64_VARIABLEDATA(i).VALUE)) <> VAL(RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 3))) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                END SELECT"
+        PRINT #OutputFile, "            ELSEIF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 1) = " + Q$ + "<" + Q$ + " THEN"
+        PRINT #OutputFile, "                SELECT CASE DataType$"
+        PRINT #OutputFile, "                    CASE " + Q$ + "STRING" + Q$
+        PRINT #OutputFile, "                        IF RTRIM$(vwatch64_VARIABLEDATA(i).VALUE) < RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 2)) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                    CASE ELSE"
+        PRINT #OutputFile, "                        IF VAL(RTRIM$(vwatch64_VARIABLEDATA(i).VALUE)) < VAL(RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 2))) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                END SELECT"
+        PRINT #OutputFile, "            ELSEIF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 1) = " + Q$ + ">" + Q$ + " THEN"
+        PRINT #OutputFile, "                SELECT CASE DataType$"
+        PRINT #OutputFile, "                    CASE " + Q$ + "STRING" + Q$
+        PRINT #OutputFile, "                        IF RTRIM$(vwatch64_VARIABLEDATA(i).VALUE) > RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 2)) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                    CASE ELSE"
+        PRINT #OutputFile, "                        IF VAL(RTRIM$(vwatch64_VARIABLEDATA(i).VALUE)) > VAL(RTRIM$(MID$(vwatch64_WATCHPOINT(i).VALUE, 2))) THEN"
+        PRINT #OutputFile, "                            GOTO WatchpointStop"
+        PRINT #OutputFile, "                        END IF"
+        PRINT #OutputFile, "                END SELECT"
+        PRINT #OutputFile, "            END IF"
+        PRINT #OutputFile, "        END IF"
+        PRINT #OutputFile, "    NEXT i"
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "    EXIT FUNCTION"
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "   WatchpointStop:"
+        PRINT #OutputFile, "   vwatch64_WATCHPOINTCOMMAND.ACTION = vwatch64_NEXTSTEP"
+        PRINT #OutputFile, "   PUT #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTCOMMANDBLOCK, vwatch64_WATCHPOINTCOMMAND"
+        PRINT #OutputFile, "   vwatch64_CHECKWATCHPOINT = -1"
+        PRINT #OutputFile, "END FUNCTION"
+    END IF
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'End of vWATCH64 procedures."
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
@@ -3841,11 +4035,16 @@ SUB SETUP_CONNECTION
 
     REDIM VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
     REDIM VARIABLE_DATA(1 TO CLIENT.TOTALVARIABLES) AS VARIABLEVALUETYPE
+    REDIM WATCHPOINT(1 TO CLIENT.TOTALVARIABLES) AS WATCHPOINTTYPE
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+    WATCHPOINTLIST = STRING$(CLIENT.TOTALVARIABLES, 0)
     DATAINFOBLOCK = BREAKPOINTLISTBLOCK + LEN(BREAKPOINTLIST) + 1
     GET #FILE, DATAINFOBLOCK, VARIABLES()
     DATABLOCK = DATAINFOBLOCK + LEN(VARIABLES()) + 1
-    EXCHANGEBLOCK = DATABLOCK + LEN(VARIABLE_DATA()) + 1
+    WATCHPOINTLISTBLOCK = DATABLOCK + LEN(VARIABLE_DATA()) + 1
+    WATCHPOINTEXPBLOCK = WATCHPOINTLISTBLOCK + LEN(WATCHPOINTLIST) + 1
+    WATCHPOINTCOMMANDBLOCK = WATCHPOINTEXPBLOCK + LEN(WATCHPOINT()) + 1
+    EXCHANGEBLOCK = WATCHPOINTCOMMANDBLOCK + LEN(WATCHPOINT_COMMAND) + 1
 
     'Load the source file, if it still exists.
     IF _FILEEXISTS(TRIM$(CLIENT.NAME)) THEN
@@ -4798,10 +4997,10 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
 
         SELECT CASE MessageType
             CASE OK_ONLY
-                IF k = 13 THEN DIALOGRESULT = 1
+                IF k = 13 OR k = 32 THEN DIALOGRESULT = 1
                 IF k = 27 THEN DIALOGRESULT = 2
             CASE YN_QUESTION
-                IF k = 13 THEN DIALOGRESULT = DefaultButton + 5
+                IF k = 13 OR k = 32 THEN DIALOGRESULT = DefaultButton + 5
                 IF k = 27 THEN DIALOGRESULT = MB_NO
                 IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
                 IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
@@ -4847,7 +5046,7 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
 END FUNCTION
 
 '------------------------------------------------------------------------------
-FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRING)
+FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRING, Selected)
     'Show a dialog and allow user input. Returns 1 = OK or 2 = Cancel.
     'ReturnValue is always a string: caller procedure must convert it.
     Message$ = tMessage$
@@ -4884,17 +5083,20 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
 
     Cursor = LEN(NewValue)
     Selection.Start = 0
-    Selected = -1
     InputViewStart = 1
     FieldArea = 62
+    IF Selected > 0 THEN Selection.Start = Selected: Selected = -1
 
     DialogH = _FONTHEIGHT * (6 + totalLines) + 10
     DialogW = (CharW * FieldArea) + 10
+    IF DialogW < MaxLen * CharW + 10 THEN DialogW = MaxLen * CharW + 10
+
     'IF DialogW > SCREEN_WIDTH THEN DialogW = SCREEN_WIDTH - 10
     'IF DialogW < 400 THEN DialogW = 400
 
     DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
+    InputField.X = (DialogX + (DialogW / 2)) - (((FieldArea * CharW) - 10) / 2)
 
     TotalButtons = 2
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -4915,8 +5117,8 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
     DIALOGRESULT = 0
     _KEYCLEAR
     DO: _LIMIT 500
-        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(255, 255, 255), BF
-        LINE (DialogX, DialogY)-STEP(DialogW, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+        LINE (DialogX, DialogY)-STEP(DialogW - 1, DialogH - 1), _RGB32(255, 255, 255), BF
+        LINE (DialogX, DialogY)-STEP(DialogW - 1, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Title$) / 2, DialogY + 1), Title$
 
         DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
@@ -4927,39 +5129,18 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
         NEXT i
 
         'Input field
-        LINE (DialogX + 3, DialogY + 3 + _FONTHEIGHT * (3 + totalLines))-STEP(DialogW - 10, _FONTHEIGHT + 4), _RGB32(200, 200, 200), BF
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * (3 + totalLines)), MID$(NewValue, InputViewStart, FieldArea)
+        LINE (InputField.X - 2, DialogY + 3 + _FONTHEIGHT * (3 + totalLines))-STEP(FieldArea * CharW, _FONTHEIGHT + 4), _RGB32(200, 200, 200), BF
+        _PRINTSTRING (InputField.X, DialogY + 5 + _FONTHEIGHT * (3 + totalLines)), MID$(NewValue, InputViewStart, FieldArea)
 
         'Selection highlight:
-        IF Selected THEN
-            s1 = Selection.Start
-            s2 = Cursor
-            IF s1 > s2 THEN
-                SWAP s1, s2
-                IF InputViewStart > 1 THEN
-                    ss1 = s1 - InputViewStart + 1
-                ELSE
-                    ss1 = s1
-                END IF
-                ss2 = s2 - s1
-                IF ss1 + ss2 > FieldArea THEN ss2 = FieldArea - ss1
-            ELSE
-                ss1 = s1
-                ss2 = s2 - s1
-                IF ss1 < InputViewStart THEN ss1 = 0: ss2 = s2 - InputViewStart + 1
-                IF ss1 > InputViewStart THEN ss1 = ss1 - InputViewStart + 1: ss2 = s2 - s1
-            END IF
-            Selection.Value$ = MID$(NewValue, s1 + 1, s2 - s1)
-
-            LINE (DialogX + 5 + ss1 * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(ss2 * CharW, _FONTHEIGHT), _RGBA32(255, 255, 255, 150), BF
-        END IF
+        GOSUB SelectionHighlight
 
         'Cursor:
         IF NOT Selected THEN
             cursorBlink% = cursorBlink% + 1
             IF cursorBlink% > 70 THEN cursorBlink% = 1
             IF cursorBlink% < 35 THEN
-                LINE (DialogX + 5 + (Cursor - (InputViewStart - 1)) * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(0, _FONTHEIGHT), _RGB32(0, 0, 0)
+                LINE (InputField.X + (Cursor - (InputViewStart - 1)) * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(0, _FONTHEIGHT), _RGB32(0, 0, 0)
             END IF
         END IF
 
@@ -5095,13 +5276,7 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
         END SELECT
 
         'Cursor adjustments:
-        IF Cursor > prevCursor THEN
-            IF Cursor - InputViewStart + 2 > FieldArea THEN InputViewStart = (Cursor - FieldArea) + 2
-        ELSEIF Cursor < prevCursor THEN
-            IF Cursor < InputViewStart - 1 THEN InputViewStart = Cursor
-        END IF
-        prevCursor = Cursor
-        IF InputViewStart < 1 THEN InputViewStart = 1
+        GOSUB CursorAdjustments
 
         IF _EXIT THEN USERQUIT = -1: EXIT DO
         SEND_PING
@@ -5112,6 +5287,16 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
     PCOPY 1, 0
 
     EXIT SUB
+
+    CursorAdjustments:
+    IF Cursor > prevCursor THEN
+        IF Cursor - InputViewStart + 2 > FieldArea THEN InputViewStart = (Cursor - FieldArea) + 2
+    ELSEIF Cursor < prevCursor THEN
+        IF Cursor < InputViewStart - 1 THEN InputViewStart = Cursor
+    END IF
+    prevCursor = Cursor
+    IF InputViewStart < 1 THEN InputViewStart = 1
+    RETURN
 
     CheckSelection:
     IF shiftDown = -1 THEN
@@ -5130,6 +5315,31 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
     Cursor = s1
     RETURN
 
+    SelectionHighlight:
+    IF Selected THEN
+        s1 = Selection.Start
+        s2 = Cursor
+        IF s1 > s2 THEN
+            SWAP s1, s2
+            IF InputViewStart > 1 THEN
+                ss1 = s1 - InputViewStart + 1
+            ELSE
+                ss1 = s1
+            END IF
+            ss2 = s2 - s1
+            IF ss1 + ss2 > FieldArea THEN ss2 = FieldArea - ss1
+        ELSE
+            ss1 = s1
+            ss2 = s2 - s1
+            IF ss1 < InputViewStart THEN ss1 = 0: ss2 = s2 - InputViewStart + 1
+            IF ss1 > InputViewStart THEN ss1 = ss1 - InputViewStart + 1: ss2 = s2 - s1
+        END IF
+        Selection.Value$ = MID$(NewValue, s1 + 1, s2 - s1)
+
+        LINE (InputField.X + ss1 * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(ss2 * CharW, _FONTHEIGHT), _RGBA32(255, 255, 255, 150), BF
+    END IF
+    RETURN
+
     CheckButtons:
     'Hover highlight:
     WHILE _MOUSEINPUT: WEND
@@ -5143,6 +5353,15 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
     NEXT cb
 
     IF mb THEN
+        IF mx >= InputField.X AND my >= DialogY + 3 + _FONTHEIGHT * (3 + totalLines) AND mx <= InputField.X + (FieldArea * CharW - 10) AND my <= DialogY + 3 + _FONTHEIGHT * (3 + totalLines) + _FONTHEIGHT + 4 THEN
+            'Click inside the text field
+            WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+            Cursor = ((mx - InputField.X) / CharW) + (InputViewStart - 1)
+            IF Cursor > LEN(NewValue) THEN Cursor = LEN(NewValue)
+            Selected = 0
+            RETURN
+        END IF
+
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
@@ -5206,4 +5425,3 @@ SUB FIND_CURRENTMODULE
 
     CLIENT_CURRENTMODULE = sfname$
 END SUB
-
