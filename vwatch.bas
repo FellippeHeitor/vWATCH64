@@ -372,6 +372,13 @@ SUB SOURCE_VIEW
                 IF CLIENT.LINENUMBER = RunToThisLine THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     RunToThisLine = 0
+                    FOR MultiLineToggle = CLIENT.LINENUMBER + 1 TO CLIENT.TOTALSOURCELINES
+                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, CLIENT.LINENUMBER)
+                        ELSE
+                            EXIT FOR
+                        END IF
+                    NEXT MultiLineToggle
                 END IF
             END IF
 
@@ -475,8 +482,11 @@ SUB SOURCE_VIEW
                     SetNext_Click:
                     IF DesiredLine <= CLIENT.TOTALSOURCELINES THEN
                         DesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(DesiredLine)))
+                        PrevDesiredSourceLine$ = " "
+                        IF DesiredLine > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(DesiredLine - 1)))
                         CanGo = -1
                         IF LEN(DesiredSourceLine$) = 0 THEN CanGo = 3
+                        IF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 1) = "$" THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 4) = "DIM " THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 5) = "DATA " THEN CanGo = 3
@@ -615,12 +625,26 @@ SUB SOURCE_VIEW
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 END IF
+                FOR MultiLineToggle = CLIENT.LINENUMBER + 1 TO CLIENT.TOTALSOURCELINES
+                    IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                        ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, CLIENT.LINENUMBER)
+                    ELSE
+                        EXIT FOR
+                    END IF
+                NEXT MultiLineToggle
             ELSE
                 FOR setAll = 1 TO LEN(FilteredList$) / 4
-                    which_line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
-                    IF ASC(BREAKPOINTLIST, which_line) = 0 AND LEN(STRIPCOMMENTS$(GETLINE$(which_line))) THEN
-                        ASC(BREAKPOINTLIST, which_line) = 1
+                    which_Line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
+                    IF ASC(BREAKPOINTLIST, which_Line) = 0 AND LEN(STRIPCOMMENTS$(GETLINE$(which_Line))) THEN
+                        ASC(BREAKPOINTLIST, which_Line) = 1
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                        FOR MultiLineToggle = which_Line + 1 TO CLIENT.TOTALSOURCELINES
+                            IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, which_Line)
+                            ELSE
+                                EXIT FOR
+                            END IF
+                        NEXT MultiLineToggle
                     END IF
                 NEXT setAll
             END IF
@@ -632,10 +656,17 @@ SUB SOURCE_VIEW
                 BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
             ELSE
                 FOR setAll = 1 TO LEN(FilteredList$) / 4
-                    which_line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
-                    IF ASC(BREAKPOINTLIST, which_line) = 1 THEN
-                        ASC(BREAKPOINTLIST, which_line) = 0
+                    which_Line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
+                    IF ASC(BREAKPOINTLIST, which_Line) = 1 THEN
+                        ASC(BREAKPOINTLIST, which_Line) = 0
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        FOR MultiLineToggle = which_Line + 1 TO CLIENT.TOTALSOURCELINES
+                            IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, which_Line)
+                            ELSE
+                                EXIT FOR
+                            END IF
+                        NEXT MultiLineToggle
                     END IF
                 NEXT setAll
             END IF
@@ -998,6 +1029,13 @@ SUB SOURCE_VIEW
                         ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                     END IF
+                    FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
+                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
+                        ELSE
+                            EXIT FOR
+                        END IF
+                    NEXT MultiLineToggle
                     ShowContextualMenu = 0
                 ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
                     'Run to this line
@@ -1006,6 +1044,13 @@ SUB SOURCE_VIEW
                     ELSE
                         ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
                         RunToThisLine = ContextualMenuLineRef
+                        FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
+                            IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
+                            ELSE
+                                EXIT FOR
+                            END IF
+                        NEXT MultiLineToggle
                     END IF
                     Clicked = -1
                     GOSUB RunButton_Click
@@ -1017,9 +1062,13 @@ SUB SOURCE_VIEW
             END IF
         ELSE
             temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+            PrevDesiredSourceLine$ = " "
+            IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
             IF LEN(temp.SourceLine$) = 0 THEN
                 GOSUB TurnOnNonexecutableMessage
             ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
                 GOSUB TurnOnNonexecutableMessage
             ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
                 GOSUB TurnOnNonexecutableMessage
@@ -1062,6 +1111,13 @@ SUB SOURCE_VIEW
                     ASC(BREAKPOINTLIST, i) = 1
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 END IF
+                FOR MultiLineToggle = i + 1 TO CLIENT.TOTALSOURCELINES
+                    IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                        ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, i)
+                    ELSE
+                        EXIT FOR
+                    END IF
+                NEXT MultiLineToggle
             END IF
         END IF
     END IF
@@ -1072,9 +1128,13 @@ SUB SOURCE_VIEW
         WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb2 = 0
         temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+        PrevDesiredSourceLine$ = " "
+        IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
         IF LEN(temp.SourceLine$) = 0 THEN
             GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
+            GOSUB TurnOnNonexecutableMessage
+        ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
             GOSUB TurnOnNonexecutableMessage
         ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
             GOSUB TurnOnNonexecutableMessage
@@ -1134,6 +1194,8 @@ SUB SOURCE_VIEW
             TempMessage$ = " $CHECKING:OFF block (not accessible) "
         ELSEIF LEN(temp.SourceLine$) = 0 THEN
             TempMessage$ = " Blank line "
+        ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
+            TempMessage$ = " Multiline statement "
         ELSE
             TempMessage$ = " Nonexecutable statement "
         END IF
@@ -1376,6 +1438,13 @@ SUB VARIABLE_VIEW
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 END IF
+                FOR MultiLineToggle = CLIENT.LINENUMBER + 1 TO CLIENT.TOTALSOURCELINES
+                    IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                        ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, CLIENT.LINENUMBER)
+                    ELSE
+                        EXIT FOR
+                    END IF
+                NEXT MultiLineToggle
                 PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
             END IF
             IF Clicked THEN Clicked = 0: RETURN
