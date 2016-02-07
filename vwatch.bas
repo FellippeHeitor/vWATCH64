@@ -369,11 +369,10 @@ SUB SOURCE_VIEW
                 SetPause# = TIMER
                 ShowPauseIcon = -1
                 ShowRunIcon = 0
-            END IF
-
-            IF CLIENT.LINENUMBER = RunToThisLine THEN
-                ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
-                RunToThisLine = 0
+                IF CLIENT.LINENUMBER = RunToThisLine THEN
+                    ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
+                    RunToThisLine = 0
+                END IF
             END IF
 
             IF WATCHPOINT_COMMAND.ACTION = NEXTSTEP THEN
@@ -569,14 +568,16 @@ SUB SOURCE_VIEW
         CASE 16128 'F5
             RunButton_Click:
             IF WATCHPOINTBREAK > 0 THEN
-                Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
-                Message$ = Message$ + "Clear it before resuming?"
-                MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
-                IF MESSAGEBOX_RESULT = MB_YES THEN
-                    ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
-                    WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
-                    PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
-                    PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
+                IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
+                    Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
+                    Message$ = Message$ + "Clear it before resuming?"
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
+                    IF MESSAGEBOX_RESULT = MB_YES THEN
+                        ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
+                        WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
+                        PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
+                        PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
+                    END IF
                 END IF
             END IF
             IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1: ShowPauseIcon = 0
@@ -978,52 +979,15 @@ SUB SOURCE_VIEW
         WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb = 0
 
-        IF STEPMODE = 0 THEN GOTO StepButton_Click: RETURN
+        IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click: RETURN
 
-        temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
-        IF LEN(temp.SourceLine$) = 0 THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFINT " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFLNG " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSTR " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSNG " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFDBL " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 8) = "DECLARE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 8) = "_DEFINE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 11) = "END DECLARE" THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSE
-            IF ShowContextualMenu AND (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
+        IF ShowContextualMenu THEN
+            IF (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
                 'Click on contextual menu
-                ShowContextualMenu = 0
                 IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
                     Clicked = -1
                     DesiredLine = ContextualMenuLineRef
+                    ShowContextualMenu = 0
                     GOSUB SetNext_Click
                 ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                     'Toggle breakpoint:
@@ -1034,6 +998,7 @@ SUB SOURCE_VIEW
                         ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                     END IF
+                    ShowContextualMenu = 0
                 ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
                     'Run to this line
                     IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
@@ -1044,20 +1009,58 @@ SUB SOURCE_VIEW
                     END IF
                     Clicked = -1
                     GOSUB RunButton_Click
-                END IF
-            ELSEIF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
-                'Click on source lines
-                IF ShowContextualMenu THEN
                     ShowContextualMenu = 0
+                END IF
+            ELSE
+                'Click outside contextual menu
+                ShowContextualMenu = 0
+            END IF
+        ELSE
+            temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+            IF LEN(temp.SourceLine$) = 0 THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFINT " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFLNG " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSTR " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSNG " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFDBL " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 8) = "DECLARE " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 8) = "_DEFINE " THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF LEFT$(temp.SourceLine$, 11) = "END DECLARE" THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
+                GOSUB TurnOnNonexecutableMessage
+            ELSE
+                'Toggle breakpoint:
+                IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                    ASC(BREAKPOINTLIST, i) = 0
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                 ELSE
-                    'Toggle breakpoint:
-                    IF ASC(BREAKPOINTLIST, i) = 1 THEN
-                        ASC(BREAKPOINTLIST, i) = 0
-                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
-                    ELSE
-                        ASC(BREAKPOINTLIST, i) = 1
-                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
-                    END IF
+                    ASC(BREAKPOINTLIST, i) = 1
+                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 END IF
             END IF
         END IF
@@ -1129,6 +1132,8 @@ SUB SOURCE_VIEW
         TempMessage.printY = printY
         IF ASC(CHECKINGOFF_LINES, i) THEN
             TempMessage$ = " $CHECKING:OFF block (not accessible) "
+        ELSEIF LEN(temp.SourceLine$) = 0 THEN
+            TempMessage$ = " Blank line "
         ELSE
             TempMessage$ = " Nonexecutable statement "
         END IF
@@ -1330,14 +1335,16 @@ SUB VARIABLE_VIEW
         CASE 16128 'F5
             RunButton_Click:
             IF WATCHPOINTBREAK > 0 THEN
-                Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
-                Message$ = Message$ + "Clear it before resuming?"
-                MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
-                IF MESSAGEBOX_RESULT = MB_YES THEN
-                    ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
-                    WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
-                    PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
-                    PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
+                IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
+                    Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
+                    Message$ = Message$ + "Clear it before resuming?"
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
+                    IF MESSAGEBOX_RESULT = MB_YES THEN
+                        ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
+                        WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
+                        PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
+                        PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
+                    END IF
                 END IF
             END IF
             IF STEPMODE = -1 THEN SetRun# = TIMER: ShowRunIcon = -1
@@ -3203,7 +3210,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
     PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "        k = _KEYHIT"
-    PRINT #OutputFile, "        IF k = 27 THEN EXIT DO"
+    PRINT #OutputFile, "        IF k = 27 THEN _KEYCLEAR: EXIT DO"
     PRINT #OutputFile, "        IF TIMER - vwatch64_WAITSTART# > vwatch64_TIMEOUTLIMIT THEN EXIT DO"
     PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
     PRINT #OutputFile, ""
@@ -3379,8 +3386,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'On the first time this procedure is called, execution is halted,"
     PRINT #OutputFile, "    'until the user presses F5 or F8 in vWATCH64"
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
-    PRINT #OutputFile, "        'It is safe to change the client's title at this point because"
-    PRINT #OutputFile, "        'it's the first line to be run so no _TITLE has yet been set."
     PRINT #OutputFile, "        _TITLE " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
     PRINT #OutputFile, "        _PRINTSTRING(_WIDTH \ 2 - LEN(" + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$ + ") \ 2, _HEIGHT \ 2), " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
     PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
@@ -3402,15 +3407,16 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            _KEYCLEAR"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR"
+    PRINT #OutputFile, "        StepMode = 0"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR THEN"
     PRINT #OutputFile, "            vwatch64_CHECKBREAKPOINT& = -1"
     PRINT #OutputFile, "            StepMode = -1"
     PRINT #OutputFile, "        END IF"
-    PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
     PRINT #OutputFile, "        FirstRunDone = -1"
     PRINT #OutputFile, "        ON ERROR GOTO 0"
+    PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
@@ -3436,6 +3442,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR THEN"
     PRINT #OutputFile, "            vwatch64_CHECKBREAKPOINT& = -1"
+    PRINT #OutputFile, "            StepMode = -1"
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "    END IF"
@@ -4652,7 +4659,7 @@ SUB RESTORE_LIBRARY
     FILEERRORRAISED = 0
     ON ERROR GOTO FileError
     OPEN "timers.h" FOR OUTPUT AS #LibOutput
-    IF FILEERRORRAISED THEN SYSTEM_BEEP 0: PRINT "Cannot write timers.h to "; _CWD$: SLEEP: SYSTEM
+    IF FILEERRORRAISED THEN SYSTEM_BEEP 0: PRINT "Cannot write 'timers.h' to "; _CWD$: SLEEP: SYSTEM
 
     SourceLine$ = "extern int32 ontimerthread_lock;" + LF$: PRINT #LibOutput, SourceLine$;
     SourceLine$ = "void stop_timers() {" + LF$: PRINT #LibOutput, SourceLine$;
