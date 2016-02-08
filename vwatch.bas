@@ -1123,7 +1123,7 @@ SUB SOURCE_VIEW
     END IF
 
     'Turn on contextual options if right mouse click and while in step mode.
-    IF mb2 AND STEPMODE THEN
+    IF mb2 = -1 AND STEPMODE = -1 THEN
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb2 = 0
@@ -4804,6 +4804,7 @@ SUB SEND_PING
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SLEEP", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SHELL", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "_DELAY", FoundAt) THEN LAST_PING# = TIMER
+        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "PLAY", FoundAt) THEN LAST_PING# = TIMER
         IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
             TIMED_OUT = -1
         END IF
