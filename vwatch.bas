@@ -971,8 +971,10 @@ SUB SOURCE_VIEW
 
     'Show contextual menu
     IF ShowContextualMenu THEN
+        DrawContextualMenu:
         LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(200, 200, 200), BF
         LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(0, 0, 0), B
+        IF MouseHeld THEN RETURN
         GOSUB CheckButtons
     END IF
     _DISPLAY
@@ -1007,7 +1009,19 @@ SUB SOURCE_VIEW
     'Select/Clear the item if a mouse click was detected.
     IF mb THEN
         'Wait until a mouse up event is received:
-        WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
+        MouseHeld = -1
+        WHILE _MOUSEBUTTON(1)
+            _LIMIT 500
+            PCOPY 1, 0
+            GOSUB DrawContextualMenu
+            GOSUB MenuHoverHighlight
+            _DISPLAY
+            SEND_PING
+            mb = _MOUSEINPUT
+            my = _MOUSEY
+            mx = _MOUSEX
+        WEND
+        MouseHeld = 0
         mb = 0
 
         IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click: RETURN
@@ -1211,8 +1225,7 @@ SUB SOURCE_VIEW
 
     CheckButtons:
     IF ShowContextualMenu THEN
-        Clicked = 0
-        'Hover highlight:
+        MenuHoverHighlight:
         IF (mx >= ContextualMenu.X) AND (mx <= ContextualMenu.X + ContextualMenu.W) THEN
             IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
                 LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
@@ -1226,6 +1239,7 @@ SUB SOURCE_VIEW
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set next statement "
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1, " Clear breakpoint   ", " Set breakpoint     ")
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 2), " Run to this line   "
+        IF MouseHeld = -1 THEN RETURN
     ELSE
         Clicked = 0
         IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
@@ -1731,8 +1745,10 @@ SUB VARIABLE_VIEW
 
     'Show contextual menu
     IF ShowContextualMenu THEN
+        DrawContextualMenu:
         LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(200, 200, 200), BF
         LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(0, 0, 0), B
+        IF MenuHeld THEN RETURN
         GOSUB CheckButtons
     END IF
     _DISPLAY
@@ -1783,7 +1799,19 @@ SUB VARIABLE_VIEW
 
     IF mb THEN
         'Wait until a mouse up event is received:
-        WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
+        MouseHeld = -1
+        WHILE _MOUSEBUTTON(1)
+            _LIMIT 500
+            PCOPY 1, 0
+            GOSUB DrawContextualMenu
+            GOSUB MenuHoverHighlight
+            _DISPLAY
+            SEND_PING
+            mb = _MOUSEINPUT
+            my = _MOUSEY
+            mx = _MOUSEX
+        WEND
+        MouseHeld = 0
         mb = 0
 
         IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click: RETURN
@@ -1930,7 +1958,7 @@ SUB VARIABLE_VIEW
     CheckButtons:
     IF ShowContextualMenu THEN
         Clicked = 0
-        'Hover highlight:
+        MenuHoverHighlight:
         IF (mx >= ContextualMenu.X) AND (mx <= ContextualMenu.X + ContextualMenu.W) THEN
             IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
                 LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
@@ -1941,6 +1969,7 @@ SUB VARIABLE_VIEW
 
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set/Edit a watchpoint "
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), " Edit variable value   "
+        IF MenuHeld THEN RETURN
     ELSE
         IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
         'Hover highlight:
