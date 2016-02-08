@@ -24,6 +24,7 @@ END DECLARE
 CONST ID = "vWATCH64"
 CONST VERSION = ".954b"
 
+CONST LF = 10
 CONST TIMEOUTLIMIT = 5 'SECONDS
 
 'Messagebox type
@@ -119,7 +120,6 @@ DIM SHARED CONVERSIONERRORRAISED AS _BIT
 DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LAST_PING#
-DIM SHARED LF AS _BYTE
 DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
 DIM SHARED MAINSCREEN AS LONG
@@ -3973,11 +3973,8 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION TRUNCATE$ (Text$, Char)
-    FOR i = 1 TO LEN(Text$)
-        IF ASC(Text$, i) = Char THEN EXIT FOR
-        NewText$ = NewText$ + MID$(Text$, i, 1)
-    NEXT i
-    TRUNCATE$ = NewText$
+    i = INSTR(Text$, CHR$(Char))
+    IF i > 0 THEN TRUNCATE$ = LEFT$(Text$, i - 1) ELSE TRUNCATE$ = Text$
 END FUNCTION
 
 '------------------------------------------------------------------------------
@@ -4249,7 +4246,6 @@ SUB SETUP_CONNECTION
                 GOTO StartSetup
             END IF
         ELSE
-            IF INSTR(SOURCEFILE, CHR$(13)) THEN LF = 13 ELSE LF = 10
             REDIM LINE_STARTS(1 TO CLIENT.TOTALSOURCELINES) AS LONG
             CHECKINGOFF_LINES = STRING$(CLIENT.TOTALSOURCELINES, 0)
 
@@ -4755,24 +4751,21 @@ SUB RESTORE_LIBRARY
 
     IF _FILEEXISTS("timers.h") THEN EXIT SUB
 
-    IF INSTR(_OS$, "WIN") > 0 THEN LF$ = CHR$(13) + CHR$(10) ELSE LF$ = CHR$(10)
+    SourceLine$ = SourceLine$ + "extern int32 ontimerthread_lock;" + CHR$(LF)
+    SourceLine$ = SourceLine$ + "void stop_timers() {" + CHR$(LF)
+    SourceLine$ = SourceLine$ + "  ontimerthread_lock = 1;" + CHR$(LF)
+    SourceLine$ = SourceLine$ + "  while (ontimerthread_lock != 2);" + CHR$(LF)
+    SourceLine$ = SourceLine$ + "}" + CHR$(LF) + CHR$(LF)
+    SourceLine$ = SourceLine$ + "void start_timers() {" + CHR$(LF)
+    SourceLine$ = SourceLine$ + "  ontimerthread_lock = 0;" + CHR$(LF)
+    SourceLine$ = SourceLine$ + "}" + CHR$(LF)
 
     LibOutput = FREEFILE
     FILEERRORRAISED = 0
     ON ERROR GOTO FileError
-    OPEN "timers.h" FOR OUTPUT AS #LibOutput
-    IF FILEERRORRAISED THEN SYSTEM_BEEP 0: PRINT "Cannot write 'timers.h' to "; _CWD$: SLEEP: SYSTEM
-
-    SourceLine$ = "extern int32 ontimerthread_lock;" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "void stop_timers() {" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "  ontimerthread_lock = 1;" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "  while (ontimerthread_lock != 2);" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "}" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "void start_timers() {" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "  ontimerthread_lock = 0;" + LF$: PRINT #LibOutput, SourceLine$;
-    SourceLine$ = "}" + LF$: PRINT #LibOutput, SourceLine$;
-
+    OPEN "timers.h" FOR BINARY AS #LibOutput
+    IF FILEERRORRAISED THEN SYSTEM_BEEP 0: PRINT "FATAL ERROR: Cannot write 'timers.h' to "; _CWD$: SLEEP: SYSTEM
+    PUT #LibOutput, 1, SourceLine$
     CLOSE #LibOutput
 END SUB
 
@@ -4811,17 +4804,12 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
     IF TargetLine > CLIENT.TOTALSOURCELINES THEN EXIT FUNCTION
 
     IF TargetLine < CLIENT.TOTALSOURCELINES THEN
-        LineLength = LINE_STARTS(TargetLine + 1) - LINE_STARTS(TargetLine) - 1
-        IF LF = 13 THEN LineLength = LineLength - 1
+        SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LINE_STARTS(TargetLine + 1) - LINE_STARTS(TargetLine))
     ELSE
-        LineLength = LEN(SOURCEFILE) - LINE_STARTS(TargetLine) - 1
+        SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), (LEN(SOURCEFILE) + 1) - LINE_STARTS(TargetLine))
     END IF
 
-    SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LineLength)
-    IF RIGHT$(SourceLine, 1) = CHR$(10) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
-    IF RIGHT$(SourceLine, 1) = CHR$(LF) THEN SourceLine = LEFT$(SourceLine, LEN(SourceLine) - 1)
-
-    GETLINE$ = SourceLine
+    GETLINE$ = TRUNCATE$(SourceLine, 13)
 END FUNCTION
 
 '------------------------------------------------------------------------------
