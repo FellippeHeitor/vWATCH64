@@ -3395,6 +3395,8 @@ SUB PROCESSFILE
             PRINT #OutputFile, LocalShared_NOREPETITION(i)
         NEXT i
 
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 AND (TRIM$(VARIABLES(i).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
@@ -3711,6 +3713,7 @@ SUB PROCESSFILE
 
     AddSFVariableWatchCode:
     PRINT #OutputFile, "vwatch64_VARIABLEWATCH:"
+    PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
     tempindex.SFvar = 0
     FOR sf.Var = 1 TO TOTALVARIABLES
         IF ASC(AddedList$, sf.Var) = 1 THEN
@@ -3724,6 +3727,7 @@ SUB PROCESSFILE
             END IF
         END IF
     NEXT sf.Var
+    PRINT #OutputFile, "ON ERROR GOTO 0"
     PRINT #OutputFile, "RETURN"
     PRINT #OutputFile, ""
     GOSUB AddSetVarCode
