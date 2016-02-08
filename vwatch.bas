@@ -1192,7 +1192,7 @@ SUB SOURCE_VIEW
         TempMessage.printY = printY
         IF ASC(CHECKINGOFF_LINES, i) THEN
             TempMessage$ = " $CHECKING:OFF block (not accessible) "
-        ELSEIF LEN(temp.SourceLine$) = 0 THEN
+        ELSEIF LEN(TRIM$(SourceLine)) = 0 THEN
             TempMessage$ = " Blank line "
         ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
             TempMessage$ = " Multiline statement "
