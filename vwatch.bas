@@ -1012,10 +1012,12 @@ SUB SOURCE_VIEW
         MouseHeld = -1
         WHILE _MOUSEBUTTON(1)
             _LIMIT 500
-            PCOPY 1, 0
-            GOSUB DrawContextualMenu
-            GOSUB MenuHoverHighlight
-            _DISPLAY
+            IF ShowContextualMenu THEN
+                PCOPY 1, 0
+                GOSUB DrawContextualMenu
+                GOSUB MenuHoverHighlight
+                _DISPLAY
+            END IF
             SEND_PING
             mb = _MOUSEINPUT
             my = _MOUSEY
@@ -1802,10 +1804,12 @@ SUB VARIABLE_VIEW
         MouseHeld = -1
         WHILE _MOUSEBUTTON(1)
             _LIMIT 500
-            PCOPY 1, 0
-            GOSUB DrawContextualMenu
-            GOSUB MenuHoverHighlight
-            _DISPLAY
+            IF ShowContextualMenu THEN
+                PCOPY 1, 0
+                GOSUB DrawContextualMenu
+                GOSUB MenuHoverHighlight
+                _DISPLAY
+            END IF
             SEND_PING
             mb = _MOUSEINPUT
             my = _MOUSEY
