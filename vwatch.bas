@@ -4814,7 +4814,7 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
         SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), (LEN(SOURCEFILE) + 1) - LINE_STARTS(TargetLine))
     END IF
 
-    SourceLine$ = TRUNCATE$(SourceLine, 13)
+    SourceLine = TRUNCATE$(SourceLine, 13)
     GETLINE$ = TRUNCATE$(SourceLine, 10)
 END FUNCTION
 
