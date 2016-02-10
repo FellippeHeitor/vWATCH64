@@ -27,7 +27,8 @@ DO: _LIMIT 60
         k$ = INKEY$
         fe(temp) = a
         temp = temp + 1: IF temp > UBOUND(fe) THEN temp = 0: _
-            used$6 = "RESET!"
+            used$6 = "RESET!": _
+            tempo = 0
         IF k$ = CHR$(27) THEN EXIT DO
     NEXT j
     $CHECKING:OFF
