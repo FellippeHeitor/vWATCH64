@@ -61,7 +61,6 @@ TYPE HEADERTYPE
     CONNECTED AS _BYTE
     RESPONSE AS _BYTE
     HOST_PING AS _BYTE
-    CLIENT_PING AS _BYTE
 END TYPE
 
 TYPE CLIENTTYPE
@@ -71,6 +70,7 @@ TYPE CLIENTTYPE
     EXENAME AS STRING * 256
     LINENUMBER AS LONG
     TOTALVARIABLES AS LONG
+    CLIENT_PING AS _BYTE
 END TYPE
 
 TYPE BREAKPOINTTYPE
@@ -3148,7 +3148,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    CONNECTED AS _BYTE"
     PRINT #OutputFile, "    RESPONSE AS _BYTE"
     PRINT #OutputFile, "    HOST_PING AS _BYTE"
-    PRINT #OutputFile, "    CLIENT_PING AS _BYTE"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_CLIENTTYPE"
@@ -3158,6 +3157,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    EXENAME AS STRING * 256"
     PRINT #OutputFile, "    LINENUMBER AS LONG"
     PRINT #OutputFile, "    TOTALVARIABLES AS LONG"
+    PRINT #OutputFile, "    CLIENT_PING AS _BYTE"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_BREAKPOINTTYPE"
@@ -3574,8 +3574,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
-    PRINT #OutputFile, "    vwatch64_HEADER.CLIENT_PING = -1"
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "    RETURN"
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
@@ -4820,8 +4821,8 @@ END FUNCTION
 '------------------------------------------------------------------------------
 SUB SEND_PING
     'Check if the connection is still alive on the client's end
-    GET #FILE, HEADERBLOCK, HEADER
-    IF HEADER.CLIENT_PING = 0 THEN
+    GET #FILE, CLIENTBLOCK, CLIENT
+    IF CLIENT.CLIENT_PING = 0 THEN
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SLEEP", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SHELL", FoundAt) THEN LAST_PING# = TIMER
@@ -4832,8 +4833,8 @@ SUB SEND_PING
         END IF
     ELSE
         LAST_PING# = TIMER
-        HEADER.CLIENT_PING = 0
-        PUT #FILE, HEADERBLOCK, HEADER
+        CLIENT.CLIENT_PING = 0
+        PUT #FILE, CLIENTBLOCK, CLIENT
     END IF
 
     'Inform the client we're still alive and kicking.
