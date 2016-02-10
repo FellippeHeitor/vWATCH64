@@ -22,7 +22,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".954b"
+CONST VERSION = ".955b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 5 'SECONDS
