@@ -4813,11 +4813,8 @@ FUNCTION GETLINE$ (TargetLine AS LONG)
         SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), (LEN(SOURCEFILE) + 1) - LINE_STARTS(TargetLine))
     END IF
 
-    $IF WIN THEN
-        GETLINE$ = TRUNCATE$(SourceLine, 13)
-    $ELSE
-        GETLINE$ = TRUNCATE$(SourceLine, 10)
-    $END IF
+    SourceLine$ = TRUNCATE$(SourceLine, 13)
+    GETLINE$ = TRUNCATE$(SourceLine, 10)
 END FUNCTION
 
 '------------------------------------------------------------------------------
