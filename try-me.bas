@@ -31,14 +31,14 @@ DO: _LIMIT 60
             tempo = 0
         IF k$ = CHR$(27) THEN EXIT DO
     NEXT j
-    $CHECKING:OFF
+    'VWATCH64:OFF
     used`8 = tiempo#
     strayDog = strayDog + 1
     PRINT strayDog
     tiempo# = TIMER
     PRINT
     PRINT tiempo# - tempo
-    $CHECKING:ON
+    'VWATCH64:ON
     TakeABreak
 LOOP
 
