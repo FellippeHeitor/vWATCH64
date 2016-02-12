@@ -27,7 +27,7 @@ CONST VERSION = ".955b"
 CONST LF = 10
 CONST TIMEOUTLIMIT = 5 'SECONDS
 
-'Messagebox type
+'Messagebox
 CONST OK_ONLY = 0
 CONST YN_QUESTION = 1
 CONST MB_YES = 6
@@ -244,10 +244,10 @@ $END IF
 
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP 0
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", OK_ONLY, 1, 0)
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     ELSEIF _COMMANDCOUNT > 1 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE SYSTEM_BEEP 0
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", OK_ONLY, 1, 0)
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     END IF
 END IF
@@ -1207,7 +1207,7 @@ SUB SOURCE_VIEW
         TempMessageYRef = y
         TempMessage.printY = printY
         IF ASC(CHECKINGOFF_LINES, i) THEN
-            TempMessage$ = " $CHECKING:OFF block (not accessible) "
+            TempMessage$ = " $CHECKING/VWATCH64:OFF block (not accessible) "
         ELSEIF LEN(TRIM$(SourceLine)) = 0 THEN
             TempMessage$ = " Blank line "
         ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
@@ -2966,14 +2966,15 @@ SUB PROCESSFILE
         ELSEIF LEFT$(SourceLine, 7) = "$END IF" THEN
             PrecompilerBlock = 0
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-        ELSEIF LEFT$(SourceLine, 13) = "$CHECKING:OFF" THEN
+        ELSEIF LEFT$(SourceLine, 13) = "$CHECKING:OFF" OR UCASE$(LEFT$(TRIM$(bkpSourceLine$), 13)) = "'VWATCH64:OFF" THEN
             'vWATCH64 won't mess with lines of code between $CHECKING:OFF
             'and $CHECKING:ON, considering that such lines are technically
             'error free, by the programmer's own judgement to include such
-            'metacommands.
+            'metacommands. Custom metacommand 'VWATCH64:OFF will also make
+            'lines be ignored until a 'VWATCH64:ON is found.
             CheckingOff = -1
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-        ELSEIF LEFT$(SourceLine, 12) = "$CHECKING:ON" THEN
+        ELSEIF LEFT$(SourceLine, 12) = "$CHECKING:ON" OR UCASE$(LEFT$(TRIM$(bkpSourceLine$), 12)) = "'VWATCH64:ON" THEN
             CheckingOff = 0
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
@@ -3331,7 +3332,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "SUB vwatch64_VARIABLEWATCH"
-        PRINT #OutputFile, "    DIM vwatch64_i AS LONG"
         LocalSharedAddedTotal = 0
         FOR i = 1 TO TotalLocalVariables
             SourceLine = "    SHARED "
@@ -3778,7 +3778,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "GET #vwatch64_CLIENTFILE, , vwatch64_EXCHANGEDATA"
     PRINT #OutputFile, "vwatch64_BREAKPOINT.ACTION = vwatch64_READY"
     PRINT #OutputFile, "PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #OutputFile, "ON ERROR GOTO 0"
+    PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "SELECT CASE vwatch64_TARGETVARINDEX"
     tempindex.SFvar = 0
@@ -3799,6 +3799,7 @@ SUB PROCESSFILE
     IF CurrentSubFunc$ <> "MAIN MODULE" THEN
         PRINT #OutputFile, "GOSUB vwatch64_VARIABLEWATCH"
     END IF
+    PRINT #OutputFile, "ON ERROR GOTO 0"
     PRINT #OutputFile, "RETURN"
     RETURN
 
@@ -4263,11 +4264,11 @@ SUB SETUP_CONNECTION
                 LINE_STARTS(CurrentLineNo) = NextLineStart
                 LINE INPUT #SOURCEFILENUM%, bkpSourceLine$
                 SourceLine$ = UCASE$(TRIM$(bkpSourceLine$))
-                IF SourceLine$ = "$CHECKING:OFF" THEN
+                IF SourceLine$ = "$CHECKING:OFF" OR LEFT$(SourceLine$, 13) = "'VWATCH64:OFF" THEN
                     InsideCheckingOffBlock = -1
                 END IF
                 IF InsideCheckingOffBlock THEN ASC(CHECKINGOFF_LINES, CurrentLineNo) = 1
-                IF SourceLine$ = "$CHECKING:ON" THEN
+                IF SourceLine$ = "$CHECKING:ON" OR LEFT$(SourceLine$, 12) = "'VWATCH64:ON" THEN
                     InsideCheckingOffBlock = 0
                 END IF
                 IF LEN(bkpSourceLine$) > LONGESTLINE THEN LONGESTLINE = LEN(bkpSourceLine$)
@@ -4420,6 +4421,9 @@ END SUB
 
 '------------------------------------------------------------------------------
 FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
+    'Steve McNeill's File Selection Utility v1.2
+    'http://www.qb64.net/forum/index.php?topic=11253.0
+
     'save some old values
     LoadFile_DC = _DEFAULTCOLOR: LoadFile_BG = _BACKGROUNDCOLOR
     LoadFile_s = _SOURCE: LoadFile_d = _DEST
