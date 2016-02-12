@@ -1800,13 +1800,14 @@ SUB VARIABLE_VIEW
     END IF
 
     IF mb THEN
-        IF OldMXClicked = mx AND OldMYClicked = my THEN
+        IF OldMXClicked = mx AND OldMYClicked = my AND (TIMER - LastClick# <= 0.5) THEN
             OldMXClicked = -1
             OldMYClicked = -1
             DoubleClick = -1
         ELSE
             OldMXClicked = mx
             OldMYClicked = my
+            LastClick# = TIMER
             DoubleClick = 0
         END IF
 
