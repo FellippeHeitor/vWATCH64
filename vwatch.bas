@@ -579,7 +579,7 @@ SUB SOURCE_VIEW
             RunButton_Click:
             IF WATCHPOINTBREAK > 0 THEN
                 IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
-                    Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
+                    Message$ = "Execution was halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
                     Message$ = Message$ + "Clear it before resuming?"
                     MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
@@ -1414,7 +1414,7 @@ SUB VARIABLE_VIEW
             RunButton_Click:
             IF WATCHPOINTBREAK > 0 THEN
                 IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
-                    Message$ = "Execution halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
+                    Message$ = "Execution was halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
                     Message$ = Message$ + "Clear it before resuming?"
                     MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
