@@ -1800,6 +1800,16 @@ SUB VARIABLE_VIEW
     END IF
 
     IF mb THEN
+        IF OldMXClicked = mx AND OldMYClicked = my THEN
+            OldMXClicked = -1
+            OldMYClicked = -1
+            DoubleClick = -1
+        ELSE
+            OldMXClicked = mx
+            OldMYClicked = my
+            DoubleClick = 0
+        END IF
+
         'Wait until a mouse up event is received:
         MouseHeld = -1
         WHILE _MOUSEBUTTON(1)
@@ -1867,6 +1877,7 @@ SUB VARIABLE_VIEW
                 WatchPointDone:
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                 'Edit
+                EditVariableRoutine:
                 IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                     Message$ = ""
                     Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
@@ -1928,12 +1939,19 @@ SUB VARIABLE_VIEW
                             PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
                         END IF
                     END IF
+                    IF DoubleClick THEN RETURN
                 END IF
             END IF
         ELSEIF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
             'Click on variable lines
             IF ShowContextualMenu THEN
                 ShowContextualMenu = 0
+            ELSE
+                IF DoubleClick THEN
+                    ContextualMenuLineRef = i
+                    GOSUB EditVariableRoutine
+                    DoubleClick = 0
+                END IF
             END IF
         END IF
     END IF
