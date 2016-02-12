@@ -1750,7 +1750,7 @@ SUB VARIABLE_VIEW
         DrawContextualMenu:
         LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(200, 200, 200), BF
         LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(0, 0, 0), B
-        IF MenuHeld THEN RETURN
+        IF MouseHeld THEN RETURN
         GOSUB CheckButtons
     END IF
     _DISPLAY
@@ -1973,7 +1973,7 @@ SUB VARIABLE_VIEW
 
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set/Edit a watchpoint "
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), " Edit variable value   "
-        IF MenuHeld THEN RETURN
+        IF MouseHeld THEN RETURN
     ELSE
         IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
         'Hover highlight:
