@@ -4053,7 +4053,7 @@ FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
         CASE "&"
             SUFFIXLOOKUP$ = "_INTEGER64"
         CASE "#"
-            SUFFIXLOOKUP$ = "FLOAT"
+            SUFFIXLOOKUP$ = "_FLOAT"
     END SELECT
 
     IF LEN(VarBKP) < 4 THEN EXIT FUNCTION 'no more suffixes to evaluate
