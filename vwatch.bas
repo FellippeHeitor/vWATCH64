@@ -22,7 +22,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".955b"
+CONST VERSION = ".956b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 5 'SECONDS
@@ -32,6 +32,11 @@ CONST OK_ONLY = 0
 CONST YN_QUESTION = 1
 CONST MB_YES = 6
 CONST MB_NO = 7
+
+'OpenInclude return codes:
+CONST MERGESUCCESSFUL = 0
+CONST MISSINGFILE = -1
+CONST NOINCLUDES = -2
 
 'Breakpoint control:
 CONST CONTINUE = 1
@@ -178,7 +183,7 @@ DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
 REDIM SHARED VARIABLE_DATA(0) AS VARIABLEVALUETYPE
 REDIM SHARED WATCHPOINT(0) AS WATCHPOINTTYPE
-REDIM SHARED LINE_STARTS(0) AS LONG
+REDIM SHARED SOURCECODE(0) AS STRING
 
 DIM i AS INTEGER
 
@@ -821,7 +826,7 @@ SUB SOURCE_VIEW
         END IF
     ELSE
         LINE (0, SCREEN_TOPBAR)-STEP(_WIDTH, _HEIGHT - SCREEN_TOPBAR), _RGB32(200, 200, 200), BF
-        Message$ = "<Source file changed/not found>"
+        Message$ = "<Source file(s) changed/not found>"
         COLOR _RGB32(255, 0, 0)
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Message$) / 2, SCREEN_TOPBAR + (_HEIGHT - SCREEN_TOPBAR) / 2 - _FONTHEIGHT / 2), Message$
     END IF
@@ -2413,27 +2418,86 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
 END SUB
 
 '------------------------------------------------------------------------------
+FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
+    'OpenInclude adapted from codeguy's routines found in
+    'http://www.qb64.net/forum/index.php?topic=1565.msg17025#msg17025
+    DIM insc1%, insc2%
+    DIM FoundInclude AS _BIT
+    DIM InclResult AS INTEGER
+    STATIC CurrDir$
+
+    IF Lines& = 0 THEN CurrDir$ = _CWD$
+
+    IF _FILEEXISTS(f$) THEN
+        c% = FREEFILE
+        OPEN f$ FOR BINARY AS c%
+        DO
+            IF EOF(c%) THEN
+                EXIT DO
+            ELSE
+                LINE INPUT #c%, readx$
+                Lines& = Lines& + 1
+                GOSUB AddStringToArray
+                readx$ = TRIM$(readx$)
+                IF UCASE$(LEFT$(readx$, 10)) = "'$INCLUDE:" OR UCASE$(LEFT$(readx$, 13)) = "REM $INCLUDE:" THEN
+                    FoundInclude = -1
+                    insinc% = INSTR(UCASE$(readx$), "$INCLUDE:")
+                    insc1% = INSTR(insinc%, readx$, "'")
+                    insc2% = INSTR(insc1% + 1, readx$, "'")
+                    IncludedFile$ = MID$(readx$, insc1% + 1, insc2% - insc1% - 1)
+                    CodeText(Lines&) = "'*INCLUDE file merged: '" + IncludedFile$ + "'"
+                    $IF WIN THEN
+                        IF LEFT$(IncludedFile$, 1) = "\" OR INSTR(IncludedFile$, ":") > 0 THEN
+                            'Do nothing; it's an absolute path.
+                        ELSE
+                            IncludedFile$ = PATHONLY$(f$) + IncludedFile$
+                        END IF
+                    $ELSE
+                        IF LEFT$(IncludedFile$, 1) = "/" THEN
+                        'Do nothing; it's an absolute path.
+                        ELSE
+                        IncludedFile$ = PATHONLY$(f$) + IncludedFile$
+                        END IF
+                    $END IF
+                    InclResult = OpenInclude(IncludedFile$, CodeText(), Lines&)
+                    IF InclResult = MISSINGFILE THEN OpenInclude = MISSINGFILE: EXIT FUNCTION
+                END IF
+            END IF
+        LOOP
+        CLOSE c%
+    ELSE
+        OpenInclude = MISSINGFILE: EXIT FUNCTION
+    END IF
+
+    IF FoundInclude THEN OpenInclude = MERGESUCCESSFUL ELSE OpenInclude = NOINCLUDES
+    Level = Level = -1
+    IF Level = 0 THEN CHDIR CurrDir$
+
+    EXIT FUNCTION
+    AddStringToArray:
+    IF Lines& > UBOUND(CodeText) THEN REDIM _PRESERVE CodeText(1 TO UBOUND(CodeText) + 32)
+    CodeText(Lines&) = readx$
+    RETURN
+END FUNCTION
+
+'------------------------------------------------------------------------------
 SUB PROCESSFILE
     'Parses a .BAS file and reads all compatible variables
     'in order to generate a compatible vWATCH64 client.
 
-    DIM InputFile AS INTEGER
     DIM OutputFile AS INTEGER
-    DIM BIFile AS INTEGER
-    DIM BIFileName AS STRING
-    DIM BMFile AS INTEGER
-    DIM BMFileName AS STRING
     DIM SourceLine AS STRING
     DIM caseBkpSourceLine AS STRING
     DIM TotalLocalVariables AS INTEGER
     DIM TotalKeywords AS INTEGER
     DIM TotalUDTs AS INTEGER
     DIM TotalUDTsAdded AS INTEGER
-    DIM TotalLines AS LONG
+    DIM TotalSourceLines AS LONG
     DIM TotalSubFunc AS LONG
     DIM ThisKeyword AS STRING
     DIM DefiningType AS _BIT
     DIM PrecompilerBlock AS _BIT
+    DIM ProcessLine AS LONG
     DIM CheckingOff AS _BIT
     DIM InBetweenSubs AS _BIT
     DIM DeclaringLibrary AS _BIT
@@ -2622,49 +2686,56 @@ SUB PROCESSFILE
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
     CLS
     PRINT: PRINT
-    InputFile = FREEFILE
-    OPEN FILENAME$ FOR BINARY AS #InputFile
+    PRINT "Checking $INCLUDE files..."
+    MergeResult = OpenInclude(FILENAME$, SOURCECODE(), TotalSourceLines)
+    IF MergeResult = MISSINGFILE THEN
+        Message$ = ""
+        Message$ = Message$ + "One of the $INCLUDE files could not be found" + CHR$(LF)
+        Message$ = Message$ + "('" + FILENAME$ + "' on line" + STR$(TotalSourceLines) + ")."
+        PCOPY 0, 1
+        MESSAGEBOX_RESULT = MESSAGEBOX("Processing failed", Message$, OK_ONLY, 1, 0)
+        EXIT SUB
+    ELSEIF MergeResult = MERGESUCCESSFUL THEN
+        PRINT "Source file has $INCLUDE files; merge successful."
+    END IF
 
-    'Read the source into memory:
-    SOURCEFILE = SPACE$(LOF(InputFile))
-    GET #InputFile, 1, SOURCEFILE
-
-    CHECKSUM = ADLER32(SOURCEFILE)
+    'Calculate checksum:
+    PRINT "Calculating checksum...";: row = CSRLIN: col = POS(1)
     SOURCEFILE = ""
-    SEEK #InputFile, 1
+    FOR i = 1 TO TotalSourceLines
+        SOURCEFILE = SOURCEFILE + SOURCECODE(i)
+        LOCATE row, col
+        PRINT USING "###"; (i / TotalSourceLines) * 100;: PRINT "%"
+    NEXT i
+    PRINT
+    CHECKSUM = ADLER32(SOURCEFILE)
 
     MainModule = -1
     MainModuleEND = 0
     CurrentSubFunc$ = ""
     TotalOutputLines = 0
-    'Look for variables inside the main module and stores information in VARIABLES()
-    'and LOCALVARIABLES. If SUB or FUNCTION is found, injects CURRENTMODULE verification
-    'code. If SYSTEM is found, injects cleanup procedures (also when main module ends):
+    ProcessLine = 0
+    'Look for variables inside the main module and store information in VARIABLES()
+    'and LOCALVARIABLES. If SYSTEM is found, inject cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
     PRINT "Parsing .BAS and injecting breakpoint control code...";
     IF VERBOSE THEN PRINT
     row = CSRLIN: col = POS(1)
-    TotalSourceLines = 0
     MULTILINE_DIM = 0
     MULTILINE = 0
     DO
         k$ = INKEY$
         IF k$ = CHR$(27) THEN
-            SYSTEM_BEEP 0
-            PRINT
-            PRINT
-            COLOR _RGB32(255, 0, 0)
-            PRINT "Processing canceled."
-            COLOR _RGB32(0, 0, 0)
-            PRINT "Press any key..."
-            CLOSE InputFile
-            SLEEP
+            Message$ = ""
+            Message$ = Message$ + "Processing canceled."
+            PCOPY 0, 1
+            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
             EXIT SUB
         END IF
-        IF LEN(caseBkpNextVar$) = 0 THEN 'Read next line from file unless we're in the middle of processing a line
-            NextLineStart = SEEK(InputFile)
-            LINE INPUT #InputFile, bkpSourceLine$ 'Read the next source line
-            TotalSourceLines = TotalSourceLines + 1
+        IF LEN(caseBkpNextVar$) = 0 THEN 'Read next line unless we're in the middle of processing a line
+            ProcessLine = ProcessLine + 1
+            IF ProcessLine > TotalSourceLines THEN EXIT DO
+            bkpSourceLine$ = SOURCECODE(ProcessLine) 'Read the next source line
             caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generate a version without comments or extra spaces
             SourceLine = UCASE$(caseBkpSourceLine) 'Generate an all upper case version
 
@@ -2707,14 +2778,14 @@ SUB PROCESSFILE
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
                     END IF
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(TotalSourceLines)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines))
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         GOSUB AddNextLineData
                     END IF
                 END IF
             END IF
             IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1 ELSE MULTILINE = 0
-            IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (SEEK(InputFile) / LOF(InputFile)) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
+            IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (ProcessLine / TotalSourceLines) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
         ELSE
             NextVar$ = UCASE$(caseBkpNextVar$)
         END IF
@@ -2747,7 +2818,7 @@ SUB PROCESSFILE
             IF LEN(caseBkpNextVar$) > 0 THEN
                 NextVar$ = UCASE$(caseBkpNextVar$)
             ELSE
-                caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, TotalSourceLines)
+                caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, ProcessLine)
                 NextVar$ = UCASE$(caseBkpNextVar$)
             END IF
 
@@ -2937,7 +3008,7 @@ SUB PROCESSFILE
                     END IF
                 END IF
             END IF
-            caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, TotalSourceLines)
+            caseBkpNextVar$ = GETNEXTVARIABLE$(caseBkpSourceLine, ProcessLine)
             IF LEN(caseBkpNextVar$) = 0 THEN
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE_DIM = -1
@@ -3079,7 +3150,7 @@ SUB PROCESSFILE
         ELSE
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         END IF
-    LOOP UNTIL EOF(InputFile)
+    LOOP
 
     IF TOTALVARIABLES = 0 THEN
         PRINT
@@ -3109,7 +3180,6 @@ SUB PROCESSFILE
                 PRINT "Processing canceled."
                 COLOR _RGB32(0, 0, 0)
                 PRINT
-                CLOSE InputFile
                 _DELAY 1
                 EXIT SUB
             ELSE
@@ -3128,7 +3198,6 @@ SUB PROCESSFILE
         MainModuleEND = TotalOutputLines
     END IF
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
-    CLOSE InputFile
 
     OutputFile = FREEFILE
     OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
@@ -3151,7 +3220,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     PRINT #OutputFile, "CONST vwatch64_ID = " + Q$ + "vWATCH64" + Q$
     PRINT #OutputFile, "CONST vwatch64_VERSION = " + Q$ + VERSION + Q$
-    PRINT #OutputFile, "CONST vwatch64_INTERVAL = .1"
     PRINT #OutputFile, "CONST vwatch64_CHECKSUM = " + Q$ + CHECKSUM + Q$
     PRINT #OutputFile, "CONST vwatch64_TIMEOUTLIMIT =" + STR$(TIMEOUTLIMIT)
     PRINT #OutputFile, ""
@@ -3215,7 +3283,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTEXPBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADERBLOCK AS LONG"
-    PRINT #OutputFile, "DIM SHARED vwatch64_LOF AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BIT"
     PRINT #OutputFile, "DIM SHARED vwatch64_LAST_PING#"
     PRINT #OutputFile, "DIM SHARED vwatch64_NEXTLINE AS LONG"
@@ -3742,7 +3809,7 @@ SUB PROCESSFILE
     AddNextLineData:
     TotalNextLineData = TotalNextLineData + 1
     REDIM _PRESERVE SetNextLineData(1 TO TotalNextLineData) AS STRING
-    SetNextLineData(TotalNextLineData) = "vwatch64_LABEL_" + LTRIM$(STR$(TotalSourceLines))
+    SetNextLineData(TotalNextLineData) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
     RETURN
 
     AddEndOfMainModuleCode:
@@ -3975,11 +4042,11 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION NOPATH$ (FILENAME$)
-    IF INSTR(_OS$, "WIN") THEN div$ = "\" ELSE div$ = "/"
-    IF INSTR(FILENAME$, div$) = 0 THEN NOPATH$ = FILENAME$: EXIT FUNCTION
+    div$ = "/\"
+    IF INSTR(FILENAME$, LEFT$(div$, 1)) = 0 AND INSTR(FILENAME$, RIGHT$(div$, 1)) = 0 THEN NOPATH$ = FILENAME$: EXIT FUNCTION
     FOR i = LEN(FILENAME$) TO 1 STEP -1
         c$ = MID$(FILENAME$, i, 1)
-        IF c$ = div$ THEN
+        IF INSTR(div$, c$) > 0 THEN
             NOPATH$ = RIGHT$(FILENAME$, LEN(FILENAME$) - i)
             EXIT FUNCTION
         END IF
@@ -4146,6 +4213,7 @@ END FUNCTION
 '------------------------------------------------------------------------------
 SUB SETUP_CONNECTION
     DIM InsideCheckingOffBlock AS _BIT
+    DIM TotalSourceLines AS LONG
 
     _KEYCLEAR 'Clears the keyboard buffer
 
@@ -4250,65 +4318,109 @@ SUB SETUP_CONNECTION
     EXCHANGEBLOCK = WATCHPOINTCOMMANDBLOCK + LEN(WATCHPOINT_COMMAND) + 1
 
     'Load the source file, if it still exists.
+    SOURCEFILE = ""
     IF _FILEEXISTS(TRIM$(CLIENT.NAME)) THEN
-        SOURCEFILENUM% = FREEFILE
-        OPEN TRIM$(CLIENT.NAME) FOR BINARY AS SOURCEFILENUM%
-        SOURCEFILE = SPACE$(LOF(SOURCEFILENUM%))
-        GET #SOURCEFILENUM%, 1, SOURCEFILE
-
-        SEEK #SOURCEFILENUM%, 1
-
-        IF CLIENT.CHECKSUM <> ADLER32(SOURCEFILE) THEN
-            SOURCEFILE = ""
-            Message$ = ""
-            Message$ = Message$ + "The original source file was changed since it was processed with vWATCH64." + CHR$(LF)
-            Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
-            Message$ = Message$ + "Continue?"
-            IF MESSAGEBOX("Checksum error", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+        FILENAME$ = TRIM$(CLIENT.NAME)
+        MergeResult = OpenInclude(FILENAME$, SOURCECODE(), TotalSourceLines)
+        IF MergeResult = MISSINGFILE THEN
+            IF CLIENT.TOTALVARIABLES > 0 THEN
+                Message$ = ""
+                Message$ = Message$ + "One of the $INCLUDE files could not be found" + CHR$(LF)
+                Message$ = Message$ + "('" + FILENAME$ + "' on line" + STR$(TotalSourceLines) + ")." + CHR$(LF)
+                Message$ = Message$ + "Source view will be empty. Continue?"
+                IF MESSAGEBOX("File not found", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+                    HEADER.CONNECTED = 0
+                    PUT #FILE, HEADERBLOCK, HEADER
+                    GOTO StartSetup
+                ELSE
+                    GOTO SkipSourceScan
+                END IF
+            ELSE
+                SOURCEFILE = ""
                 HEADER.CONNECTED = 0
                 PUT #FILE, HEADERBLOCK, HEADER
-                '_DELAY 1
+                Message$ = ""
+                Message$ = Message$ + "Some original files could not be found" + CHR$(LF)
+                Message$ = Message$ + "and there are no watchable variables."
+                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
                 GOTO StartSetup
             END IF
         ELSE
-            REDIM LINE_STARTS(1 TO CLIENT.TOTALSOURCELINES) AS LONG
+        END IF
+
+        FOR i = 1 TO TotalSourceLines
+            SOURCEFILE = SOURCEFILE + SOURCECODE(i)
+        NEXT i
+
+        IF CLIENT.CHECKSUM <> ADLER32(SOURCEFILE) THEN
+            IF CLIENT.TOTALVARIABLES > 0 THEN
+                SOURCEFILE = ""
+                Message$ = ""
+                Message$ = Message$ + "The original source files were changed." + CHR$(LF)
+                Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
+                Message$ = Message$ + "Continue?"
+                IF MESSAGEBOX("Checksum error", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+                    HEADER.CONNECTED = 0
+                    PUT #FILE, HEADERBLOCK, HEADER
+                    GOTO StartSetup
+                END IF
+            ELSE
+                SOURCEFILE = ""
+                HEADER.CONNECTED = 0
+                PUT #FILE, HEADERBLOCK, HEADER
+                Message$ = ""
+                Message$ = Message$ + "The original source files were changed" + CHR$(LF)
+                Message$ = Message$ + "and there are no watchable variables."
+                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
+                GOTO StartSetup
+            END IF
+        ELSE
+            'Scan for $CHECKING/VWATCH64:OFF blocks:
             CHECKINGOFF_LINES = STRING$(CLIENT.TOTALSOURCELINES, 0)
+            SOURCEFILE = "LOADED"
 
             'Scan the file for line starts:
             CurrentLineNo = 1
             LONGESTLINE = 1
             InsideCheckingOffBlock = 0
-            DO
-                NextLineStart = SEEK(SOURCEFILENUM%)
-                LINE_STARTS(CurrentLineNo) = NextLineStart
-                LINE INPUT #SOURCEFILENUM%, bkpSourceLine$
+            FOR i = 1 TO TotalSourceLines
+                bkpSourceLine$ = SOURCECODE(i)
                 SourceLine$ = UCASE$(TRIM$(bkpSourceLine$))
                 IF SourceLine$ = "$CHECKING:OFF" OR LEFT$(SourceLine$, 13) = "'VWATCH64:OFF" THEN
                     InsideCheckingOffBlock = -1
                 END IF
-                IF InsideCheckingOffBlock THEN ASC(CHECKINGOFF_LINES, CurrentLineNo) = 1
+                IF InsideCheckingOffBlock THEN ASC(CHECKINGOFF_LINES, i) = 1
                 IF SourceLine$ = "$CHECKING:ON" OR LEFT$(SourceLine$, 12) = "'VWATCH64:ON" THEN
                     InsideCheckingOffBlock = 0
                 END IF
                 IF LEN(bkpSourceLine$) > LONGESTLINE THEN LONGESTLINE = LEN(bkpSourceLine$)
-                CurrentLineNo = CurrentLineNo + 1
-            LOOP UNTIL EOF(SOURCEFILENUM%)
+            NEXT i
         END IF
-        CLOSE SOURCEFILENUM%
     ELSE
-        SOURCEFILE = ""
-        Message$ = ""
-        Message$ = Message$ + "The original source file could not be found." + CHR$(LF)
-        Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
-        Message$ = Message$ + "Continue?"
-        IF MESSAGEBOX("Source not available", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+        IF CLIENT.TOTALVARIABLES > 0 THEN
+            SOURCEFILE = ""
+            Message$ = ""
+            Message$ = Message$ + "The original source file could not be found." + CHR$(LF)
+            Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
+            Message$ = Message$ + "Continue?"
+            IF MESSAGEBOX("Source not available", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+                HEADER.CONNECTED = 0
+                PUT #FILE, HEADERBLOCK, HEADER
+                GOTO StartSetup
+            END IF
+        ELSE
+            SOURCEFILE = ""
             HEADER.CONNECTED = 0
             PUT #FILE, HEADERBLOCK, HEADER
-            '_DELAY 1
+            Message$ = ""
+            Message$ = Message$ + "The original source file could not be found" + CHR$(LF)
+            Message$ = Message$ + "and there are no watchable variables."
+            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
             GOTO StartSetup
         END IF
     END IF
 
+    SkipSourceScan:
     TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
     _TITLE TITLESTRING
 
@@ -4383,6 +4495,7 @@ SUB SETUP_CONNECTION
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
                 IF INSTR(Buttons(cb).CAPTION, "ESC=") THEN MENU% = 102: RETURN
+                IF INSTR(Buttons(cb).CAPTION, "$INCLUDE") THEN MENU% = 103: RETURN
                 SYSTEM_BEEP 0 'in case a button was added but not yet assigned
                 RETURN
             END IF
@@ -4824,21 +4937,7 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION GETLINE$ (TargetLine AS LONG)
-    DIM LineLength AS LONG
-    DIM SourceLine AS STRING
-
-    IF LEN(SOURCEFILE) = 0 THEN EXIT FUNCTION
-    IF TargetLine = 0 THEN EXIT FUNCTION
-    IF TargetLine > CLIENT.TOTALSOURCELINES THEN EXIT FUNCTION
-
-    IF TargetLine < CLIENT.TOTALSOURCELINES THEN
-        SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), LINE_STARTS(TargetLine + 1) - LINE_STARTS(TargetLine))
-    ELSE
-        SourceLine = MID$(SOURCEFILE, LINE_STARTS(TargetLine), (LEN(SOURCEFILE) + 1) - LINE_STARTS(TargetLine))
-    END IF
-
-    SourceLine = TRUNCATE$(SourceLine, 13)
-    GETLINE$ = TRUNCATE$(SourceLine, 10)
+    IF LEN(SOURCEFILE) > 0 THEN GETLINE$ = SOURCECODE(TargetLine)
 END FUNCTION
 
 '------------------------------------------------------------------------------
