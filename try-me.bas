@@ -47,25 +47,4 @@ DATA "qb64 ","is ","one "
 DATA "cool ","project ","which "
 DATA "i ","really ","love ",playing with
 
-FUNCTION Revert$ (text$)
-    DIM i AS LONG, temp$
-    FOR i = LEN(text$) TO 1 STEP -1
-        temp$ = temp$ + MID$(text$, i, 1)
-    NEXT i
-    Revert$ = temp$
-END FUNCTION
-
-SUB TakeABreak
-    DIM r AS INTEGER
-    STATIC NoOfBreaks AS LONG
-
-    NoOfBreaks = NoOfBreaks + 1
-
-    DO
-        RANDOMIZE TIMER
-        r = _CEIL(RND * 100)
-        PRINT r
-        IF r > 50 THEN EXIT DO
-    LOOP
-END SUB
-
+'$include:'try-me-routines.bas'
