@@ -2460,7 +2460,7 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
                         END IF
                     $END IF
                     InclResult = OpenInclude(IncludedFile$, CodeText(), Lines&)
-                    IF InclResult = MISSINGFILE THEN OpenInclude = MISSINGFILE: EXIT FUNCTION
+                    IF InclResult = MISSINGFILE THEN f$ = IncludedFile$: OpenInclude = MISSINGFILE: EXIT FUNCTION
                 END IF
             END IF
         LOOP
@@ -2691,7 +2691,7 @@ SUB PROCESSFILE
     IF MergeResult = MISSINGFILE THEN
         Message$ = ""
         Message$ = Message$ + "One of the $INCLUDE files could not be found" + CHR$(LF)
-        Message$ = Message$ + "('" + FILENAME$ + "' on line" + STR$(TotalSourceLines) + ")."
+        Message$ = Message$ + "('" + NOPATH$(FILENAME$) + "' on line" + STR$(TotalSourceLines) + ")."
         PCOPY 0, 1
         MESSAGEBOX_RESULT = MESSAGEBOX("Processing failed", Message$, OK_ONLY, 1, 0)
         EXIT SUB
@@ -4326,7 +4326,7 @@ SUB SETUP_CONNECTION
             IF CLIENT.TOTALVARIABLES > 0 THEN
                 Message$ = ""
                 Message$ = Message$ + "One of the $INCLUDE files could not be found" + CHR$(LF)
-                Message$ = Message$ + "('" + FILENAME$ + "' on line" + STR$(TotalSourceLines) + ")." + CHR$(LF)
+                Message$ = Message$ + "('" + NOPATH$(FILENAME$) + "' on line" + STR$(TotalSourceLines) + ")." + CHR$(LF)
                 Message$ = Message$ + "Source view will be empty. Continue?"
                 IF MESSAGEBOX("File not found", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
                     HEADER.CONNECTED = 0
