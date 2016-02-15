@@ -2426,8 +2426,6 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
     DIM InclResult AS INTEGER
     STATIC CurrDir$
 
-    IF Lines& = 0 THEN CurrDir$ = _CWD$
-
     IF _FILEEXISTS(f$) THEN
         c% = FREEFILE
         OPEN f$ FOR BINARY AS c%
@@ -2470,8 +2468,6 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
     END IF
 
     IF FoundInclude THEN OpenInclude = MERGESUCCESSFUL ELSE OpenInclude = NOINCLUDES
-    Level = Level = -1
-    IF Level = 0 THEN CHDIR CurrDir$
 
     EXIT FUNCTION
     AddStringToArray:
