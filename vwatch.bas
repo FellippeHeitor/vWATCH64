@@ -3349,8 +3349,12 @@ SUB PROCESSFILE
     RANDOMIZE TIMER
     PRINT #OutputFile, "    DIM vwatch64_EXENAME AS STRING * 256, Ret AS LONG, k AS LONG"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "    DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS"
-    PRINT #OutputFile, "    _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, "    IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "        DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        _CONSOLETITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
     PRINT #OutputFile, "    OPEN " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
@@ -3363,7 +3367,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        IF vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM THEN"
     PRINT #OutputFile, "            EXIT SUB"
     PRINT #OutputFile, "        ELSE"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "            IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "                _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "            ELSE"
+    PRINT #OutputFile, "                _CONSOLETITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
     PRINT #OutputFile, "            CLOSE #vwatch64_CLIENTFILE"
     PRINT #OutputFile, "            ON ERROR GOTO vwatch64_FILEERROR"
@@ -3396,7 +3404,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'Wait for authorization:"
     PRINT #OutputFile, "    vwatch64_WAITSTART# = TIMER"
     PRINT #OutputFile, "    DO: _LIMIT 30"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
+    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
+    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "        k = _KEYHIT"
     PRINT #OutputFile, "        IF k = 27 THEN _KEYCLEAR: EXIT DO"
@@ -3409,7 +3421,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
     PRINT #OutputFile, "        KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
     PRINT #OutputFile, "        ON ERROR GOTO 0"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    ELSE"
     PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
@@ -3544,7 +3560,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
     PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN"
     PRINT #OutputFile, "            _DELAY .5"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "            IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "            ELSE"
+    PRINT #OutputFile, "                _CONSOLETITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            FirstRunDone = -1"
     PRINT #OutputFile, "            EXIT FUNCTION"
     PRINT #OutputFile, "        END IF"
@@ -3576,8 +3596,12 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'On the first time this procedure is called, execution is halted,"
     PRINT #OutputFile, "    'until the user presses F5 or F8 in vWATCH64"
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
-    PRINT #OutputFile, "        _PRINTSTRING(_WIDTH \ 2 - LEN(" + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$ + ") \ 2, _HEIGHT \ 2), " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
+    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
+    PRINT #OutputFile, "            _PRINTSTRING(_WIDTH \ 2 - LEN(" + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$ + ") \ 2, _HEIGHT \ 2), " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run or F8 to run line by line;" + Q$
+    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        VWATCH64_STOPTIMERS"
     PRINT #OutputFile, "        DO: _LIMIT 500"
     PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
@@ -3587,7 +3611,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                vwatch64_BREAKPOINT.LINENUMBER = 0"
     PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
-    PRINT #OutputFile, "                _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
+    PRINT #OutputFile, "                IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "                    _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
+    PRINT #OutputFile, "                ELSE"
+    PRINT #OutputFile, "                    _CONSOLETITLE " + Q$ + "Untitled" + Q$ + ": CLS"
+    PRINT #OutputFile, "                END IF"
     PRINT #OutputFile, "                FirstRunDone = -1"
     PRINT #OutputFile, "                ON ERROR GOTO 0"
     PRINT #OutputFile, "                EXIT FUNCTION"
@@ -3603,7 +3631,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            vwatch64_CHECKBREAKPOINT& = -1"
     PRINT #OutputFile, "            StepMode = -1"
     PRINT #OutputFile, "        END IF"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
+    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Untitled" + Q$ + ": CLS"
+    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        FirstRunDone = -1"
     PRINT #OutputFile, "        ON ERROR GOTO 0"
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
@@ -3775,7 +3807,7 @@ SUB PROCESSFILE
         AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
             PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
-            PRINT "File has been output, you will have to compile them yourself."
+            PRINT "File has been output, you will have to compile it yourself."
             PRINT "Press any key to go back..."
             SLEEP
             EXIT SUB
