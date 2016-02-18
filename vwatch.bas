@@ -2774,7 +2774,7 @@ SUB PROCESSFILE
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
                     END IF
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOSUB vwatch64_SETNEXTLINE"
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         GOSUB AddNextLineData
                     END IF
@@ -3527,7 +3527,7 @@ SUB PROCESSFILE
         NEXT i
 
         PRINT #OutputFile, ""
-        PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
+        PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 AND (TRIM$(VARIABLES(i).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
@@ -3861,6 +3861,7 @@ SUB PROCESSFILE
 
     AddSFVariableWatchCode:
     PRINT #OutputFile, "vwatch64_VARIABLEWATCH:"
+    PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED = 0 THEN RETURN"
     PRINT #OutputFile, "ON ERROR GOTO vwatch64_FILEERROR"
     tempindex.SFvar = 0
     FOR sf.Var = 1 TO TOTALVARIABLES
@@ -3926,7 +3927,6 @@ SUB PROCESSFILE
         OutputLines(TotalOutputLines) = OutputLines(TotalOutputLines) + ": GOTO " + SetNextLineData(nextline.I)
     NEXT nextline.I
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "END SELECT"
-    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "RETURN"
     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ""
     RETURN
 
