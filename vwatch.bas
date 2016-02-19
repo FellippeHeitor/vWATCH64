@@ -2481,43 +2481,46 @@ SUB PROCESSFILE
     'Parses a .BAS file and reads all compatible variables
     'in order to generate a compatible vWATCH64 client.
 
-    DIM OutputFile AS INTEGER
-    DIM SourceLine AS STRING
-    DIM caseBkpSourceLine AS STRING
-    DIM TotalLocalVariables AS INTEGER
-    DIM TotalKeywords AS INTEGER
-    DIM TotalUDTs AS INTEGER
-    DIM TotalUDTsAdded AS INTEGER
-    DIM TotalSourceLines AS LONG
-    DIM TotalSubFunc AS LONG
-    DIM ThisKeyword AS STRING
-    DIM DefiningType AS _BIT
-    DIM PrecompilerBlock AS _BIT
-    DIM ProcessLine AS LONG
+    DIM CHECKSUM AS STRING * 8
     DIM CheckingOff AS _BIT
-    DIM InBetweenSubs AS _BIT
     DIM DeclaringLibrary AS _BIT
+    DIM DefaultTypeUsed AS _BIT
+    DIM DefiningType AS _BIT
     DIM FoundType AS STRING
+    DIM InBetweenSubs AS _BIT
+    DIM IsArray AS _BIT
+    DIM LocalVariable AS _BIT
+    DIM MULTILINE AS _BIT
+    DIM MULTILINE_DIM AS _BIT
     DIM MainModule AS _BYTE
     DIM MainModuleEND AS LONG
-    DIM LocalVariable AS _BIT
-    DIM IsArray AS _BIT
-    DIM bkpSourceLine$
     DIM NextVar$
-    DIM caseBkpNextVar$
-    DIM DefaultTypeUsed AS _BIT
-    DIM CHECKSUM AS STRING * 8
+    DIM OutputFile AS INTEGER
+    DIM PrecompilerBlock AS _BIT
+    DIM ProcessLine AS LONG
+    DIM SourceLine AS STRING
+    DIM StatusMessage AS STRING
+    DIM ThisKeyword AS STRING
+    DIM TotalKeywords AS INTEGER
+    DIM TotalLocalVariables AS INTEGER
     DIM TotalNextLineData AS LONG
-    DIM MULTILINE_DIM AS _BIT
-    DIM MULTILINE AS _BIT
-    REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
-    REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
-    REDIM LOCALSHAREDADDED(1) AS STRING
+    DIM TotalSourceLines AS LONG
+    DIM TotalSubFunc AS LONG
+    DIM TotalUDTs AS INTEGER
+    DIM TotalUDTsAdded AS INTEGER
+    DIM TotalVerboseOutputLines AS LONG
+    DIM bkpSourceLine$
+    DIM caseBkpNextVar$
+    DIM caseBkpSourceLine AS STRING
     REDIM KeywordList(1) AS STRING
+    REDIM LOCALSHAREDADDED(1) AS STRING
+    REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM OutputLines(1) AS STRING
-    REDIM SetNextLineData(1) AS STRING
     REDIM SUBFUNC(1) AS STRING * 50
     REDIM SUBFUNC.END(1) AS LONG
+    REDIM SetNextLineData(1) AS STRING
+    REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
+    REDIM VerboseOutput(1) AS STRING
 
     RESTORE KeyWordsDATA
     'Populate KeywordList() with DATA TYPES:
@@ -2681,8 +2684,10 @@ SUB PROCESSFILE
     _AUTODISPLAY
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
     CLS
-    PRINT: PRINT
-    PRINT "Checking $INCLUDE files..."
+    StatusMessage = ""
+    GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
+    StatusMessage = "Checking $INCLUDE files...": GOSUB AddVerboseOutputLine
+    IF NOT VERBOSE THEN PRINT StatusMessage
     MergeResult = OpenInclude(FILENAME$, SOURCECODE(), TotalSourceLines)
     IF MergeResult = MISSINGFILE THEN
         Message$ = ""
@@ -2692,7 +2697,8 @@ SUB PROCESSFILE
         MESSAGEBOX_RESULT = MESSAGEBOX("Processing failed", Message$, OK_ONLY, 1, 0)
         EXIT SUB
     ELSEIF MergeResult = MERGESUCCESSFUL THEN
-        PRINT "Source file has $INCLUDE files; merge successful."
+        StatusMessage = "Source file has $INCLUDE files; merge successful.": GOSUB AddVerboseOutputLine
+        IF NOT VERBOSE THEN PRINT StatusMessage
     END IF
 
     'Calculate checksum:
@@ -2714,8 +2720,8 @@ SUB PROCESSFILE
     'Look for variables inside the main module and store information in VARIABLES()
     'and LOCALVARIABLES. If SYSTEM is found, inject cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
-    PRINT "Parsing .BAS and injecting breakpoint control code...";
-    IF VERBOSE THEN PRINT
+    StatusMessage = "Parsing .BAS and injecting breakpoint control code...": GOSUB AddVerboseOutputLine
+    IF NOT VERBOSE THEN PRINT StatusMessage;
     row = CSRLIN: col = POS(1)
     MULTILINE_DIM = 0
     MULTILINE = 0
@@ -2797,10 +2803,8 @@ SUB PROCESSFILE
                     UDT(TotalUDTs).UDT = KeywordList(TotalKeywords)
                     UDT(TotalUDTs).ELEMENT = LEFT$(caseBkpSourceLine, INSTR(UCASE$(SourceLine), " AS "))
                     UDT(TotalUDTs).DATATYPE = RIGHT$(caseBkpSourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
-                    IF VERBOSE THEN
-                        PRINT "Found UDT: "; TRIM$(UDT(TotalUDTs).UDT); "."; TRIM$(UDT(TotalUDTs).ELEMENT); " AS "; TRIM$(UDT(TotalUDTs).DATATYPE)
-                        _DELAY .05
-                    END IF
+                    StatusMessage = "Found UDT: " + TRIM$(UDT(TotalUDTs).UDT) + "." + TRIM$(UDT(TotalUDTs).ELEMENT) + " AS " + TRIM$(UDT(TotalUDTs).DATATYPE)
+                    GOSUB AddVerboseOutputLine
                 END IF
             END IF
         END IF
@@ -2864,12 +2868,8 @@ SUB PROCESSFILE
                     LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
                 END IF
 
-                IF VERBOSE THEN
-                    PRINT TOTALVARIABLES; IIFSTR$(LocalVariable, "LOCAL  ", "SHARED ");
-                    PRINT VARIABLES(TOTALVARIABLES).DATATYPE,
-                    PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                    _DELAY .05
-                END IF
+                StatusMessage = STR$(TOTALVARIABLES) + IIFSTR$(LocalVariable, " LOCAL  ", " SHARED ") + VARIABLES(TOTALVARIABLES).DATATYPE + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                GOSUB AddVerboseOutputLine
             ELSE
                 FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
 
@@ -2911,17 +2911,15 @@ SUB PROCESSFILE
                         LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
                     END IF
 
-                    IF VERBOSE THEN
-                        PRINT TOTALVARIABLES;
-                        IF MainModule THEN
-                            PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "SHARED ");
-                        ELSE
-                            PRINT CurrentSubFunc$;
-                        END IF
-                        PRINT VARIABLES(TOTALVARIABLES).DATATYPE;
-                        PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                        _DELAY .05
+                    StatusMessage = STR$(TOTALVARIABLES)
+                    IF MainModule THEN
+                        StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
+                    ELSE
+                        StatusMessage = StatusMessage + " " + CurrentSubFunc$
                     END IF
+                    StatusMessage = StatusMessage + VARIABLES(TOTALVARIABLES).DATATYPE
+                    StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                    GOSUB AddVerboseOutputLine
                 ELSE
                     'Variable is defined as a user defined type.
                     IsArray = 0
@@ -2951,17 +2949,15 @@ SUB PROCESSFILE
                                             LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
                                         END IF
 
-                                        IF VERBOSE THEN
-                                            PRINT TOTALVARIABLES;
-                                            IF MainModule THEN
-                                                PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "SHARED ");
-                                            ELSE
-                                                PRINT CurrentSubFunc$;
-                                            END IF
-                                            PRINT UDT(i).DATATYPE;
-                                            PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                                            _DELAY .05
+                                        StatusMessage = STR$(TOTALVARIABLES)
+                                        IF MainModule THEN
+                                            StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
+                                        ELSE
+                                            StatusMessage = StatusMessage + " " + CurrentSubFunc$
                                         END IF
+                                        StatusMessage = StatusMessage + UDT(i).DATATYPE
+                                        StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                                        GOSUB AddVerboseOutputLine
                                     END IF
                                 NEXT i
                             NEXT ItemsinArray
@@ -2988,17 +2984,15 @@ SUB PROCESSFILE
                                     LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
                                 END IF
 
-                                IF VERBOSE THEN
-                                    PRINT TOTALVARIABLES;
-                                    IF MainModule THEN
-                                        PRINT IIFSTR$(LocalVariable, "MAIN MODULE ", "SHARED ");
-                                    ELSE
-                                        PRINT CurrentSubFunc$;
-                                    END IF
-                                    PRINT UDT(i).DATATYPE;
-                                    PRINT TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                                    _DELAY .05
+                                StatusMessage = STR$(TOTALVARIABLES)
+                                IF MainModule THEN
+                                    StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
+                                ELSE
+                                    StatusMessage = StatusMessage + " " + CurrentSubFunc$
                                 END IF
+                                StatusMessage = StatusMessage + UDT(i).DATATYPE
+                                StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
+                                GOSUB AddVerboseOutputLine
                             END IF
                         NEXT i
                     END IF
@@ -3077,10 +3071,12 @@ SUB PROCESSFILE
                 IF INSTR(SourceLine, "(") THEN
                     CurrentSubFunc$ = TRIM$("SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5))
                     GOSUB AddSFParametersAsVariables
-                    IF VERBOSE THEN PRINT "Found: SUB "; MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
+                    StatusMessage = "Found: SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
+                    GOSUB AddVerboseOutputLine
                 ELSE
                     CurrentSubFunc$ = caseBkpSourceLine
-                    IF VERBOSE THEN PRINT "Found: "; caseBkpSourceLine
+                    StatusMessage = "Found: " + caseBkpSourceLine
+                    GOSUB AddVerboseOutputLine
                 END IF
                 IF VERBOSE THEN _DELAY .05
                 TotalSubFunc = TotalSubFunc + 1
@@ -3104,10 +3100,12 @@ SUB PROCESSFILE
                 IF INSTR(SourceLine, "(") THEN
                     CurrentSubFunc$ = TRIM$("FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10))
                     GOSUB AddSFParametersAsVariables
-                    IF VERBOSE THEN PRINT "Found: FUNCTION "; MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
+                    StatusMessage = "Found: FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
+                    GOSUB AddVerboseOutputLine
                 ELSE
                     CurrentSubFunc$ = caseBkpSourceLine
-                    IF VERBOSE THEN PRINT "Found: FUNCTION "; caseBkpSourceLine
+                    StatusMessage = "Found: FUNCTION " + caseBkpSourceLine
+                    GOSUB AddVerboseOutputLine
                 END IF
                 IF VERBOSE THEN _DELAY .05
                 TotalSubFunc = TotalSubFunc + 1
@@ -3149,17 +3147,22 @@ SUB PROCESSFILE
     LOOP
 
     IF TOTALVARIABLES = 0 THEN
-        PRINT
-        PRINT
+        GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
+        StatusMessage = "There are no watchable variables in the .BAS source."
         COLOR _RGB32(255, 0, 0)
-        PRINT "There are no watchable variables in the .BAS source."
+        GOSUB AddVerboseOutputLine
+        IF NOT VERBOSE THEN PRINT StatusMessage
+
+        StatusMessage = "(watchable variables are those initialized using DIM)"
+        GOSUB AddVerboseOutputLine
         COLOR _RGB32(0, 0, 0)
-        PRINT "(watchable variables are those initialized using DIM)"
-        PRINT
+        IF NOT VERBOSE THEN PRINT StatusMessage
+        GOSUB AddVerboseOutputLine
         _DELAY .05
     ELSE
-        PRINT "Total watchable variables found: "; TOTALVARIABLES
-        IF VERBOSE THEN _DELAY .05
+        StatusMessage = "Total watchable variables found: " + STR$(TOTALVARIABLES)
+        GOSUB AddVerboseOutputLine
+        IF NOT VERBOSE THEN PRINT StatusMessage
         IF INTERACTIVE THEN
             bkpx% = POS(1): bkpy% = CSRLIN
             BackupScreen = _COPYIMAGE(0)
@@ -3171,15 +3174,20 @@ SUB PROCESSFILE
             LOCATE bkpy%, bkpx%
             IF AddedList$ = CHR$(3) THEN
                 'Processing was canceled by user.
-                PRINT
+                GOSUB AddVerboseOutputLine
                 COLOR _RGB32(255, 0, 0)
-                PRINT "Processing canceled."
+                StatusMessage = "Processing canceled."
+                GOSUB AddVerboseOutputLine
+                IF NOT VERBOSE THEN PRINT StatusMessage
                 COLOR _RGB32(0, 0, 0)
-                PRINT
+                GOSUB AddVerboseOutputLine
+                IF NOT VERBOSE THEN PRINT
                 _DELAY 1
                 EXIT SUB
             ELSE
-                PRINT IIFSTR$(TOTALVARIABLES = TotalSelected, "All", STR$(TotalSelected)); " variable"; IIFSTR$(TotalSelected > 1, "s", ""); " selected."
+                StatusMessage = IIFSTR$(TOTALVARIABLES = TotalSelected, "All", STR$(TotalSelected)) + " variable" + IIFSTR$(TotalSelected > 1, "s", "") + " selected."
+                GOSUB AddVerboseOutputLine
+                IF NOT VERBOSE THEN PRINT StatusMessage
             END IF
         ELSE
             AddedList$ = STRING$(TOTALVARIABLES, 1)
@@ -3198,7 +3206,9 @@ SUB PROCESSFILE
     OutputFile = FREEFILE
     OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
 
-    PRINT "Generating "; NEWFILENAME$; "..."
+    StatusMessage = "Generating " + NEWFILENAME$ + "..."
+    GOSUB AddVerboseOutputLine
+    IF NOT VERBOSE THEN PRINT StatusMessage
     'Creates the output .vwatch:
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'vWATCH64 initialization code - version " + VERSION + ":"
@@ -4014,6 +4024,15 @@ SUB PROCESSFILE
                 END IF
             END IF
         NEXT cb
+    END IF
+    RETURN
+
+    AddVerboseOutputLine:
+    IF VERBOSE THEN
+        TotalVerboseOutputLines = TotalVerboseOutputLines + 1
+        REDIM _PRESERVE VerboseOutput(1 TO TotalVerboseOutputLines) AS STRING
+        VerboseOutput(TotalVerboseOutputLines) = StatusMessage
+        PRINT StatusMessage
     END IF
     RETURN
 END SUB
