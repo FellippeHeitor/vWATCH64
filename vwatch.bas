@@ -28,6 +28,7 @@ CONST LF = 10
 CONST TIMEOUTLIMIT = 5 'SECONDS
 
 'Messagebox
+CONST MB_CUSTOM = -1
 CONST OK_ONLY = 0
 CONST YN_QUESTION = 1
 CONST MB_YES = 6
@@ -249,10 +250,10 @@ $END IF
 
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", OK_ONLY, 1, 0)
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", MKI$(OK_ONLY), 1, 0)
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     ELSEIF _COMMANDCOUNT > 1 THEN
-        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", OK_ONLY, 1, 0)
+        IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", MKI$(OK_ONLY), 1, 0)
         NEWFILENAME$ = "": FIRSTPROCESSING = 0
     END IF
 END IF
@@ -290,6 +291,12 @@ DO
     _RESIZE OFF
     TITLESTRING = "vWATCH64 - v" + VERSION
     _TITLE TITLESTRING
+    Message$ = "Processing was finally done, and it took a while (you must have noticed it)."
+    MessageSetup$ = MKI$(MB_CUSTOM) + "Continue" + CHR$(LF) + "View log" + CHR$(LF) + "Yet another choice" + CHR$(LF)
+    MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MessageSetup$, 2, 0)
+    SCREEN 0
+    PRINT MESSAGEBOX_RESULT
+    END
     SETUP_CONNECTION
     IF MENU% = 101 THEN GOTO OpenFileMenu
     _RESIZE ON
@@ -426,7 +433,7 @@ SUB SOURCE_VIEW
     END IF
 
     IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
-        MESSAGEBOX_RESULT = MESSAGEBOX(ID, EndMessage$, OK_ONLY, 1, -1)
+        MESSAGEBOX_RESULT = MESSAGEBOX(ID, EndMessage$, MKI$(OK_ONLY), 1, -1)
     END IF
     EXIT SUB
 
@@ -548,15 +555,15 @@ SUB SOURCE_VIEW
                         ELSEIF CanGo = 1 OR CanGo = 2 THEN
                             Message$ = ""
                             Message$ = Message$ + "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$) + CHR$(LF)
-                            MESSAGEBOX_RESULT = MESSAGEBOX("Outside boundaries", Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX("Outside boundaries", Message$, MKI$(OK_ONLY), 1, -1)
                         ELSE
                             Message$ = ""
                             Message$ = Message$ + "The specified source line can't be set as the next statement" + CHR$(LF)
-                            MESSAGEBOX_RESULT = MESSAGEBOX("Nonexecutable statement", Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX("Nonexecutable statement", Message$, MKI$(OK_ONLY), 1, -1)
                         END IF
                     ELSE
                         Message$ = "Invalid line number."
-                        MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, -1)
+                        MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MKI$(OK_ONLY), 1, -1)
                     END IF
                     IF Clicked THEN Clicked = 0: RETURN
                 END IF
@@ -586,7 +593,7 @@ SUB SOURCE_VIEW
                 IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
                     Message$ = "Execution was halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
                     Message$ = Message$ + "Clear it before resuming?"
-                    MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, MKI$(YN_QUESTION), 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
                         ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
                         WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
@@ -609,7 +616,7 @@ SUB SOURCE_VIEW
             ELSE
                 Message$ = "There are no watchable variables (defined with DIM) in your program,"
                 Message$ = Message$ + CHR$(LF) + "or you didn't select any variables when processing your source file."
-                MESSAGEBOX_RESULT = MESSAGEBOX("No variables", Message$, OK_ONLY, 1, -1)
+                MESSAGEBOX_RESULT = MESSAGEBOX("No variables", Message$, MKI$(OK_ONLY), 1, -1)
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
@@ -1421,7 +1428,7 @@ SUB VARIABLE_VIEW
                 IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
                     Message$ = "Execution was halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
                     Message$ = Message$ + "Clear it before resuming?"
-                    MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, YN_QUESTION, 1, -1)
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, MKI$(YN_QUESTION), 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
                         ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
                         WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
@@ -1878,7 +1885,7 @@ SUB VARIABLE_VIEW
                 GOTO WatchPointDone
 
                 WatchpointInvalidExpression:
-                MESSAGEBOX_RESULT = MESSAGEBOX("Set a watchpoint", "Invalid expression.", OK_ONLY, 1, -1)
+                MESSAGEBOX_RESULT = MESSAGEBOX("Set a watchpoint", "Invalid expression.", MKI$(OK_ONLY), 1, -1)
 
                 WatchPointDone:
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
@@ -1888,7 +1895,7 @@ SUB VARIABLE_VIEW
                     Message$ = ""
                     Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
                     Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
-                    MESSAGEBOX_RESULT = MESSAGEBOX("Out of scope", Message$, OK_ONLY, 1, -1)
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Out of scope", Message$, MKI$(OK_ONLY), 1, -1)
                 ELSE
                     DataType$ = VARIABLES(ContextualMenuLineRef).DATATYPE
                     Message$ = "New value for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")"
@@ -1936,7 +1943,7 @@ SUB VARIABLE_VIEW
                         IF CONVERSIONERRORRAISED THEN
                             Message$ = ""
                             Message$ = Message$ + "Value could not be set (variable type is " + TRIM$(DataType$) + ")." + CHR$(LF)
-                            MESSAGEBOX_RESULT = MESSAGEBOX("Invalid input", Message$, OK_ONLY, 1, -1)
+                            MESSAGEBOX_RESULT = MESSAGEBOX("Invalid input", Message$, MKI$(OK_ONLY), 1, -1)
                         ELSE
                             EXCHANGEDATASIZE$4 = MKL$(LEN(EXCHANGEDATA))
                             PUT #FILE, , EXCHANGEDATASIZE$4
@@ -2694,7 +2701,7 @@ SUB PROCESSFILE
         Message$ = Message$ + "One of the $INCLUDE files could not be found" + CHR$(LF)
         Message$ = Message$ + "('" + NOPATH$(FILENAME$) + "' on line" + STR$(TotalSourceLines) + ")."
         PCOPY 0, 1
-        MESSAGEBOX_RESULT = MESSAGEBOX("Processing failed", Message$, OK_ONLY, 1, 0)
+        MESSAGEBOX_RESULT = MESSAGEBOX("Processing failed", Message$, MKI$(OK_ONLY), 1, 0)
         EXIT SUB
     ELSEIF MergeResult = MERGESUCCESSFUL THEN
         StatusMessage = "Source file has $INCLUDE files; merge successful.": GOSUB AddVerboseOutputLine
@@ -2731,7 +2738,7 @@ SUB PROCESSFILE
             Message$ = ""
             Message$ = Message$ + "Processing canceled."
             PCOPY 0, 1
-            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
+            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MKI$(OK_ONLY), 1, 0)
             EXIT SUB
         END IF
         IF LEN(caseBkpNextVar$) = 0 THEN 'Read next line unless we're in the middle of processing a line
@@ -4327,7 +4334,7 @@ SUB SETUP_CONNECTION
         Message$ = ""
         Message$ = Message$ + "Attempted connection by client with ID " + CHR$(34) + HEADER.CLIENT_ID + CHR$(34) + CHR$(LF)
         Message$ = Message$ + "Reported version: " + HEADER.VERSION
-        MESSAGEBOX_RESULT = MESSAGEBOX("Client not compatible", Message$, OK_ONLY, 1, 0)
+        MESSAGEBOX_RESULT = MESSAGEBOX("Client not compatible", Message$, MKI$(OK_ONLY), 1, 0)
         GOTO StartSetup
     END IF
 
@@ -4375,7 +4382,7 @@ SUB SETUP_CONNECTION
                 Message$ = Message$ + "One of the $INCLUDE files could not be found" + CHR$(LF)
                 Message$ = Message$ + "('" + NOPATH$(FILENAME$) + "' on line" + STR$(TotalSourceLines) + ")." + CHR$(LF)
                 Message$ = Message$ + "Source view will be empty. Continue?"
-                IF MESSAGEBOX("File not found", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+                IF MESSAGEBOX("File not found", Message$, MKI$(YN_QUESTION), 1, -1) = MB_NO THEN
                     HEADER.CONNECTED = 0
                     PUT #FILE, HEADERBLOCK, HEADER
                     GOTO StartSetup
@@ -4389,7 +4396,7 @@ SUB SETUP_CONNECTION
                 Message$ = ""
                 Message$ = Message$ + "Some original files could not be found" + CHR$(LF)
                 Message$ = Message$ + "and there are no watchable variables."
-                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
+                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MKI$(OK_ONLY), 1, 0)
                 GOTO StartSetup
             END IF
         ELSE
@@ -4406,7 +4413,7 @@ SUB SETUP_CONNECTION
                 Message$ = Message$ + "The original source files were changed." + CHR$(LF)
                 Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
                 Message$ = Message$ + "Continue?"
-                IF MESSAGEBOX("Checksum error", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+                IF MESSAGEBOX("Checksum error", Message$, MKI$(YN_QUESTION), 1, -1) = MB_NO THEN
                     HEADER.CONNECTED = 0
                     PUT #FILE, HEADERBLOCK, HEADER
                     GOTO StartSetup
@@ -4418,7 +4425,7 @@ SUB SETUP_CONNECTION
                 Message$ = ""
                 Message$ = Message$ + "The original source files were changed" + CHR$(LF)
                 Message$ = Message$ + "and there are no watchable variables."
-                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
+                MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MKI$(OK_ONLY), 1, 0)
                 GOTO StartSetup
             END IF
         ELSE
@@ -4450,7 +4457,7 @@ SUB SETUP_CONNECTION
             Message$ = Message$ + "The original source file could not be found." + CHR$(LF)
             Message$ = Message$ + "Source view will be empty (you can still watch variables)." + CHR$(LF)
             Message$ = Message$ + "Continue?"
-            IF MESSAGEBOX("Source not available", Message$, YN_QUESTION, 1, -1) = MB_NO THEN
+            IF MESSAGEBOX("Source not available", Message$, MKI$(YN_QUESTION), 1, -1) = MB_NO THEN
                 HEADER.CONNECTED = 0
                 PUT #FILE, HEADERBLOCK, HEADER
                 GOTO StartSetup
@@ -4462,7 +4469,7 @@ SUB SETUP_CONNECTION
             Message$ = ""
             Message$ = Message$ + "The original source file could not be found" + CHR$(LF)
             Message$ = Message$ + "and there are no watchable variables."
-            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, OK_ONLY, 1, 0)
+            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MKI$(OK_ONLY), 1, 0)
             GOTO StartSetup
         END IF
     END IF
@@ -5239,7 +5246,12 @@ SUB SYSTEM_BEEP (MessageType AS INTEGER)
 END SUB
 
 '------------------------------------------------------------------------------
-FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton AS _BYTE, SendPing AS _BYTE)
+FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton AS _BYTE, SendPing AS _BYTE)
+    DIM MessageType AS INTEGER
+    DIM Position AS INTEGER
+    DIM TempCaption$
+
+    MessageType = CVI(LEFT$(MessageConfig, 2))
     Message$ = tMessage$
     Title$ = TRIM$(tTitle$)
     IF Title$ = "" THEN Title$ = ID
@@ -5277,6 +5289,29 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
 
     SELECT CASE MessageType
+        CASE MB_CUSTOM
+            Position = 3 'skip MKI$ data
+            TotalButtons = 0
+            ButtonLine$ = ""
+            REDIM Buttons(TotalButtons) AS BUTTONSTYPE
+            FOR cb = Position TO LEN(MessageConfig$)
+                IF ASC(MessageConfig$, cb) = LF THEN
+                    GOSUB AddButton
+                    TempCaption$ = ""
+                ELSE
+                    TempCaption$ = TempCaption$ + MID$(MessageConfig$, cb, 1)
+                END IF
+            NEXT cb
+            IF LEN(TempCaption$) > 0 THEN GOSUB AddButton
+            Buttons(1).X = _WIDTH / 2 - _PRINTWIDTH(ButtonLine$) / 2
+            FOR cb = 2 TO TotalButtons
+                Buttons(cb).X = Buttons(1).X + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION))))
+            NEXT cb
+            IF LEN(ButtonLine$) > MaxLen THEN
+                MaxLen = LEN(ButtonLine$)
+                DialogW = (CharW * MaxLen) + 20
+                DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
+            END IF
         CASE OK_ONLY
             TotalButtons = 1
             DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -5341,6 +5376,12 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
         IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
 
         SELECT CASE MessageType
+            CASE MB_CUSTOM
+                IF k = 13 THEN DIALOGRESULT = DefaultButton
+                IF k = 27 THEN DIALOGRESULT = -1
+                IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
+                IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                IF k = 25 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
             CASE OK_ONLY
                 IF k = 13 OR k = 32 THEN DIALOGRESULT = 1
                 IF k = 27 THEN DIALOGRESULT = 2
@@ -5355,7 +5396,7 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
         END SELECT
         IF _EXIT THEN USERQUIT = -1: EXIT DO
         IF SendPing THEN SEND_PING
-    LOOP UNTIL DIALOGRESULT > 0
+    LOOP UNTIL DIALOGRESULT > 0 OR DIALOGRESULT = -1
     _KEYCLEAR
     MESSAGEBOX = DIALOGRESULT
     PCOPY 1, 0
@@ -5381,12 +5422,23 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageType AS INTEGER, DefaultButton A
                     SELECT CASE MessageType
                         CASE OK_ONLY: DIALOGRESULT = cb
                         CASE YN_QUESTION: DIALOGRESULT = cb + 5
+                        CASE MB_CUSTOM: DIALOGRESULT = cb
                     END SELECT
                     RETURN
                 END IF
             END IF
         NEXT cb
     END IF
+    RETURN
+
+    AddButton:
+    TotalButtons = TotalButtons + 1
+    REDIM _PRESERVE Buttons(1 TO TotalButtons) AS BUTTONSTYPE
+    Buttons(TotalButtons).CAPTION = "< " + TempCaption$ + " >"
+    ButtonLine$ = ButtonLine$ + TRIM$(Buttons(TotalButtons).CAPTION) + " "
+    Buttons(TotalButtons).Y = DialogY + 5 + _FONTHEIGHT * (3 + totalLines)
+    Buttons(TotalButtons).W = _PRINTWIDTH(TRIM$(Buttons(TotalButtons).CAPTION))
+    Buttons(TotalButtons).ID = TotalButtons
     RETURN
 END FUNCTION
 
