@@ -2527,6 +2527,27 @@ SUB PROCESSFILE
 
     Q$ = CHR$(34)
 
+    IF _FILEEXISTS(FILENAME$) THEN
+        TempFileCheck% = FREEFILE
+        OPEN FILENAME$ FOR BINARY AS TempFileCheck%
+        TempFileContents$ = SPACE$(LOF(TempFileCheck%))
+        GET #TempFileCheck%, 1, TempFileContents$
+        FoundEvidence1 = INSTR(TempFileContents$, "SUB VWATCH64_STOPTIMERS ALIAS stop_timers")
+        IF FoundEvidence1 > 0 THEN FoundEvidence1 = 1
+        FoundEvidence2 = INSTR(TempFileContents$, "CONST vwatch64_ID = " + Q$ + "vWATCH64" + Q$)
+        IF FoundEvidence2 > 0 THEN FoundEvidence2 = 1
+        FoundEvidence = FoundEvidence1 + FoundEvidence2
+        TempFileContents$ = ""
+        CLOSE TempFileCheck%
+        IF FoundEvidence = 2 THEN
+            Message$ = "This file is already a vWATCH64 client and" + CHR$(LF)
+            Message$ = Message$ + "cannot be processed again."
+            MessageSetup$ = MKI$(OK_ONLY)
+            MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MessageSetup$, 1, 0)
+            EXIT SUB
+        END IF
+    END IF
+
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
         i = -1
         InputNewFileName:
@@ -2559,6 +2580,13 @@ SUB PROCESSFILE
     IF MESSAGEBOX_RESULT = 2 THEN EXIT SUB
 
     NEWFILENAME$ = TempPath$ + NEWFILENAME$
+    IF NEWFILENAME$ = FILENAME$ THEN
+        Message$ = "Cannot overwrite an original source file."
+        MessageSetup$ = MKI$(MB_CUSTOM) + "Enter new name" + CHR$(LF) + "Cancel"
+        MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MessageSetup$, 1, 0)
+        IF MESSAGEBOX_RESULT = 1 THEN i = 0: GOTO InputNewFileName ELSE EXIT SUB
+    END IF
+
     IF _FILEEXISTS(NEWFILENAME$) THEN
         Message$ = "'" + NOPATH$(NEWFILENAME$) + "' already exists. Overwrite?"
         MessageSetup$ = MKI$(MB_CUSTOM) + "Yes" + CHR$(LF) + "No " + CHR$(LF) + "Cancel"
@@ -3026,6 +3054,9 @@ SUB PROCESSFILE
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         END IF
     LOOP
+
+    StatusMessage = "Processing finished."
+    GOSUB AddVerboseOutputLine
 
     IF TOTALVARIABLES = 0 THEN
         GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
@@ -3674,7 +3705,8 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'End of vWATCH64 procedures."
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     CLOSE OutputFile
-    PRINT "Done."
+    StatusMessage = "Output file generated."
+    GOSUB AddVerboseOutputLine
 
     $IF WIN THEN
         ThisPath$ = ""
@@ -3687,7 +3719,7 @@ SUB PROCESSFILE
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
         PRINT "Attempting to compile...";
-        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -c " + Q$ + NEWFILENAME$ + Q$)
+        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -x " + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
             PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
             PRINT "File has been output, you will have to compile it yourself."
