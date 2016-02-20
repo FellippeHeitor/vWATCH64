@@ -170,7 +170,6 @@ DIM SHARED SetPause#, SetRun#, ShowPauseIcon, ShowRunIcon
 'Switches:
 DIM SHARED DONTCOMPILE AS _BIT
 DIM SHARED FIRSTPROCESSING AS _BIT
-DIM SHARED INTERACTIVE AS _BIT
 DIM SHARED NO_TTFONT AS _BIT
 DIM SHARED STEPMODE AS _BIT
 DIM SHARED SKIPARRAYS AS _BIT
@@ -178,7 +177,6 @@ DIM SHARED TIMED_OUT AS _BIT
 DIM SHARED USERQUIT AS _BIT
 DIM SHARED CLOSE_SESSION AS _BIT
 DIM SHARED TRACE AS _BIT
-DIM SHARED VERBOSE AS _BIT
 DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
@@ -193,10 +191,8 @@ FOR i = 65 TO 90
     DEFAULTDATATYPE(i) = "SINGLE"
 NEXT i
 SET_OPTIONBASE = 0
-VERBOSE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
-INTERACTIVE = 0
 NO_TTFONT = 0
 FIRSTPROCESSING = -1
 VARIABLE_HIGHLIGHT = -1
@@ -223,10 +219,8 @@ IF LEN(COMMAND$) THEN
         'Set flags based on command line arguments:
         FOR i = 1 TO _COMMANDCOUNT
             SELECT CASE LCASE$(COMMAND$(i))
-                CASE "-verbose", "-v": VERBOSE = -1
                 CASE "-dontcompile", "-d": DONTCOMPILE = -1
                 CASE "-noarrays", "-n": SKIPARRAYS = -1
-                CASE "-interactive", "-i": INTERACTIVE = -1
                 CASE "-target", "-t": IF i < _COMMANDCOUNT THEN NEWFILENAME$ = COMMAND$(i + 1): i = i + 1
                 CASE "-font16", "-f16": NO_TTFONT = -1
                 CASE ELSE
@@ -241,7 +235,7 @@ END IF
 $IF WIN THEN
     'Under Windows, if Lucida Console font is found, it is used;
     'Otherwise we stick to _FONT 16 (default):
-    IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE, BOLD")
+    IF NO_TTFONT = 0 THEN TTFONT = _LOADFONT("C:\windows\fonts\lucon.ttf", 14, "MONOSPACE")
     IF TTFONT > 0 AND NO_TTFONT = 0 THEN _FONT TTFONT
     PATHSEP$ = "\"
 $ELSE
@@ -275,10 +269,8 @@ FOR i = 65 TO 90
     DEFAULTDATATYPE(i) = "SINGLE"
 NEXT i
 SET_OPTIONBASE = 0
-VERBOSE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
-INTERACTIVE = 0
 FIRSTPROCESSING = 0
 
 IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE
@@ -291,12 +283,6 @@ DO
     _RESIZE OFF
     TITLESTRING = "vWATCH64 - v" + VERSION
     _TITLE TITLESTRING
-    Message$ = "Processing was finally done, and it took a while (you must have noticed it)."
-    MessageSetup$ = MKI$(MB_CUSTOM) + "Continue" + CHR$(LF) + "View log" + CHR$(LF) + "Yet another choice" + CHR$(LF)
-    MESSAGEBOX_RESULT = MESSAGEBOX(ID, Message$, MessageSetup$, 2, 0)
-    SCREEN 0
-    PRINT MESSAGEBOX_RESULT
-    END
     SETUP_CONNECTION
     IF MENU% = 101 THEN GOTO OpenFileMenu
     _RESIZE ON
@@ -1853,7 +1839,8 @@ SUB VARIABLE_VIEW
                 InitialValue$ = "=" + VARIABLE_DATA(ContextualMenuLineRef).VALUE
                 InitialSelection = 1
                 IF LEN(TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION)) > 0 THEN InitialValue$ = TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION): InitialSelection = -1
-                MESSAGEBOX_RESULT = INPUTBOX("Set a watchpoint", Message$, InitialValue$, NewValue$, InitialSelection)
+                MESSAGEBOX_RESULT = INPUTBOX("Set a watchpoint", Message$, InitialValue$, NewValue$, InitialSelection, -1)
+                IF MESSAGEBOX_RESULT = 2 THEN GOTO WatchPointDone
                 IF LEN(NewValue$) < 2 THEN
                     ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
                     WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
@@ -1899,7 +1886,7 @@ SUB VARIABLE_VIEW
                 ELSE
                     DataType$ = VARIABLES(ContextualMenuLineRef).DATATYPE
                     Message$ = "New value for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")"
-                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$, -1)
+                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$, -1, -1)
                     IF MESSAGEBOX_RESULT = 1 THEN
                         'Send to the client:
                         '1- Variable index to change;
@@ -2515,7 +2502,6 @@ SUB PROCESSFILE
     DIM TotalSubFunc AS LONG
     DIM TotalUDTs AS INTEGER
     DIM TotalUDTsAdded AS INTEGER
-    DIM TotalVerboseOutputLines AS LONG
     DIM bkpSourceLine$
     DIM caseBkpNextVar$
     DIM caseBkpSourceLine AS STRING
@@ -2527,7 +2513,6 @@ SUB PROCESSFILE
     REDIM SUBFUNC.END(1) AS LONG
     REDIM SetNextLineData(1) AS STRING
     REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
-    REDIM VerboseOutput(1) AS STRING
 
     RESTORE KeyWordsDATA
     'Populate KeywordList() with DATA TYPES:
@@ -2544,6 +2529,7 @@ SUB PROCESSFILE
 
     IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
         i = -1
+        InputNewFileName:
         DO: _LIMIT 30
             i = i + 1
             IF UCASE$(RIGHT$(FILENAME$, 4)) = ".BAS" THEN
@@ -2567,125 +2553,19 @@ SUB PROCESSFILE
         LOOP
     END IF
 
-    'Process dialog:
-    '-----------------------------------------------------------
-    'vWATCH64 - v.951b
-    'Processing file: xxxxx.bas
-    'New file name: xxxx.vwatch
-    '
-    '  Include arrays?            < Yes >
-    '  Launch interactive mode?   < No  >
-    '  Compile?                   < No  >
-    '  Show details?              < No  >
-    '                                          < OK > < Cancel >
-    '-----------------------------------------------------------
-    DialogW = 410
-    DialogH = 200
-    DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
-    DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
+    TempPath$ = PATHONLY$(NEWFILENAME$)
+    NEWFILENAME$ = NOPATH$(NEWFILENAME$)
+    MESSAGEBOX_RESULT = INPUTBOX("Process .BAS", "Output file name:", NEWFILENAME$, NEWFILENAME$, -1, 0)
+    IF MESSAGEBOX_RESULT = 2 THEN EXIT SUB
 
-    '---------------------------------------------
-
-    CLS , _RGB32(255, 255, 255)
-    COLOR _RGB32(0, 0, 0)
-
-    'Dialog buttons:
-    TotalButtons = 6
-    REDIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
-    DefaultButton = 5
-    DIALOGRESULT = 0
-    DO
-        LINE (DialogX, DialogY)-STEP(DialogW, DialogH), _RGB32(200, 200, 200), BF
-        LINE (DialogX, DialogY)-STEP(DialogW, _FONTHEIGHT + 5), _RGB32(0, 178, 179), BF
-        DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
-        COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH("vWATCH64 - v" + VERSION) / 2, DialogY + 5), "vWATCH64 - v" + VERSION
-        tempFilename$ = NOPATH$(FILENAME$)
-        tempFilename.len = LEN(tempFilename$) + 1
-        DO
-            tempFilename.len = tempFilename.len - 1
-            TextLabel$ = "Processing file: " + IIFSTR$(tempFilename.len < LEN(NOPATH$(FILENAME$)), "...", "") + RIGHT$(tempFilename$, tempFilename.len)
-        LOOP UNTIL _PRINTWIDTH(TextLabel$) < 400
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 2), TextLabel$
-
-        tempFilename$ = NOPATH$(NEWFILENAME$)
-        tempFilename.len = LEN(tempFilename$) + 1
-        DO
-            tempFilename.len = tempFilename.len - 1
-            TextLabel$ = "New file name: " + IIFSTR$(tempFilename.len < LEN(NOPATH$(NEWFILENAME$)), "...", "") + RIGHT$(tempFilename$, tempFilename.len)
-        LOOP UNTIL _PRINTWIDTH(TextLabel$) < 400
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 3), TextLabel$
-
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 6), "Include arrays?"
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 7), "Launch interactive mode?"
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 8), "Compile?"
-        _PRINTSTRING (DialogX + 5, DialogY + 5 + _FONTHEIGHT * 9), "Show details?"
-
-        'Draw buttons
-        b = 1
-        Buttons(b).CAPTION = IIFSTR$(SKIPARRAYS, "< No  >", "< Yes >"): b = b + 1
-        Buttons(b).CAPTION = IIFSTR$(INTERACTIVE, "< Yes >", "< No  >"): b = b + 1
-        Buttons(b).CAPTION = IIFSTR$(DONTCOMPILE, "< No  >", "< Yes >"): b = b + 1
-        Buttons(b).CAPTION = IIFSTR$(VERBOSE, "< Yes >", "< No  >"): b = b + 1
-        Buttons(b).CAPTION = "< OK >": b = b + 1
-        Buttons(b).CAPTION = "< Cancel >": b = b + 1
-
-        FOR cb = 1 TO TotalButtons
-            IF cb <= 4 THEN
-                Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (cb + 5) + 1
-                Buttons(cb).X = DialogX + 200
-            ELSE
-                Buttons(cb).Y = (DialogY + 200) - (_FONTHEIGHT) - 5
-            END IF
-            Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
-        NEXT cb
-        Buttons(5).X = ((DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))) - _PRINTWIDTH(TRIM$(Buttons(5).CAPTION) + " ")
-        Buttons(6).X = (DialogX + 400) - _PRINTWIDTH(TRIM$(Buttons(6).CAPTION))
-
-        GOSUB CheckButtons
-        FOR cb = 1 TO TotalButtons
-            _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), TRIM$(Buttons(cb).CAPTION)
-            IF cb = DefaultButton THEN
-                COLOR _RGB32(0, 178, 179)
-                _PRINTSTRING (Buttons(cb).X, Buttons(cb).Y), "<" + SPACE$(LEN(TRIM$(Buttons(cb).CAPTION)) - 2) + ">"
-                COLOR _RGB32(255, 255, 0)
-                _PRINTSTRING (Buttons(cb).X - 1, Buttons(cb).Y - 1), "<" + SPACE$(LEN(TRIM$(Buttons(cb).CAPTION)) - 2) + ">"
-                COLOR _RGB32(0, 0, 0)
-            END IF
-        NEXT cb
-        'end of drawing buttons
-
-        _DISPLAY
-        modKey = _KEYHIT: k = modKey
-        IF modKey = 100303 OR modKey = 100304 THEN shiftDown = -1
-        IF modKey = -100303 OR modKey = -100304 THEN shiftDown = 0
-        IF k = 13 THEN DIALOGRESULT = 1
-        IF k = 27 THEN DIALOGRESULT = 2
-        IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
-        IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
-        IF k = 25 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
-
-        IF k = 19200 OR k = 19712 OR k = 32 THEN
-            SELECT CASE DefaultButton
-                CASE 1: SKIPARRAYS = NOT SKIPARRAYS
-                CASE 2: INTERACTIVE = NOT INTERACTIVE
-                CASE 3: DONTCOMPILE = NOT DONTCOMPILE
-                CASE 4: VERBOSE = NOT VERBOSE
-                CASE 5: IF k > 32 THEN DefaultButton = 6 ELSE DIALOGRESULT = 1
-                CASE 6: IF k > 32 THEN DefaultButton = 5 ELSE DIALOGRESULT = 2
-            END SELECT
-        ELSEIF k = 18432 THEN
-            SELECT CASE DefaultButton
-                CASE 2 TO 5: DefaultButton = DefaultButton - 1
-                CASE 6: DefaultButton = 4
-            END SELECT
-        ELSEIF k = 20480 THEN
-            SELECT CASE DefaultButton
-                CASE 1 TO 4: DefaultButton = DefaultButton + 1
-            END SELECT
-        END IF
-    LOOP UNTIL DIALOGRESULT > 0
-    IF DIALOGRESULT = 2 THEN EXIT SUB
+    NEWFILENAME$ = TempPath$ + NEWFILENAME$
+    IF _FILEEXISTS(NEWFILENAME$) THEN
+        Message$ = "'" + NOPATH$(NEWFILENAME$) + "' already exists. Overwrite?"
+        MessageSetup$ = MKI$(MB_CUSTOM) + "Yes" + CHR$(LF) + "No " + CHR$(LF) + "Cancel"
+        MESSAGEBOX_RESULT = MESSAGEBOX("File already exists", Message$, MessageSetup$, 2, 0)
+        IF MESSAGEBOX_RESULT = 2 THEN i = 0: GOTO InputNewFileName
+        IF MESSAGEBOX_RESULT = 3 OR MESSAGEBOX_RESULT = -1 THEN EXIT SUB
+    END IF
 
     'Processing can proceed.
     _AUTODISPLAY
@@ -2694,7 +2574,6 @@ SUB PROCESSFILE
     StatusMessage = ""
     GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
     StatusMessage = "Checking $INCLUDE files...": GOSUB AddVerboseOutputLine
-    IF NOT VERBOSE THEN PRINT StatusMessage
     MergeResult = OpenInclude(FILENAME$, SOURCECODE(), TotalSourceLines)
     IF MergeResult = MISSINGFILE THEN
         Message$ = ""
@@ -2705,7 +2584,6 @@ SUB PROCESSFILE
         EXIT SUB
     ELSEIF MergeResult = MERGESUCCESSFUL THEN
         StatusMessage = "Source file has $INCLUDE files; merge successful.": GOSUB AddVerboseOutputLine
-        IF NOT VERBOSE THEN PRINT StatusMessage
     END IF
 
     'Calculate checksum:
@@ -2728,8 +2606,6 @@ SUB PROCESSFILE
     'and LOCALVARIABLES. If SYSTEM is found, inject cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
     StatusMessage = "Parsing .BAS and injecting breakpoint control code...": GOSUB AddVerboseOutputLine
-    IF NOT VERBOSE THEN PRINT StatusMessage;
-    row = CSRLIN: col = POS(1)
     MULTILINE_DIM = 0
     MULTILINE = 0
     DO
@@ -2794,7 +2670,7 @@ SUB PROCESSFILE
                 END IF
             END IF
             IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1 ELSE MULTILINE = 0
-            IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (ProcessLine / TotalSourceLines) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
+            'IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (ProcessLine / TotalSourceLines) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
         ELSE
             NextVar$ = UCASE$(caseBkpNextVar$)
         END IF
@@ -2922,7 +2798,7 @@ SUB PROCESSFILE
                     IF MainModule THEN
                         StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
                     ELSE
-                        StatusMessage = StatusMessage + " " + CurrentSubFunc$
+                        StatusMessage = StatusMessage + " " + CurrentSubFunc$ + " "
                     END IF
                     StatusMessage = StatusMessage + VARIABLES(TOTALVARIABLES).DATATYPE
                     StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
@@ -2960,7 +2836,7 @@ SUB PROCESSFILE
                                         IF MainModule THEN
                                             StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
                                         ELSE
-                                            StatusMessage = StatusMessage + " " + CurrentSubFunc$
+                                            StatusMessage = StatusMessage + " " + CurrentSubFunc$ + " "
                                         END IF
                                         StatusMessage = StatusMessage + UDT(i).DATATYPE
                                         StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
@@ -2995,7 +2871,7 @@ SUB PROCESSFILE
                                 IF MainModule THEN
                                     StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
                                 ELSE
-                                    StatusMessage = StatusMessage + " " + CurrentSubFunc$
+                                    StatusMessage = StatusMessage + " " + CurrentSubFunc$ + " "
                                 END IF
                                 StatusMessage = StatusMessage + UDT(i).DATATYPE
                                 StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
@@ -3085,7 +2961,6 @@ SUB PROCESSFILE
                     StatusMessage = "Found: " + caseBkpSourceLine
                     GOSUB AddVerboseOutputLine
                 END IF
-                IF VERBOSE THEN _DELAY .05
                 TotalSubFunc = TotalSubFunc + 1
                 REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
                 SUBFUNC(TotalSubFunc) = CurrentSubFunc$
@@ -3114,7 +2989,6 @@ SUB PROCESSFILE
                     StatusMessage = "Found: FUNCTION " + caseBkpSourceLine
                     GOSUB AddVerboseOutputLine
                 END IF
-                IF VERBOSE THEN _DELAY .05
                 TotalSubFunc = TotalSubFunc + 1
                 REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
                 SUBFUNC(TotalSubFunc) = CurrentSubFunc$
@@ -3158,19 +3032,19 @@ SUB PROCESSFILE
         StatusMessage = "There are no watchable variables in the .BAS source."
         COLOR _RGB32(255, 0, 0)
         GOSUB AddVerboseOutputLine
-        IF NOT VERBOSE THEN PRINT StatusMessage
 
         StatusMessage = "(watchable variables are those initialized using DIM)"
         GOSUB AddVerboseOutputLine
         COLOR _RGB32(0, 0, 0)
-        IF NOT VERBOSE THEN PRINT StatusMessage
         GOSUB AddVerboseOutputLine
-        _DELAY .05
     ELSE
-        StatusMessage = "Total watchable variables found: " + STR$(TOTALVARIABLES)
-        GOSUB AddVerboseOutputLine
-        IF NOT VERBOSE THEN PRINT StatusMessage
-        IF INTERACTIVE THEN
+        Message$ = "Total watchable variables found:" + STR$(TOTALVARIABLES)
+        MessageSetup$ = MKI$(MB_CUSTOM) + "Select all" + CHR$(LF) + "Show list" + CHR$(LF) + "Cancel"
+        PCOPY 0, 1
+        MESSAGEBOX_RESULT = MESSAGEBOX("Processing done", Message$, MessageSetup$, 1, 0)
+        IF MESSAGEBOX_RESULT = 3 OR MESSAGEBOX_RESULT = -1 THEN EXIT SUB
+        _AUTODISPLAY
+        IF MESSAGEBOX_RESULT = 2 THEN
             bkpx% = POS(1): bkpy% = CSRLIN
             BackupScreen = _COPYIMAGE(0)
             INTERACTIVE_MODE AddedList$, TotalSelected
@@ -3185,22 +3059,20 @@ SUB PROCESSFILE
                 COLOR _RGB32(255, 0, 0)
                 StatusMessage = "Processing canceled."
                 GOSUB AddVerboseOutputLine
-                IF NOT VERBOSE THEN PRINT StatusMessage
                 COLOR _RGB32(0, 0, 0)
                 GOSUB AddVerboseOutputLine
-                IF NOT VERBOSE THEN PRINT
-                _DELAY 1
                 EXIT SUB
             ELSE
                 StatusMessage = IIFSTR$(TOTALVARIABLES = TotalSelected, "All", STR$(TotalSelected)) + " variable" + IIFSTR$(TotalSelected > 1, "s", "") + " selected."
                 GOSUB AddVerboseOutputLine
-                IF NOT VERBOSE THEN PRINT StatusMessage
             END IF
         ELSE
             AddedList$ = STRING$(TOTALVARIABLES, 1)
             TotalSelected = TOTALVARIABLES
         END IF
     END IF
+
+    _AUTODISPLAY
 
     IF MainModule THEN 'All lines have been parsed. This .BAS contains no SUBs/FUNCTIONs.
         MainModule = 0
@@ -3215,7 +3087,6 @@ SUB PROCESSFILE
 
     StatusMessage = "Generating " + NEWFILENAME$ + "..."
     GOSUB AddVerboseOutputLine
-    IF NOT VERBOSE THEN PRINT StatusMessage
     'Creates the output .vwatch:
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'vWATCH64 initialization code - version " + VERSION + ":"
@@ -3804,7 +3675,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     CLOSE OutputFile
     PRINT "Done."
-    IF VERBOSE THEN SLEEP 1
 
     $IF WIN THEN
         ThisPath$ = ""
@@ -4000,47 +3870,11 @@ SUB PROCESSFILE
     LOOP
     RETURN
 
-    CheckButtons:
-    'Hover highlight:
-    WHILE _MOUSEINPUT: WEND
-    mb = _MOUSEBUTTON(1): mx = _MOUSEX: my = _MOUSEY
-    FOR cb = 1 TO TotalButtons
-        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) OR cb = DefaultButton THEN
-            IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) OR cb = DefaultButton THEN
-                LINE (Buttons(cb).X, Buttons(cb).Y)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
-            END IF
-        END IF
-    NEXT cb
-
-    IF mb THEN
-        FOR cb = 1 TO TotalButtons
-            IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
-                    WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
-                    mb = 0: mx = _MOUSEX: my = _MOUSEY
-                    SELECT CASE cb
-                        CASE 1: SKIPARRAYS = NOT SKIPARRAYS: RETURN
-                        CASE 2: INTERACTIVE = NOT INTERACTIVE: RETURN
-                        CASE 3: DONTCOMPILE = NOT DONTCOMPILE: RETURN
-                        CASE 4: VERBOSE = NOT VERBOSE: RETURN
-                        CASE 5: DIALOGRESULT = 1: RETURN
-                        CASE 6: DIALOGRESULT = 2: RETURN
-                        CASE ELSE: SYSTEM_BEEP 0 'in case a button was added but not yet assigned
-                    END SELECT
-                    RETURN
-                END IF
-            END IF
-        NEXT cb
-    END IF
-    RETURN
-
     AddVerboseOutputLine:
-    IF VERBOSE THEN
-        TotalVerboseOutputLines = TotalVerboseOutputLines + 1
-        REDIM _PRESERVE VerboseOutput(1 TO TotalVerboseOutputLines) AS STRING
-        VerboseOutput(TotalVerboseOutputLines) = StatusMessage
-        PRINT StatusMessage
-    END IF
+    'TotalVerboseOutputLines = TotalVerboseOutputLines + 1
+    'REDIM _PRESERVE VerboseOutput(1 TO TotalVerboseOutputLines) AS STRING
+    'VerboseOutput(TotalVerboseOutputLines) = StatusMessage
+    PRINT StatusMessage
     RETURN
 END SUB
 
@@ -5236,8 +5070,8 @@ SUB SYSTEM_BEEP (MessageType AS INTEGER)
     $IF WIN THEN
         DIM SoundID AS STRING
         SELECT CASE MessageType
-            CASE OK_ONLY: SoundID = "SystemDefault"
             CASE YN_QUESTION: SoundID = "SystemExclamation"
+            CASE ELSE: SoundID = "SystemDefault"
         END SELECT
         x = PlaySound(SoundID + CHR$(0), 0, 65536 + 1)
     $ELSE
@@ -5246,12 +5080,12 @@ SUB SYSTEM_BEEP (MessageType AS INTEGER)
 END SUB
 
 '------------------------------------------------------------------------------
-FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton AS _BYTE, SendPing AS _BYTE)
+FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageSetup AS STRING, DefaultButton AS _BYTE, SendPing AS _BYTE)
     DIM MessageType AS INTEGER
     DIM Position AS INTEGER
     DIM TempCaption$
 
-    MessageType = CVI(LEFT$(MessageConfig, 2))
+    MessageType = CVI(LEFT$(MessageSetup, 2))
     Message$ = tMessage$
     Title$ = TRIM$(tTitle$)
     IF Title$ = "" THEN Title$ = ID
@@ -5292,20 +5126,20 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton 
         CASE MB_CUSTOM
             Position = 3 'skip MKI$ data
             TotalButtons = 0
-            ButtonLine$ = ""
+            ButtonLine$ = " "
             REDIM Buttons(TotalButtons) AS BUTTONSTYPE
-            FOR cb = Position TO LEN(MessageConfig$)
-                IF ASC(MessageConfig$, cb) = LF THEN
+            FOR cb = Position TO LEN(MessageSetup)
+                IF ASC(MessageSetup, cb) = LF THEN
                     GOSUB AddButton
                     TempCaption$ = ""
                 ELSE
-                    TempCaption$ = TempCaption$ + MID$(MessageConfig$, cb, 1)
+                    TempCaption$ = TempCaption$ + MID$(MessageSetup, cb, 1)
                 END IF
             NEXT cb
             IF LEN(TempCaption$) > 0 THEN GOSUB AddButton
-            Buttons(1).X = _WIDTH / 2 - _PRINTWIDTH(ButtonLine$) / 2
+            Buttons(1).X = (_WIDTH / 2) - (_PRINTWIDTH(ButtonLine$) / 2) + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(1).CAPTION))))
             FOR cb = 2 TO TotalButtons
-                Buttons(cb).X = Buttons(1).X + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION))))
+                Buttons(cb).X = (_WIDTH / 2) - (_PRINTWIDTH(ButtonLine$) / 2) + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION))))
             NEXT cb
             IF LEN(ButtonLine$) > MaxLen THEN
                 MaxLen = LEN(ButtonLine$)
@@ -5333,9 +5167,9 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton 
                 Buttons(cb).Y = DialogY + 5 + _FONTHEIGHT * (3 + totalLines)
                 Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
             NEXT cb
-            Buttons(1).X = _WIDTH / 2 - _PRINTWIDTH(ButtonLine$) / 2
+            Buttons(1).X = (_WIDTH / 2) - (_PRINTWIDTH(ButtonLine$) / 2) + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(1).CAPTION))))
             FOR cb = 2 TO TotalButtons
-                Buttons(cb).X = Buttons(1).X + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION))))
+                Buttons(cb).X = (_WIDTH / 2) - (_PRINTWIDTH(ButtonLine$) / 2) + _PRINTWIDTH(SPACE$(INSTR(ButtonLine$, TRIM$(Buttons(cb).CAPTION))))
             NEXT cb
     END SELECT
 
@@ -5379,18 +5213,32 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton 
             CASE MB_CUSTOM
                 IF k = 13 THEN DIALOGRESULT = DefaultButton
                 IF k = 27 THEN DIALOGRESULT = -1
-                IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
-                IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
-                IF k = 25 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                IF k = 19712 THEN GOTO NextItem
+                IF k = 19200 THEN GOTO PrevItem
+                IF k = 25 THEN GOTO PrevItem
+                IF k = 9 AND shiftDown = 0 THEN
+                    NextItem:
+                    DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
+                END IF
+                IF k = 9 AND shiftDown = -1 THEN
+                    PrevItem:
+                    DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                END IF
             CASE OK_ONLY
                 IF k = 13 OR k = 32 THEN DIALOGRESULT = 1
                 IF k = 27 THEN DIALOGRESULT = 2
             CASE YN_QUESTION
                 IF k = 13 OR k = 32 THEN DIALOGRESULT = DefaultButton + 5
                 IF k = 27 THEN DIALOGRESULT = MB_NO
-                IF k = 9 AND shiftDown = 0 THEN DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
-                IF k = 9 AND shiftDown = -1 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
-                IF k = 25 THEN DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                IF k = 19712 THEN GOTO NextItem
+                IF k = 19200 THEN GOTO PrevItem
+                IF k = 25 THEN GOTO PrevItem
+                IF k = 9 AND shiftDown = 0 THEN
+                    DefaultButton = DefaultButton + 1: IF DefaultButton > TotalButtons THEN DefaultButton = 1
+                END IF
+                IF k = 9 AND shiftDown = -1 THEN
+                    DefaultButton = DefaultButton - 1: IF DefaultButton < 1 THEN DefaultButton = TotalButtons
+                END IF
                 IF k = 89 OR k = 121 THEN DIALOGRESULT = MB_YES
                 IF k = 78 OR k = 110 THEN DIALOGRESULT = MB_NO
         END SELECT
@@ -5401,13 +5249,16 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton 
     MESSAGEBOX = DIALOGRESULT
     PCOPY 1, 0
     EXIT SUB
+
     CheckButtons:
-    'Hover highlight:
+    'Grab mouse data:
     WHILE _MOUSEINPUT: WEND
     mb = _MOUSEBUTTON(1): mx = _MOUSEX: my = _MOUSEY
+
+    'Hover highlight:
     FOR cb = 1 TO TotalButtons
-        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-            IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+        IF ((mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W)) OR cb = DefaultButton THEN
+            IF ((my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT)) OR cb = DefaultButton THEN
                 LINE (Buttons(cb).X, Buttons(cb).Y)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
             END IF
         END IF
@@ -5417,13 +5268,15 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton 
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
+                    DefaultButton = cb
                     WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
-                    mb = 0: mx = _MOUSEX: my = _MOUSEY
-                    SELECT CASE MessageType
-                        CASE OK_ONLY: DIALOGRESULT = cb
-                        CASE YN_QUESTION: DIALOGRESULT = cb + 5
-                        CASE MB_CUSTOM: DIALOGRESULT = cb
-                    END SELECT
+                    mb = 0: nmx = _MOUSEX: nmy = _MOUSEY
+                    IF nmx = mx AND nmy = my THEN
+                        SELECT CASE MessageType
+                            CASE OK_ONLY, MB_CUSTOM: DIALOGRESULT = cb
+                            CASE YN_QUESTION: DIALOGRESULT = cb + 5
+                        END SELECT
+                    END IF
                     RETURN
                 END IF
             END IF
@@ -5443,7 +5296,7 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageConfig AS STRING, DefaultButton 
 END FUNCTION
 
 '------------------------------------------------------------------------------
-FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRING, Selected)
+FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRING, Selected, SendPing AS _BYTE)
     'Show a dialog and allow user input. Returns 1 = OK or 2 = Cancel.
     'ReturnValue is always a string: caller procedure must convert it.
     Message$ = tMessage$
@@ -5488,9 +5341,6 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
     DialogW = (CharW * FieldArea) + 10
     IF DialogW < MaxLen * CharW + 10 THEN DialogW = MaxLen * CharW + 10
 
-    'IF DialogW > SCREEN_WIDTH THEN DialogW = SCREEN_WIDTH - 10
-    'IF DialogW < 400 THEN DialogW = 400
-
     DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
     InputField.X = (DialogX + (DialogW / 2)) - (((FieldArea * CharW) - 10) / 2)
@@ -5533,12 +5383,12 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
         GOSUB SelectionHighlight
 
         'Cursor:
-        IF NOT Selected THEN
-            cursorBlink% = cursorBlink% + 1
-            IF cursorBlink% > 70 THEN cursorBlink% = 1
-            IF cursorBlink% < 35 THEN
-                LINE (InputField.X + (Cursor - (InputViewStart - 1)) * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(0, _FONTHEIGHT), _RGB32(0, 0, 0)
-            END IF
+        IF TIMER - SetCursor# > .4 THEN
+            SetCursor# = TIMER
+            IF cursorBlink% = 1 THEN cursorBlink% = 0 ELSE cursorBlink% = 1
+        END IF
+        IF cursorBlink% = 1 THEN
+            LINE (InputField.X + (Cursor - (InputViewStart - 1)) * CharW, DialogY + 5 + _FONTHEIGHT * (3 + totalLines))-STEP(0, _FONTHEIGHT), _RGB32(0, 0, 0)
         END IF
 
         'Draw buttons
@@ -5676,7 +5526,7 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
         GOSUB CursorAdjustments
 
         IF _EXIT THEN USERQUIT = -1: EXIT DO
-        SEND_PING
+        IF SendPing THEN SEND_PING
     LOOP UNTIL DIALOGRESULT > 0
 
     _KEYCLEAR
@@ -5752,7 +5602,11 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
     IF mb THEN
         IF mx >= InputField.X AND my >= DialogY + 3 + _FONTHEIGHT * (3 + totalLines) AND mx <= InputField.X + (FieldArea * CharW - 10) AND my <= DialogY + 3 + _FONTHEIGHT * (3 + totalLines) + _FONTHEIGHT + 4 THEN
             'Click inside the text field
-            WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+            WHILE _MOUSEBUTTON(1)
+                _LIMIT 500
+                IF SendPing THEN SEND_PING
+                mb = _MOUSEINPUT
+            WEND
             Cursor = ((mx - InputField.X) / CharW) + (InputViewStart - 1)
             IF Cursor > LEN(NewValue) THEN Cursor = LEN(NewValue)
             Selected = 0
@@ -5762,9 +5616,10 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
                 IF (my >= Buttons(cb).Y) AND (my < Buttons(cb).Y + _FONTHEIGHT) THEN
-                    WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
-                    mb = 0: mx = _MOUSEX: my = _MOUSEY
-                    DIALOGRESULT = cb
+                    DefaultButton = cb
+                    WHILE _MOUSEBUTTON(1): _LIMIT 500: mb = _MOUSEINPUT: WEND
+                    mb = 0: nmx = _MOUSEX: nmy = _MOUSEY
+                    IF nmx = mx AND nmy = my THEN DIALOGRESULT = cb
                     RETURN
                 END IF
             END IF
