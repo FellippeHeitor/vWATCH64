@@ -3342,6 +3342,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "FAILED!" + Q$
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
     PRINT #OutputFile, "    END IF"
@@ -3492,7 +3497,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Check if step mode was initiated by the host:"
-    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
     PRINT #OutputFile, ""
@@ -3617,9 +3621,9 @@ SUB PROCESSFILE
         PRINT #OutputFile, "FUNCTION vwatch64_CHECKWATCHPOINT"
         PRINT #OutputFile, "    DIM i AS LONG"
         PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTLISTBLOCK, vwatch64_WATCHPOINTLIST"
-        PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTEXPBLOCK, vwatch64_WATCHPOINT()"
         PRINT #OutputFile, "    FOR i = 1 TO " + LTRIM$(STR$(TotalSelected))
         PRINT #OutputFile, "        IF ASC(vwatch64_WATCHPOINTLIST, i) = 1 THEN"
+        PRINT #OutputFile, "            GET #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTEXPBLOCK, vwatch64_WATCHPOINT()"
         PRINT #OutputFile, "            DataType$ = UCASE$(RTRIM$(vwatch64_VARIABLES(i).DATATYPE))"
         PRINT #OutputFile, "            IF INSTR(DataType$, " + Q$ + "STRING" + Q$ + ") THEN DataType$ = " + Q$ + "STRING" + Q$
         PRINT #OutputFile, "            IF LEFT$(vwatch64_WATCHPOINT(i).VALUE, 1) = " + Q$ + "=" + Q$ + " THEN"
@@ -4857,7 +4861,9 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 FUNCTION GETLINE$ (TargetLine AS LONG)
-    IF LEN(SOURCEFILE) > 0 THEN GETLINE$ = SOURCECODE(TargetLine)
+    IF LEN(SOURCEFILE) > 0 AND TargetLine > 0 AND TargetLine <= UBOUND(SOURCECODE) THEN
+        GETLINE$ = SOURCECODE(TargetLine)
+    END IF
 END FUNCTION
 
 '------------------------------------------------------------------------------

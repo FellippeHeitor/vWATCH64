@@ -20,7 +20,7 @@ DO: _LIMIT 60
     tempo = TIMER
     FOR j = 1 TO 10: _LIMIT 10
         READ a
-        yname$ = Revert$(a)
+        yname = Revert$(a)
         used$6 = a
         PRINT a;
         i = _CEIL(RND * 100000)
