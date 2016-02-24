@@ -22,7 +22,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".956b"
+CONST VERSION = ".960b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 5 'SECONDS
@@ -2626,6 +2626,7 @@ SUB PROCESSFILE
     CHECKSUM = ADLER32(SOURCEFILE)
 
     MainModule = -1
+    FirstExecutableLine = -1
     MainModuleEND = 0
     CurrentSubFunc$ = ""
     TotalOutputLines = 0
@@ -2694,6 +2695,15 @@ SUB PROCESSFILE
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         GOSUB AddNextLineData
+                    ELSE
+                        IF FirstExecutableLine THEN
+                            'Even if all conditions above indicate we shouldn't inject breakpoint
+                            'code in this line, we'll inject it anyway if it's the first executable
+                            'line we found in the source code, so that we can start paused.
+                            FirstExecutableLine = 0
+                            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
+                            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
+                        END IF
                     END IF
                 END IF
             END IF
@@ -3202,6 +3212,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_LAST_PING#"
     PRINT #OutputFile, "DIM SHARED vwatch64_NEXTLINE AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_TARGETVARINDEX AS LONG"
+    PRINT #OutputFile, "DIM SHARED vwatch64_TIMER AS INTEGER"
     PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEDATASIZE$4"
     PRINT #OutputFile, "DIM SHARED vwatch64_EXCHANGEDATA AS STRING"
     PRINT #OutputFile, ""
@@ -3233,6 +3244,13 @@ SUB PROCESSFILE
     PRINT #OutputFile, "vwatch64_EXCHANGEBLOCK = vwatch64_WATCHPOINTCOMMANDBLOCK + LEN(vwatch64_WATCHPOINTCOMMAND) + 1"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
+    PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED = -1 THEN"
+    PRINT #OutputFile, "    'Initialize the data export/ping timer:"
+    PRINT #OutputFile, "    vwatch64_TIMER = _FREETIMER"
+    PRINT #OutputFile, "    ON TIMER(vwatch64_TIMER, .1) vwatch64_SENDPING"
+    PRINT #OutputFile, "    TIMER(vwatch64_TIMER) ON"
+    PRINT #OutputFile, "    vwatch64_LAST_PING# = TIMER"
+    PRINT #OutputFile, "END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'End of vWATCH64 initialization code."
@@ -3348,7 +3366,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
@@ -3615,6 +3632,40 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "    RETURN"
+    PRINT #OutputFile, "END SUB"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "SUB vwatch64_SENDPING"
+    PRINT #OutputFile, "    STATIC LAST_PING_CALL AS DOUBLE"
+    IF TotalSelected > 0 THEN
+        PRINT #OutputFile, "    'Send variable values to vWATCH64"
+        PRINT #OutputFile, "    vwatch64_VARIABLEWATCH"
+    END IF
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    'Check if connection is still alive on host's end"
+    PRINT #OutputFile, "    IF TIMER - LAST_PING_CALL < .5 THEN EXIT SUB"
+    PRINT #OutputFile, "    LAST_PING_CALL = TIMER"
+    PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
+    PRINT #OutputFile, "        ON ERROR GOTO 0"
+    PRINT #OutputFile, "        EXIT FUNCTION"
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
+    PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
+    PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
+    PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "            ON ERROR GOTO 0"
+    PRINT #OutputFile, "            EXIT FUNCTION"
+    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+    PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    PRINT #OutputFile, "    ON ERROR GOTO 0"
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
