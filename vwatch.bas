@@ -8,6 +8,12 @@ $IF WIN THEN
     DECLARE LIBRARY
         FUNCTION PlaySound (pszSound AS STRING, BYVAL hmod AS INTEGER, BYVAL fdwSound AS INTEGER)
     END DECLARE
+
+    DECLARE DYNAMIC LIBRARY "kernel32"
+        FUNCTION OpenProcess& (BYVAL dwDesiredAccess AS LONG, BYVAL bInheritHandle AS LONG, BYVAL dwProcessId AS LONG)
+        FUNCTION CloseHandle& (BYVAL hObject AS LONG)
+        FUNCTION GetExitCodeProcess& (BYVAL hProcess AS LONG, lpExitCode AS LONG)
+    END DECLARE
 $END IF
 
 'Custom type library for Steve's File Selection Utility:
@@ -25,7 +31,7 @@ CONST ID = "vWATCH64"
 CONST VERSION = ".960b"
 
 CONST LF = 10
-CONST TIMEOUTLIMIT = 5 'SECONDS
+CONST TIMEOUTLIMIT = 3 'SECONDS
 
 'Messagebox
 CONST MB_CUSTOM = -1
@@ -67,6 +73,7 @@ TYPE HEADERTYPE
     CONNECTED AS _BYTE
     RESPONSE AS _BYTE
     HOST_PING AS _BYTE
+    PID AS LONG
 END TYPE
 
 TYPE CLIENTTYPE
@@ -77,6 +84,7 @@ TYPE CLIENTTYPE
     LINENUMBER AS LONG
     TOTALVARIABLES AS LONG
     CLIENT_PING AS _BYTE
+    PID AS LONG
 END TYPE
 
 TYPE BREAKPOINTTYPE
@@ -176,6 +184,7 @@ DIM SHARED SKIPARRAYS AS _BIT
 DIM SHARED TIMED_OUT AS _BIT
 DIM SHARED USERQUIT AS _BIT
 DIM SHARED CLOSE_SESSION AS _BIT
+DIM SHARED DEBUGGEE_CLOSED AS _BIT
 DIM SHARED TRACE AS _BIT
 DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
@@ -341,6 +350,7 @@ SUB SOURCE_VIEW
     _KEYCLEAR
     TIMED_OUT = 0
     CLOSE_SESSION = 0
+    DEBUGGEE_CLOSED = 0
 
     DO: _LIMIT 500
         GOSUB ProcessInput
@@ -397,12 +407,10 @@ SUB SOURCE_VIEW
 
         IF _EXIT THEN USERQUIT = -1
         SEND_PING
-    LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT OR CLOSE_SESSION
+    LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT OR CLOSE_SESSION OR DEBUGGEE_CLOSED
 
     EndMessage:
-    IF USERQUIT THEN EXIT SUB
-
-    IF CLOSE_SESSION THEN
+    IF CLOSE_SESSION OR USERQUIT THEN
         HEADER.CONNECTED = 0
         PUT #FILE, HEADERBLOCK, HEADER
         CLOSE #FILE
@@ -412,13 +420,15 @@ SUB SOURCE_VIEW
         EXIT SUB
     END IF
 
-    IF HEADER.CONNECTED = 0 THEN
+    IF USERQUIT THEN EXIT SUB
+
+    IF HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED THEN
         EndMessage$ = "Connection closed by client."
     ELSEIF TIMED_OUT THEN
         EndMessage$ = "Connection timed out."
     END IF
 
-    IF HEADER.CONNECTED = 0 OR TIMED_OUT THEN
+    IF HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED OR TIMED_OUT THEN
         MESSAGEBOX_RESULT = MESSAGEBOX(ID, EndMessage$, MKI$(OK_ONLY), 1, -1)
     END IF
     EXIT SUB
@@ -1352,7 +1362,7 @@ SUB VARIABLE_VIEW
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW OR TIMED_OUT OR HEADER.CONNECTED = 0
+    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW OR TIMED_OUT OR HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED
 
     EXIT SUB
     ProcessInput:
@@ -2688,11 +2698,10 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 8) = "_DEFINE " THEN
                 ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
                 ELSE
-                    IF MainModule = 0 AND PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
-                    END IF
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
+                        IF FirstExecutableLine THEN FirstExecutableLine = 0
+                        IF MainModule = 0 THEN GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
                         GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         GOSUB AddNextLineData
                     ELSE
@@ -2701,14 +2710,13 @@ SUB PROCESSFILE
                             'code in this line, we'll inject it anyway if it's the first executable
                             'line we found in the source code, so that we can start paused.
                             FirstExecutableLine = 0
-                            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT (" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
+                            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
                             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         END IF
                     END IF
                 END IF
             END IF
             IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE = -1 ELSE MULTILINE = 0
-            'IF NOT VERBOSE THEN LOCATE row, col: PRINT USING "###"; (ProcessLine / TotalSourceLines) * 100;: PRINT "% (Watchable variables found: "; TRIM$(STR$(TOTALVARIABLES)); ")"
         ELSE
             NextVar$ = UCASE$(caseBkpNextVar$)
         END IF
@@ -2925,7 +2933,16 @@ SUB PROCESSFILE
                 IF RIGHT$(SourceLine, 1) = "_" THEN MULTILINE_DIM = -1
             END IF
         ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
-            IF INSTR(SourceLine, " LIBRARY") THEN DeclaringLibrary = -1
+            IF INSTR(SourceLine, " LIBRARY") THEN
+                DeclaringLibrary = -1
+                FoundQuote = INSTR(SourceLine, CHR$(34))
+                FoundClosingQuote = INSTR(FoundQuote + 1, SourceLine, CHR$(34))
+                IF FoundQuote THEN
+                    LibName$ = UCASE$(MID$(SourceLine, FoundQuote + 1, FoundClosingQuote - FoundQuote - 1))
+                ELSE
+                    LibName$ = ""
+                END IF
+            END IF
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
             DeclaringLibrary = 0
@@ -3032,11 +3049,15 @@ SUB PROCESSFILE
                 SUBFUNC(TotalSubFunc) = CurrentSubFunc$
                 REDIM _PRESERVE SUBFUNC.END(1 TO TotalSubFunc) AS LONG
             ELSE
-                IF LEFT$(SourceLine, 28) <> UCASE$("FUNCTION GetModuleFileNameA ") THEN
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-                ELSE
+                IF (FIND_KEYWORD(SourceLine, "GetModuleFileNameA", FoundAt) AND LibName$ = "") OR _
+                   (FIND_KEYWORD(SourceLine, "OpenProcess", FoundAt) OR _
+                   FIND_KEYWORD(SourceLine, "CloseHandle", FoundAt) OR _
+                   FIND_KEYWORD(SourceLine, "GetExitCodeProcess", FoundAt) AND _
+                   (LibName$ = "" OR LibName$ = "KERNEL32")) THEN
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'" + bkpSourceLine$
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'FUNCTION declaration skipped because it's already in the $INCLUDEd file (line 1)."
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'FUNCTION declaration skipped; vWATCH64 already declared it above."
+                ELSE
+                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
                 END IF
             END IF
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
@@ -3080,9 +3101,12 @@ SUB PROCESSFILE
         GOSUB AddVerboseOutputLine
     ELSE
         Message$ = "Total watchable variables found:" + STR$(TOTALVARIABLES)
-        MessageSetup$ = MKI$(MB_CUSTOM) + "Select all" + CHR$(LF) + "Show list" + CHR$(LF) + "Cancel"
+        IF TOTALVARIABLES > 50 THEN
+            Message$ = Message$ + CHR$(LF) + "(watching too many variables will considerably slow your program down)"
+        END IF
+        MessageSetup$ = MKI$(MB_CUSTOM) + "Add all" + STR$(TOTALVARIABLES) + " variables" + CHR$(LF) + "Select from the list" + CHR$(LF) + "Cancel"
         PCOPY 0, 1
-        MESSAGEBOX_RESULT = MESSAGEBOX("Processing done", Message$, MessageSetup$, 1, 0)
+        MESSAGEBOX_RESULT = MESSAGEBOX("Processing done", Message$, MessageSetup$, IIF(TOTALVARIABLES > 100, 2, 1), 0)
         IF MESSAGEBOX_RESULT = 3 OR MESSAGEBOX_RESULT = -1 THEN EXIT SUB
         _AUTODISPLAY
         IF MESSAGEBOX_RESULT = 2 THEN
@@ -3128,13 +3152,20 @@ SUB PROCESSFILE
 
     StatusMessage = "Generating " + NEWFILENAME$ + "..."
     GOSUB AddVerboseOutputLine
-    'Creates the output .vwatch:
+    'Creates the output .vwatch.bas:
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'vWATCH64 initialization code - version " + VERSION + ":"
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
+    PRINT #OutputFile, "DECLARE LIBRARY"
+    PRINT #OutputFile, "    FUNCTION vwatch64_GETPID& ALIAS getpid ()"
+    PRINT #OutputFile, "    FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)"
+    PRINT #OutputFile, "END DECLARE"
     $IF WIN THEN
-        PRINT #OutputFile, "DECLARE LIBRARY"
-        PRINT #OutputFile, "    FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)"
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "DECLARE DYNAMIC LIBRARY " + Q$ + "kernel32" + Q$
+        PRINT #OutputFile, "    FUNCTION OpenProcess& (BYVAL dwDesiredAccess AS LONG, BYVAL bInheritHandle AS LONG, BYVAL dwProcessId AS LONG)"
+        PRINT #OutputFile, "    FUNCTION CloseHandle& (BYVAL hObject AS LONG)"
+        PRINT #OutputFile, "    FUNCTION GetExitCodeProcess& (BYVAL hProcess AS LONG, lpExitCode AS LONG)"
         PRINT #OutputFile, "END DECLARE"
     $END IF
     PRINT #OutputFile, ""
@@ -3161,6 +3192,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    CONNECTED AS _BYTE"
     PRINT #OutputFile, "    RESPONSE AS _BYTE"
     PRINT #OutputFile, "    HOST_PING AS _BYTE"
+    PRINT #OutputFile, "    PID AS LONG"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_CLIENTTYPE"
@@ -3171,6 +3203,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    LINENUMBER AS LONG"
     PRINT #OutputFile, "    TOTALVARIABLES AS LONG"
     PRINT #OutputFile, "    CLIENT_PING AS _BYTE"
+    PRINT #OutputFile, "    PID AS LONG"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_BREAKPOINTTYPE"
@@ -3317,6 +3350,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM"
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALSOURCELINES =" + STR$(TotalSourceLines)
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TotalSelected)
+    PRINT #OutputFile, "    vwatch64_CLIENT.PID = vwatch64_GETPID&"
     PRINT #OutputFile, ""
     $IF WIN THEN
         PRINT #OutputFile, "    Ret = GetModuleFileNameA(0, vwatch64_EXENAME, LEN(vwatch64_EXENAME))"
@@ -3468,6 +3502,7 @@ SUB PROCESSFILE
         NEXT i
 
         PRINT #OutputFile, ""
+        PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
         tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
@@ -3482,7 +3517,6 @@ SUB PROCESSFILE
                 END IF
             END IF
         NEXT i
-        PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         PRINT #OutputFile, "    ON ERROR GOTO vwatch64_CLIENTFILEERROR"
         PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATABLOCK, vwatch64_VARIABLEDATA().VALUE"
         PRINT #OutputFile, "    ON ERROR GOTO 0"
@@ -3616,21 +3650,24 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
-    PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-    PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
-    PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
-    PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
-    PRINT #OutputFile, "            IF FirstRunDone = 0 THEN FirstRunDone = -1: _TITLE " + Q$ + "Untitled" + Q$
-    PRINT #OutputFile, "            VWATCH64_STARTTIMERS"
-    PRINT #OutputFile, "            EXIT FUNCTION"
-    PRINT #OutputFile, "        END IF"
-    PRINT #OutputFile, "    ELSE"
-    PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
-    PRINT #OutputFile, "    END IF"
-    PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
-    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
-    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    $IF WIN THEN
+    $ELSE
+        PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
+        PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
+        PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
+        PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
+        PRINT #OutputFile, "            IF FirstRunDone = 0 THEN FirstRunDone = -1: _TITLE " + Q$ + "Untitled" + Q$
+        PRINT #OutputFile, "            VWATCH64_STARTTIMERS"
+        PRINT #OutputFile, "            EXIT FUNCTION"
+        PRINT #OutputFile, "        END IF"
+        PRINT #OutputFile, "    ELSE"
+        PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
+        PRINT #OutputFile, "    END IF"
+        PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
+        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+        PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
+        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    $END IF
     PRINT #OutputFile, "    RETURN"
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
@@ -3640,32 +3677,35 @@ SUB PROCESSFILE
         PRINT #OutputFile, "    'Send variable values to vWATCH64"
         PRINT #OutputFile, "    vwatch64_VARIABLEWATCH"
     END IF
-    PRINT #OutputFile, ""
-    PRINT #OutputFile, "    'Check if connection is still alive on host's end"
-    PRINT #OutputFile, "    IF TIMER - LAST_PING_CALL < .5 THEN EXIT SUB"
-    PRINT #OutputFile, "    LAST_PING_CALL = TIMER"
-    PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
-    PRINT #OutputFile, "        ON ERROR GOTO 0"
-    PRINT #OutputFile, "        EXIT FUNCTION"
-    PRINT #OutputFile, "    ELSE"
-    PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #OutputFile, "    END IF"
-    PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-    PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
-    PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
-    PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
-    PRINT #OutputFile, "            ON ERROR GOTO 0"
-    PRINT #OutputFile, "            EXIT FUNCTION"
-    PRINT #OutputFile, "        END IF"
-    PRINT #OutputFile, "    ELSE"
-    PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
-    PRINT #OutputFile, "    END IF"
-    PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
-    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
-    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    PRINT #OutputFile, "    ON ERROR GOTO 0"
+    $IF WIN THEN
+    $ELSE
+        PRINT #OutputFile, ""
+        PRINT #OutputFile, "    'Check if connection is still alive on host's end"
+        PRINT #OutputFile, "    IF TIMER - LAST_PING_CALL < .5 THEN EXIT SUB"
+        PRINT #OutputFile, "    LAST_PING_CALL = TIMER"
+        PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
+        PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
+        PRINT #OutputFile, "        ON ERROR GOTO 0"
+        PRINT #OutputFile, "        EXIT FUNCTION"
+        PRINT #OutputFile, "    ELSE"
+        PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+        PRINT #OutputFile, "    END IF"
+        PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
+        PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
+        PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
+        PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
+        PRINT #OutputFile, "            ON ERROR GOTO 0"
+        PRINT #OutputFile, "            EXIT FUNCTION"
+        PRINT #OutputFile, "        END IF"
+        PRINT #OutputFile, "    ELSE"
+        PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
+        PRINT #OutputFile, "    END IF"
+        PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
+        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
+        PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
+        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+        PRINT #OutputFile, "    ON ERROR GOTO 0"
+    $END IF
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
@@ -4396,7 +4436,7 @@ SUB SETUP_CONNECTION
     END IF
 
     SkipSourceScan:
-    TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " (" + TRIM$(CLIENT.EXENAME) + ")", "")
+    TITLESTRING = TITLESTRING + " - " + NOPATH$(TRIM$(CLIENT.NAME)) + " (PID: " + TRIM$(STR$(CLIENT.PID)) + IIFSTR$(LEN(TRIM$(CLIENT.EXENAME)), " - " + NOPATH$(TRIM$(CLIENT.EXENAME)) + ")", ")")
     _TITLE TITLESTRING
 
     'Connection estabilished.
@@ -4920,25 +4960,37 @@ END FUNCTION
 '------------------------------------------------------------------------------
 SUB SEND_PING
     'Check if the connection is still alive on the client's end
-    GET #FILE, CLIENTBLOCK, CLIENT
-    IF CLIENT.CLIENT_PING = 0 THEN
+    $IF WIN THEN
+        hnd& = OpenProcess(&H400, 0, CLIENT.PID)
+        b& = GetExitCodeProcess(hnd&, ExitCode&)
+        IF b& = 1 AND ExitCode& = 259 THEN
+            'Debuggee is active.
+        ELSE
+            'Debuggee was closed.
+            DEBUGGEE_CLOSED = -1
+        END IF
+        b& = CloseHandle(hnd&)
+    $ELSE
+        GET #FILE, CLIENTBLOCK, CLIENT
+        IF CLIENT.CLIENT_PING = 0 THEN
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SLEEP", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SHELL", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "_DELAY", FoundAt) THEN LAST_PING# = TIMER
         IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "PLAY", FoundAt) THEN LAST_PING# = TIMER
         IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
-            TIMED_OUT = -1
+        TIMED_OUT = -1
         END IF
-    ELSE
+        ELSE
         LAST_PING# = TIMER
         CLIENT.CLIENT_PING = 0
         PUT #FILE, CLIENTBLOCK, CLIENT
-    END IF
+        END IF
 
-    'Inform the client we're still alive and kicking.
-    HEADER.HOST_PING = -1
-    PUT #FILE, HEADERBLOCK, HEADER
+        'Inform the client we're still alive and kicking.
+        HEADER.HOST_PING = -1
+        PUT #FILE, HEADERBLOCK, HEADER
+    $END IF
 END SUB
 
 '------------------------------------------------------------------------------
