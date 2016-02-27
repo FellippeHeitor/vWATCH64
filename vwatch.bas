@@ -14,6 +14,10 @@ $IF WIN THEN
         FUNCTION CloseHandle& (BYVAL hObject AS LONG)
         FUNCTION GetExitCodeProcess& (BYVAL hProcess AS LONG, lpExitCode AS LONG)
     END DECLARE
+$ELSE
+    DECLARE LIBRARY
+    FUNCTION PROCESS_CLOSED& ALIAS kill (BYVAL pid AS INTEGER, BYVAL signal AS INTEGER)
+    END DECLARE
 $END IF
 
 'Custom type library for Steve's File Selection Utility:
@@ -3093,11 +3097,7 @@ SUB PROCESSFILE
                 SUBFUNC(TotalSubFunc) = CurrentSubFunc$
                 REDIM _PRESERVE SUBFUNC.END(1 TO TotalSubFunc) AS LONG
             ELSE
-                IF (FIND_KEYWORD(SourceLine, "GetModuleFileNameA", FoundAt) AND LibName$ = "") OR _
-                   (FIND_KEYWORD(SourceLine, "OpenProcess", FoundAt) OR _
-                   FIND_KEYWORD(SourceLine, "CloseHandle", FoundAt) OR _
-                   FIND_KEYWORD(SourceLine, "GetExitCodeProcess", FoundAt) AND _
-                   (LibName$ = "" OR LibName$ = "KERNEL32")) THEN
+                IF FIND_KEYWORD(SourceLine, "GetModuleFileNameA", FoundAt) AND (LibName$ = "" OR LibName$ = "KERNEL32") THEN
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'" + bkpSourceLine$
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'FUNCTION declaration skipped; vWATCH64 already declared it above."
                 ELSE
@@ -3204,14 +3204,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    FUNCTION vwatch64_GETPID& ALIAS getpid ()"
     PRINT #OutputFile, "    FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)"
     PRINT #OutputFile, "END DECLARE"
-    $IF WIN THEN
-        PRINT #OutputFile, ""
-        PRINT #OutputFile, "DECLARE DYNAMIC LIBRARY " + Q$ + "kernel32" + Q$
-        PRINT #OutputFile, "    FUNCTION OpenProcess& (BYVAL dwDesiredAccess AS LONG, BYVAL bInheritHandle AS LONG, BYVAL dwProcessId AS LONG)"
-        PRINT #OutputFile, "    FUNCTION CloseHandle& (BYVAL hObject AS LONG)"
-        PRINT #OutputFile, "    FUNCTION GetExitCodeProcess& (BYVAL hProcess AS LONG, lpExitCode AS LONG)"
-        PRINT #OutputFile, "END DECLARE"
-    $END IF
     PRINT #OutputFile, ""
     PRINT #OutputFile, "DECLARE LIBRARY " + Q$ + "timers" + Q$
     PRINT #OutputFile, "    SUB VWATCH64_STOPTIMERS ALIAS stop_timers"
@@ -3321,13 +3313,15 @@ SUB PROCESSFILE
     PRINT #OutputFile, "vwatch64_EXCHANGEBLOCK = vwatch64_WATCHPOINTCOMMANDBLOCK + LEN(vwatch64_WATCHPOINTCOMMAND) + 1"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
-    PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED = -1 THEN"
-    PRINT #OutputFile, "    'Initialize the data export/ping timer:"
-    PRINT #OutputFile, "    vwatch64_TIMER = _FREETIMER"
-    PRINT #OutputFile, "    ON TIMER(vwatch64_TIMER, .1) vwatch64_SENDPING"
-    PRINT #OutputFile, "    TIMER(vwatch64_TIMER) ON"
-    PRINT #OutputFile, "    vwatch64_LAST_PING# = TIMER"
-    PRINT #OutputFile, "END IF"
+    IF TotalSelected > 0 THEN
+        PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED = -1 THEN"
+        PRINT #OutputFile, "    'Initialize the data export timer:"
+        PRINT #OutputFile, "    vwatch64_TIMER = _FREETIMER"
+        PRINT #OutputFile, "    ON TIMER(vwatch64_TIMER, .1) vwatch64_VARIABLEWATCH"
+        PRINT #OutputFile, "    TIMER(vwatch64_TIMER) ON"
+        PRINT #OutputFile, "    vwatch64_LAST_PING# = TIMER"
+        PRINT #OutputFile, "END IF"
+    END IF
     PRINT #OutputFile, ""
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "'End of vWATCH64 initialization code."
@@ -3694,63 +3688,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
-    $IF WIN THEN
-    $ELSE
-        PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-        PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
-        PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
-        PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
-        PRINT #OutputFile, "            IF FirstRunDone = 0 THEN FirstRunDone = -1: _TITLE " + Q$ + "Untitled" + Q$
-        PRINT #OutputFile, "            VWATCH64_STARTTIMERS"
-        PRINT #OutputFile, "            EXIT FUNCTION"
-        PRINT #OutputFile, "        END IF"
-        PRINT #OutputFile, "    ELSE"
-        PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
-        PRINT #OutputFile, "    END IF"
-        PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
-        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-        PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
-        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    $END IF
     PRINT #OutputFile, "    RETURN"
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "SUB vwatch64_SENDPING"
-    PRINT #OutputFile, "    STATIC LAST_PING_CALL AS DOUBLE"
-    IF TotalSelected > 0 THEN
-        PRINT #OutputFile, "    'Send variable values to vWATCH64"
-        PRINT #OutputFile, "    vwatch64_VARIABLEWATCH"
-    END IF
-    $IF WIN THEN
-    $ELSE
-        PRINT #OutputFile, ""
-        PRINT #OutputFile, "    'Check if connection is still alive on host's end"
-        PRINT #OutputFile, "    IF TIMER - LAST_PING_CALL < .5 THEN EXIT SUB"
-        PRINT #OutputFile, "    LAST_PING_CALL = TIMER"
-        PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
-        PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
-        PRINT #OutputFile, "        ON ERROR GOTO 0"
-        PRINT #OutputFile, "        EXIT FUNCTION"
-        PRINT #OutputFile, "    ELSE"
-        PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-        PRINT #OutputFile, "    END IF"
-        PRINT #OutputFile, "    IF vwatch64_HEADER.HOST_PING = 0 THEN"
-        PRINT #OutputFile, "        IF TIMER - vwatch64_LAST_PING# > vwatch64_TIMEOUTLIMIT THEN"
-        PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
-        PRINT #OutputFile, "            CLOSE vwatch64_CLIENTFILE"
-        PRINT #OutputFile, "            ON ERROR GOTO 0"
-        PRINT #OutputFile, "            EXIT FUNCTION"
-        PRINT #OutputFile, "        END IF"
-        PRINT #OutputFile, "    ELSE"
-        PRINT #OutputFile, "        vwatch64_LAST_PING# = TIMER"
-        PRINT #OutputFile, "    END IF"
-        PRINT #OutputFile, "    vwatch64_HEADER.HOST_PING = 0"
-        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-        PRINT #OutputFile, "    vwatch64_CLIENT.CLIENT_PING = -1"
-        PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-        PRINT #OutputFile, "    ON ERROR GOTO 0"
-    $END IF
-    PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "FUNCTION vwatch64_CHECKWATCHPOINT"
@@ -5016,25 +4956,7 @@ SUB SEND_PING
         END IF
         b& = CloseHandle(hnd&)
     $ELSE
-        GET #FILE, CLIENTBLOCK, CLIENT
-        IF CLIENT.CLIENT_PING = 0 THEN
-        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "INPUT", FoundAt) THEN LAST_PING# = TIMER
-        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SLEEP", FoundAt) THEN LAST_PING# = TIMER
-        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "SHELL", FoundAt) THEN LAST_PING# = TIMER
-        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "_DELAY", FoundAt) THEN LAST_PING# = TIMER
-        IF FIND_KEYWORD(GETLINE$(CLIENT.LINENUMBER), "PLAY", FoundAt) THEN LAST_PING# = TIMER
-        IF TIMER - LAST_PING# > TIMEOUTLIMIT THEN
-        TIMED_OUT = -1
-        END IF
-        ELSE
-        LAST_PING# = TIMER
-        CLIENT.CLIENT_PING = 0
-        PUT #FILE, CLIENTBLOCK, CLIENT
-        END IF
-
-        'Inform the client we're still alive and kicking.
-        HEADER.HOST_PING = -1
-        PUT #FILE, HEADERBLOCK, HEADER
+        IF PROCESS_CLOSED(CLIENT.PID, 0) THEN DEBUGGEE_CLOSED = -1
     $END IF
 END SUB
 
