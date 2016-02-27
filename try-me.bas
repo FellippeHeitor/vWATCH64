@@ -3,6 +3,7 @@
 'to trace its execution, run it line by line and also monitor
 'the values of the variables below in real time.
 '
+REM $DYNAMIC
 _DEFINE A-Z AS _UNSIGNED _INTEGER64
 DIM yname AS STRING
 DIM SHARED tempo AS DOUBLE
