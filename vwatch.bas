@@ -135,6 +135,7 @@ DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LAST_PING#
 DIM SHARED LIST_AREA AS INTEGER
+DIM SHARED LINE_TRAIL AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
 DIM SHARED MAINSCREEN AS LONG
 DIM SHARED MENU%
@@ -785,7 +786,7 @@ SUB SOURCE_VIEW
                     GOSUB ColorizeList
                     IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
                     v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-                    _PRINTSTRING (5, printY), v$
+                    PRINT_COLORIZED 5, printY, v$, i
                     COLOR _RGB32(0, 0, 0)
                 END IF
             NEXT ii
@@ -800,7 +801,7 @@ SUB SOURCE_VIEW
                 GOSUB ColorizeList
                 IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
                 v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-                _PRINTSTRING (5, printY), v$
+                PRINT_COLORIZED 5, printY, v$, i
                 COLOR _RGB32(0, 0, 0)
             NEXT i
         END IF
@@ -995,7 +996,7 @@ SUB SOURCE_VIEW
     END IF
     '...if a breakpoint is set,...
     IF ASC(BREAKPOINTLIST, i) = 1 THEN
-        BreakpointColor~& = _RGBA32(200, 0, 0, 200): COLOR _RGB32(255, 255, 255)
+        BreakpointColor~& = _RGBA32(200, 0, 0, 200)
         IF i = RunToThisLine THEN BreakpointColor~& = _RGBA32(255, 255, 0, 200): COLOR _RGB32(0, 0, 0)
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), BreakpointColor~&, BF
     END IF
@@ -1294,6 +1295,49 @@ SUB SOURCE_VIEW
             NEXT cb
         END IF
     END IF
+    RETURN
+END SUB
+
+'------------------------------------------------------------------------------
+SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LONG)
+    DIM InQuote AS _BYTE
+    DIM MetaCommand AS _BYTE
+    DIM CommentStart AS LONG
+
+    CommentStart = LEN(STRIPCOMMENTS$(v$))
+    DO
+        COLOR _RGB32(0, 0, 0)
+        Position = Position + 1
+        IF ASC(v$, Position) = 34 OR InQuote THEN
+            'Text in "quotation marks"
+            IF ASC(v$, Position) = 34 THEN InQuote = NOT InQuote
+            COLOR _RGB32(255, 165, 0)
+        ELSEIF (Position = LINE_TRAIL + 1 AND ASC(v$, Position) = 36) OR MetaCommand THEN
+            '$METACOMMAND
+            MetaCommand = -1
+            COLOR _RGB32(46, 160, 87)
+        ELSEIF ASC(v$, Position) = 32 AND MetaCommand THEN
+            MetaCommand = 0
+        END IF
+        IF ASC(BREAKPOINTLIST, SourceLineNumber) = 1 THEN COLOR _RGB32(255, 255, 255)
+        IF ASC(CHECKINGOFF_LINES, SourceLineNumber) AND Position >= LINE_TRAIL THEN COLOR _RGB32(170, 170, 170)
+        GOSUB PrintChar
+    LOOP UNTIL Position = CommentStart
+
+    IF CommentStart < LEN(v$) THEN
+        COLOR _RGB32(170, 170, 170)
+        _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position)
+
+        FoundMetaCommand = INSTR(CommentStart, v$, "$")
+        IF FoundMetaCommand > 0 THEN
+            COLOR _RGB32(46, 160, 87)
+            _PRINTSTRING (StartX + (_FONTWIDTH * (FoundMetaCommand - 1)), Y), MID$(v$, FoundMetaCommand)
+        END IF
+    END IF
+
+    EXIT SUB
+    PrintChar:
+    _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position, 1)
     RETURN
 END SUB
 
@@ -1608,7 +1652,7 @@ SUB VARIABLE_VIEW
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT i
     END IF
-
+    COLOR _RGB32(0, 0, 0)
     IF ShowContextualMenu THEN GOSUB DetectClick
 
     IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
@@ -4331,6 +4375,7 @@ SUB SETUP_CONNECTION
     WATCHPOINTEXPBLOCK = WATCHPOINTLISTBLOCK + LEN(WATCHPOINTLIST) + 1
     WATCHPOINTCOMMANDBLOCK = WATCHPOINTEXPBLOCK + LEN(WATCHPOINT()) + 1
     EXCHANGEBLOCK = WATCHPOINTCOMMANDBLOCK + LEN(WATCHPOINT_COMMAND) + 1
+    LINE_TRAIL = LEN("[ ]  " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN("1")) + "1" + "    ")
 
     'Load the source file, if it still exists.
     SOURCEFILE = ""
@@ -5818,3 +5863,4 @@ SUB FIND_CURRENTMODULE
 
     CLIENT_CURRENTMODULE = sfname$
 END SUB
+
