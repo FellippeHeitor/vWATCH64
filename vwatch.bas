@@ -3152,6 +3152,7 @@ SUB PROCESSFILE
         PCOPY 0, 1
         MESSAGEBOX_RESULT = MESSAGEBOX("Processing done", Message$, MessageSetup$, IIF(TOTALVARIABLES > 100, 2, 1), 0)
         IF MESSAGEBOX_RESULT = 3 OR MESSAGEBOX_RESULT = -1 THEN EXIT SUB
+        COLOR , _RGB32(230, 230, 230)
         _AUTODISPLAY
         IF MESSAGEBOX_RESULT = 2 THEN
             bkpx% = POS(1): bkpy% = CSRLIN
@@ -3181,6 +3182,7 @@ SUB PROCESSFILE
         END IF
     END IF
 
+    COLOR , _RGB32(230, 230, 230)
     _AUTODISPLAY
 
     IF MainModule THEN 'All lines have been parsed. This .BAS contains no SUBs/FUNCTIONs.
