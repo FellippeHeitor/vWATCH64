@@ -101,6 +101,7 @@ TYPE VARIABLESTYPE
     SCOPE AS STRING * 50
     UDT AS STRING * 40
     DATATYPE AS STRING * 20
+    TEMP AS _BYTE
 END TYPE
 
 TYPE VARIABLEVALUETYPE
@@ -115,6 +116,11 @@ TYPE UDTTYPE
     UDT AS STRING * 40
     ELEMENT AS STRING * 256
     DATATYPE AS STRING * 20
+END TYPE
+
+TYPE SUBFUNC_TYPE
+    NAME AS STRING * 50
+    LINE AS LONG
 END TYPE
 
 TYPE BUTTONSTYPE
@@ -2567,8 +2573,8 @@ SUB PROCESSFILE
     REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM OutputLines(1) AS STRING
-    REDIM SUBFUNC(1) AS STRING * 50
-    REDIM SUBFUNC.END(1) AS LONG
+    REDIM SUBFUNC(1) AS SUBFUNC_TYPE
+    REDIM SUBFUNC_ENDLINE(1) AS LONG
     REDIM SetNextLineData(1) AS STRING
     REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
 
@@ -3065,9 +3071,10 @@ SUB PROCESSFILE
                     GOSUB AddVerboseOutputLine
                 END IF
                 TotalSubFunc = TotalSubFunc + 1
-                REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
-                SUBFUNC(TotalSubFunc) = CurrentSubFunc$
-                REDIM _PRESERVE SUBFUNC.END(1 TO TotalSubFunc) AS LONG
+                REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
+                SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
+                SUBFUNC(TotalSubFunc).LINE = ProcessLine
+                REDIM _PRESERVE SUBFUNC_ENDLINE(1 TO TotalSubFunc) AS LONG
             ELSE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             END IF
@@ -3093,9 +3100,10 @@ SUB PROCESSFILE
                     GOSUB AddVerboseOutputLine
                 END IF
                 TotalSubFunc = TotalSubFunc + 1
-                REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS STRING * 50
-                SUBFUNC(TotalSubFunc) = CurrentSubFunc$
-                REDIM _PRESERVE SUBFUNC.END(1 TO TotalSubFunc) AS LONG
+                REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
+                SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
+                SUBFUNC(TotalSubFunc).LINE = ProcessLine
+                REDIM _PRESERVE SUBFUNC_ENDLINE(1 TO TotalSubFunc) AS LONG
             ELSE
                 IF FIND_KEYWORD(SourceLine, "GetModuleFileNameA", FoundAt) AND (LibName$ = "" OR LibName$ = "KERNEL32") THEN
                     GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'" + bkpSourceLine$
@@ -3112,7 +3120,7 @@ SUB PROCESSFILE
             END IF
             GOSUB AddGotoNextLineCode
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-            SUBFUNC.END(TotalSubFunc) = TotalOutputLines
+            SUBFUNC_ENDLINE(TotalSubFunc) = TotalOutputLines
             InBetweenSubs = -1
             CurrentSubFunc$ = ""
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
@@ -3130,12 +3138,126 @@ SUB PROCESSFILE
         END IF
     LOOP
 
+    'After all source was processed, we'll parse it once again looking for
+    'temporary variables - those not initialized/defined with DIM/STATIC.
+    CurrSF = 0
+    ProcessLine = 0
+    SET_DEF "A-Z", "SINGLE"
+    DO
+        SEP$ = "<> "
+        ProcessLine = ProcessLine + 1
+        IF ProcessLine > TotalSourceLines THEN EXIT DO
+
+        IF CurrSF < TotalSubFunc THEN
+            IF ProcessLine >= SUBFUNC(CurrSF + 1).LINE THEN CurrSF = CurrSF + 1
+        END IF
+
+        IF CurrSF = 0 THEN MainModule = -1 ELSE MainModule = 0
+
+        SourceLine = TRIM$(STRIPCOMMENTS(SOURCECODE(ProcessLine))) 'Read the next source line
+        uSourceLine$ = UCASE$(SourceLine)
+
+        IF LEFT$(uSourceLine$, 7) = "DEFINT " THEN
+            SET_DEF RIGHT$(uSourceLine$, LEN(uSourceLine$) - 7), "INTEGER"
+        ELSEIF LEFT$(uSourceLine$, 7) = "DEFLNG " THEN
+            SET_DEF RIGHT$(uSourceLine$, LEN(uSourceLine$) - 7), "LONG"
+        ELSEIF LEFT$(uSourceLine$, 7) = "DEFSTR " THEN
+            SET_DEF RIGHT$(uSourceLine$, LEN(uSourceLine$) - 7), "STRING"
+        ELSEIF LEFT$(uSourceLine$, 7) = "DEFSNG " THEN
+            SET_DEF RIGHT$(uSourceLine$, LEN(uSourceLine$) - 7), "SINGLE"
+        ELSEIF LEFT$(uSourceLine$, 7) = "DEFDBL " THEN
+            SET_DEF RIGHT$(uSourceLine$, LEN(uSourceLine$) - 7), "DOUBLE"
+        ELSEIF LEFT$(uSourceLine$, 8) = "_DEFINE " THEN
+            IF INSTR(uSourceLine$, " AS ") > 0 THEN
+                SET_DEF MID$(uSourceLine$, 9, INSTR(uSourceLine$, " AS ") - 9), RIGHT$(uSourceLine$, LEN(uSourceLine$) - INSTR(uSourceLine$, " AS ") - 3)
+            END IF
+        END IF
+
+        StartPos = 0
+        DO
+            StartPos = FIND_SYMBOL(StartPos + 1, SourceLine, "=")
+            Start = StartPos
+            IF Start > 0 THEN
+                Start = Start - 1
+                IF Start > 1 THEN
+                    DO UNTIL INSTR(SEP$, MID$(SourceLine, Start, 1)) = 0
+                        'Treat absurd cases of bad formatting like "x        =1"
+                        Start = Start - 1
+                    LOOP
+                END IF
+                'Read backwards from here until we find the beginning of the var name:
+                SEP$ = " :"
+                FOR i = Start TO 1 STEP -1
+                    IF INSTR(SEP$, MID$(SourceLine, i, 1)) > 0 THEN Found = i: EXIT FOR
+                NEXT i
+                IF i = 0 THEN Found = 1 'No separator was found, but we reached the beginning of the line
+
+                caseBkpNextVar$ = TRIM$(MID$(SourceLine, Found, Start - Found + 1))
+                NextVar$ = UCASE$(caseBkpNextVar$)
+                Start = Found
+
+                'No arrays:
+                IF INSTR(NextVar$, "(") > 0 OR INSTR(NextVar$, ")") > 0 THEN GOTO NoValidVarFound
+
+                'Variable names must start with A-Z, a-z
+                IF ASC(NextVar$, 1) < 65 OR ASC(NextVar$, 1) > 90 THEN GOTO NoValidVarFound
+
+                'Check if this is actually a CONST:
+                'CONST TRUE = -1: CONST FALSE = NOT TRUE
+                FoundCONST = FIND_KEYWORD(SourceLine, "CONST", FoundCONSTAt)
+                IF FoundCONST AND (FoundCONSTAt < Start) THEN
+                    'It's a const.
+                    GOTO NoValidVarFound
+                END IF
+
+                'All criteria met.
+                'Add temporary variable to watchlist: -------------------------
+                TempList$ = STRING$(TOTALVARIABLES, 1)
+                Found = FINDVARIABLES(NextVar$, TempList$)
+                IF Found = 0 THEN
+                    IF CurrSF > 0 THEN
+                        Found = FIND_KEYWORD(TRIM$(SUBFUNC(CurrSF).NAME), NextVar$, FoundAt)
+                        IF Found THEN GOTO NoValidVarFound
+                    END IF
+                    'Attempt to infer DATA TYPE from suffixes:
+                    FoundType = SUFFIXLOOKUP$(NextVar$)
+                    DefaultTypeUsed = 0
+
+                    IF LEN(FoundType) = 0 THEN
+                        FoundType = DEFAULTDATATYPE(ASC(NextVar$, 1)) 'Assume default data type
+                        DefaultTypeUsed = -1
+                    END IF
+
+                    TOTALVARIABLES = TOTALVARIABLES + 1
+                    REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+                    VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
+                    VARIABLES(TOTALVARIABLES).TEMP = -1
+                    IF MainModule THEN
+                        VARIABLES(TOTALVARIABLES).SCOPE = "MAIN MODULE"
+                    ELSE
+                        VARIABLES(TOTALVARIABLES).SCOPE = TRIM$(SUBFUNC(CurrSF).NAME)
+                    END IF
+                    VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+
+                    IF MainModule THEN
+                        TotalLocalVariables = TotalLocalVariables + 1
+                        REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
+                        LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
+                        LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
+                    END IF
+                END IF
+                '--------------------------------------------------------------
+            END IF
+            NoValidVarFound:
+        LOOP UNTIL StartPos = 0
+    LOOP
+
     StatusMessage = "Processing finished."
     GOSUB AddVerboseOutputLine
 
     IF TOTALVARIABLES = 0 THEN
         GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
-        StatusMessage = "There are no watchable variables in the .BAS source."
+        StatusMessage = "No variables in the .BAS source."
         COLOR _RGB32(255, 0, 0)
         GOSUB AddVerboseOutputLine
 
@@ -3256,6 +3378,7 @@ SUB PROCESSFILE
         PRINT #OutputFile, "    SCOPE AS STRING * 50"
         PRINT #OutputFile, "    UDT AS STRING * 40"
         PRINT #OutputFile, "    DATATYPE AS STRING * 20"
+        PRINT #OutputFile, "    TEMP AS _BYTE"
         PRINT #OutputFile, "END TYPE"
         PRINT #OutputFile, ""
         PRINT #OutputFile, "TYPE vwatch64_VARIABLEVALUETYPE"
@@ -3299,6 +3422,9 @@ SUB PROCESSFILE
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + TRIM$(VARIABLES(i).NAME) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + TRIM$(VARIABLES(i).SCOPE) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + TRIM$(VARIABLES(i).DATATYPE) + Q$
+                IF VARIABLES(i).TEMP = -1 THEN
+                    PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").TEMP = -1"
+                END IF
             END IF
         NEXT i
         PRINT #OutputFile, ""
@@ -3338,8 +3464,8 @@ SUB PROCESSFILE
             GOSUB AddSetVarCode
         END IF
         FOR j = 1 TO TotalSubFunc
-            IF SUBFUNC.END(j) = i THEN
-                CurrentSubFunc$ = TRIM$(SUBFUNC(j))
+            IF SUBFUNC_ENDLINE(j) = i THEN
+                CurrentSubFunc$ = TRIM$(SUBFUNC(j).NAME)
                 GOSUB AddSFVariableWatchCode
             END IF
         NEXT j
@@ -3544,15 +3670,13 @@ SUB PROCESSFILE
         PRINT #OutputFile, ""
         PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
-        tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 AND (TRIM$(VARIABLES(i).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
-                tempindex = tempindex + 1
                 IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
-                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
+                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(i)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
                     PRINT #OutputFile, SourceLine
                 ELSE
-                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
+                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(i)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
                     PRINT #OutputFile, SourceLine
                 END IF
             END IF
@@ -4004,7 +4128,7 @@ END FUNCTION
 '------------------------------------------------------------------------------
 FUNCTION FINDVARIABLES (Text$, AddedList$)
     FOR i = 1 TO TOTALVARIABLES
-        IF TRIM$(VARIABLES(i).NAME) = TRIM$(Text$) AND ASC(AddedList$, i) = 1 THEN
+        IF UCASE$(TRIM$(VARIABLES(i).NAME)) = UCASE$(TRIM$(Text$)) AND ASC(AddedList$, i) = 1 THEN
             FINDVARIABLES = i
             EXIT FUNCTION
         END IF
@@ -5787,4 +5911,17 @@ SUB FIND_CURRENTMODULE
 
     CLIENT_CURRENTMODULE = sfname$
 END SUB
+
+'------------------------------------------------------------------------------
+FUNCTION FIND_SYMBOL (Start, BaseString$, SearchTerm$)
+    'Works line INSTR, except it looks for SearchTerm$ outside quotation marks.
+    Found = INSTR(Start, BaseString$, SearchTerm$)
+    IF Found = 0 THEN EXIT FUNCTION
+
+    FOR i = 1 TO Found
+        IF ASC(BaseString$, i) = 34 THEN InQuote = NOT InQuote
+    NEXT i
+
+    IF NOT InQuote THEN FIND_SYMBOL = Found
+END FUNCTION
 
