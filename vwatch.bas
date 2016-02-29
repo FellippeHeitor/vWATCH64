@@ -54,6 +54,7 @@ CONST CONTINUE = 1
 CONST NEXTSTEP = 2
 CONST READY = 3
 CONST SETVAR = 4
+CONST SKIPSUB = 5
 CONST SETNEXT = 7
 
 'Filters:
@@ -628,11 +629,19 @@ SUB SOURCE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
-            IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
-            STEPMODE = -1
-            TRACE = -1
-            BREAKPOINT.ACTION = NEXTSTEP
-            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            IF shiftDown THEN
+                IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
+                STEPMODE = -1
+                TRACE = -1
+                BREAKPOINT.ACTION = SKIPSUB
+                PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            ELSE
+                IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
+                STEPMODE = -1
+                TRACE = -1
+                BREAKPOINT.ACTION = NEXTSTEP
+                PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 17152 'F9
             ToggleButton_Click:
@@ -871,7 +880,7 @@ SUB SOURCE_VIEW
     Buttons(B).ID = 1: Buttons(B).CAPTION = "<F5=Run>": B = B + 1
     Buttons(B).ID = 2: Buttons(B).CAPTION = "<F6=Variables>": B = B + 1
     Buttons(B).ID = 3: Buttons(B).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): B = B + 1
-    Buttons(B).ID = 4: Buttons(B).CAPTION = IIFSTR$(STEPMODE, "<F8=Step>", "<F8=Pause>"): B = B + 1
+    Buttons(B).ID = 4: Buttons(B).CAPTION = IIFSTR$(STEPMODE, IIFSTR$(shiftDown = -1, "<F8=Step Over>", "<F8=Step>"), "<F8=Pause>"): B = B + 1
     IF STEPMODE THEN
         Buttons(B).ID = 8: Buttons(B).CAPTION = "<Set Next>": B = B + 1
         IF LEN(FilteredList$) > 0 THEN
@@ -2798,7 +2807,7 @@ SUB PROCESSFILE
                 ELSE
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         IF FirstExecutableLine THEN FirstExecutableLine = 0
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: " + IIFSTR$(MainModule = 0, "GOSUB vwatch64_VARIABLEWATCH: ", "") + "vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE ELSE IF vwatch64_NEXTLINE = -2 THEN GOTO vwatch64_SKIP_" + LTRIM$(STR$(ProcessLine)) + " ELSE IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: " + IIFSTR$(MainModule = 0, "GOSUB vwatch64_VARIABLEWATCH: ", "") + "vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + ", " + IIFSTR$(MainModule = 0, "-1", "0") + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE ELSE IF vwatch64_NEXTLINE = -2 THEN GOTO vwatch64_SKIP_" + LTRIM$(STR$(ProcessLine)) + " ELSE IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         ThisLineHasBPControl = ProcessLine
                         GOSUB AddNextLineData
                     ELSE
@@ -2807,7 +2816,7 @@ SUB PROCESSFILE
                             'code in this line, we'll inject it anyway if it's the first executable
                             'line we found in the source code, so that we can start paused.
                             FirstExecutableLine = 0
-                            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
+                            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + ", " + IIFSTR$(MainModule = 0, "-1", "0") + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
                             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         END IF
                     END IF
@@ -3397,6 +3406,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "CONST vwatch64_NEXTSTEP = 2"
     PRINT #OutputFile, "CONST vwatch64_READY = 3"
     PRINT #OutputFile, "CONST vwatch64_SETVAR = 4"
+    PRINT #OutputFile, "CONST vwatch64_SKIPSUB = 5"
     PRINT #OutputFile, "CONST vwatch64_SETNEXT = 7"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "TYPE vwatch64_HEADERTYPE"
@@ -3740,9 +3750,10 @@ SUB PROCESSFILE
         PRINT #OutputFile, "END SUB"
         PRINT #OutputFile, ""
     END IF
-    PRINT #OutputFile, "FUNCTION vwatch64_CHECKBREAKPOINT&(LineNumber AS LONG)"
+    PRINT #OutputFile, "FUNCTION vwatch64_CHECKBREAKPOINT&(LineNumber AS LONG, IsSub AS _BYTE)"
     PRINT #OutputFile, "    STATIC FirstRunDone AS _BIT"
     PRINT #OutputFile, "    STATIC StepMode AS _BIT"
+    PRINT #OutputFile, "    STATIC StepAround AS _BIT"
     PRINT #OutputFile, "    DIM k AS LONG"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
@@ -3767,6 +3778,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'Check if step mode was initiated by the host:"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
+    PRINT #OutputFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB THEN StepAround = -1"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF StepAround = -1 AND IsSub = -1 THEN EXIT FUNCTION"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    GOSUB vwatch64_PING"
     PRINT #OutputFile, ""
@@ -3796,7 +3810,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "                vwatch64_CHECKBREAKPOINT& = vwatch64_BREAKPOINT.LINENUMBER"
     PRINT #OutputFile, "                vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP"
     PRINT #OutputFile, "                vwatch64_BREAKPOINT.LINENUMBER = 0"
-    PRINT #OutputFile, "                StepMode = -1"
     PRINT #OutputFile, "                PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "                IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
     PRINT #OutputFile, "                    _TITLE " + Q$ + "Untitled" + Q$ + ": CLS"
@@ -3811,9 +3824,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
     PRINT #OutputFile, "            _KEYCLEAR"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
-    PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR"
-    PRINT #OutputFile, "        StepMode = 0"
-    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
+    PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR OR vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1: StepAround = 0"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB THEN StepAround = -1: StepMode = -1"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR THEN"
     PRINT #OutputFile, "            vwatch64_CHECKBREAKPOINT& = -1"
     PRINT #OutputFile, "            StepMode = -1"
@@ -3852,8 +3865,10 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
     PRINT #OutputFile, "            _KEYCLEAR"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
-    PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR"
-    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0"
+    PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR OR vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE THEN StepMode = 0: StepAround = 0"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepAround = 0: StepMode = -1"
+    PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB THEN StepAround = -1: StepMode = -1"
     PRINT #OutputFile, "        IF vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR THEN"
     PRINT #OutputFile, "            vwatch64_CHECKBREAKPOINT& = -1"
     PRINT #OutputFile, "            StepMode = -1"
