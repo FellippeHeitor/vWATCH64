@@ -795,7 +795,7 @@ SUB SOURCE_VIEW
                     'Print only inside the program area
                     GOSUB ColorizeList
                     IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                    v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
+                    v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                     PRINT_COLORIZED 5, printY, v$, i
                     COLOR _RGB32(0, 0, 0)
                 END IF
@@ -810,7 +810,7 @@ SUB SOURCE_VIEW
                 'Print only inside the program area
                 GOSUB ColorizeList
                 IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-                v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), " ") + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
+                v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                 PRINT_COLORIZED 5, printY, v$, i
                 COLOR _RGB32(0, 0, 0)
             NEXT i
@@ -1010,6 +1010,10 @@ SUB SOURCE_VIEW
         IF i = RunToThisLine THEN BreakpointColor~& = _RGBA32(255, 255, 0, 200): COLOR _RGB32(0, 0, 0)
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), BreakpointColor~&, BF
     END IF
+    '...if "skip this line" is set,...
+    IF ASC(BREAKPOINTLIST, i) = 2 THEN
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(255, 255, 0, 200), BF
+    END IF
     '...and if it was right-clicked before.
     IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 200), BF
@@ -1017,8 +1021,6 @@ SUB SOURCE_VIEW
     IF (ShowTempMessage AND TempMessage.printY = printY) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 255 - (170 * FadeStep#)), BF
     END IF
-    'If this line is in a $CHECKING:OFF/ON block, it'll be printed in gray, not black
-    IF ASC(CHECKINGOFF_LINES, i) THEN COLOR _RGB32(170, 170, 170)
     RETURN
 
     DetectClick:
@@ -1089,6 +1091,17 @@ SUB SOURCE_VIEW
                     END IF
                     Clicked = -1
                     GOSUB RunButton_Click
+                    ShowContextualMenu = 0
+                ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 4) THEN
+                    'Skip this line:
+                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2
+                    FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
+                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
+                        ELSE
+                            EXIT FOR
+                        END IF
+                    NEXT MultiLineToggle
                     ShowContextualMenu = 0
                 END IF
             ELSE
@@ -1212,7 +1225,7 @@ SUB SOURCE_VIEW
                 ContextualMenu.printY = printY
                 ContextualMenu.FilteredList$ = FilteredList$
                 ContextualMenu.W = _PRINTWIDTH(" Set next statement ") + 6
-                ContextualMenu.H = _FONTHEIGHT * 3.5
+                ContextualMenu.H = _FONTHEIGHT * 4.5
                 ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
                 ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
             END IF
@@ -1254,12 +1267,15 @@ SUB SOURCE_VIEW
                 LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
                 LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT * 2)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
+            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 4) THEN
+                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT * 3)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
             END IF
         END IF
 
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set next statement "
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1, " Clear breakpoint   ", " Set breakpoint     ")
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 2), " Run to this line   "
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 3), " Skip this line     "
         IF MouseHeld = -1 THEN RETURN
     ELSE
         Clicked = 0
@@ -2559,6 +2575,7 @@ SUB PROCESSFILE
     DIM SourceLine AS STRING
     DIM StatusMessage AS STRING
     DIM ThisKeyword AS STRING
+    DIM ThisLineHasBPControl AS LONG
     DIM TotalKeywords AS INTEGER
     DIM TotalLocalVariables AS INTEGER
     DIM TotalNextLineData AS LONG
@@ -2695,6 +2712,7 @@ SUB PROCESSFILE
     CurrentSubFunc$ = ""
     TotalOutputLines = 0
     ProcessLine = 0
+    ThisLineHasBPControl = 0
     'Look for variables inside the main module and store information in VARIABLES()
     'and LOCALVARIABLES. If SYSTEM is found, inject cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
@@ -2737,6 +2755,7 @@ SUB PROCESSFILE
                 IF LEN(SourceLine) = 0 THEN
                 ELSEIF LEFT$(SourceLine, 1) = "$" THEN
                 ELSEIF LEFT$(SourceLine, 4) = "DIM " THEN
+                ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
                 ELSEIF LEFT$(SourceLine, 5) = "DATA " THEN
                 ELSEIF LEFT$(SourceLine, 5) = "CASE " THEN
                 ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
@@ -2748,15 +2767,17 @@ SUB PROCESSFILE
                 ELSEIF LEFT$(SourceLine, 7) = "DEFSTR " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "DEFSNG " THEN
                 ELSEIF LEFT$(SourceLine, 7) = "DEFDBL " THEN
+                ELSEIF LEFT$(SourceLine, 7) = "END SUB" THEN
                 ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
                 ELSEIF LEFT$(SourceLine, 8) = "_DEFINE " THEN
+                ELSEIF LEFT$(SourceLine, 9) = "FUNCTION " THEN
                 ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
+                ELSEIF LEFT$(SourceLine, 12) = "END FUNCTION" THEN
                 ELSE
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         IF FirstExecutableLine THEN FirstExecutableLine = 0
-                        IF MainModule = 0 THEN GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: GOSUB vwatch64_VARIABLEWATCH"
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE"
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = ":::: IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: " + IIFSTR$(MainModule = 0, "GOSUB vwatch64_VARIABLEWATCH: ", "") + "vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE ELSE IF vwatch64_NEXTLINE = -2 THEN GOTO vwatch64_SKIP_" + LTRIM$(STR$(ProcessLine)) + " ELSE IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
+                        ThisLineHasBPControl = ProcessLine
                         GOSUB AddNextLineData
                     ELSE
                         IF FirstExecutableLine THEN
@@ -3136,11 +3157,15 @@ SUB PROCESSFILE
         ELSE
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
         END IF
+        IF ThisLineHasBPControl > 0 AND MULTILINE = 0 AND InBetweenSubs = 0 THEN
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_SKIP_" + LTRIM$(STR$(ThisLineHasBPControl)) + ":::: "
+            ThisLineHasBPControl = 0
+        END IF
     LOOP
 
     'After all source was processed, we'll parse it once again looking for
     'temporary variables - those not initialized/defined with DIM/STATIC.
-    StatusMessage = "Parsing source for more non-initialized variables..."
+    StatusMessage = "Parsing source for non-initialized variables..."
     GOSUB AddVerboseOutputLine
 
     CurrSF = 0
@@ -3780,6 +3805,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        ON ERROR GOTO 0"
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        EXIT FUNCTION"
+    PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF (ASC(vwatch64_BREAKPOINTLIST, LineNumber) = 2) THEN"
+    PRINT #OutputFile, "            vwatch64_CHECKBREAKPOINT& = -2"
+    PRINT #OutputFile, "            EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF (ASC(vwatch64_BREAKPOINTLIST, LineNumber) = 1) OR (StepMode = -1) THEN"
