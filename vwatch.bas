@@ -1029,6 +1029,17 @@ SUB SOURCE_VIEW
 
     'Select/Clear the item if a mouse click was detected.
     IF mb THEN
+        IF OldMXClicked = mx AND OldMYClicked = my AND (TIMER - LastClick# <= 0.5) THEN
+            OldMXClicked = -1
+            OldMYClicked = -1
+            DoubleClick = -1
+        ELSE
+            OldMXClicked = mx
+            OldMYClicked = my
+            LastClick# = TIMER
+            DoubleClick = 0
+        END IF
+
         'Wait until a mouse up event is received:
         MouseHeld = -1
         WHILE _MOUSEBUTTON(1)
@@ -1094,7 +1105,11 @@ SUB SOURCE_VIEW
                     ShowContextualMenu = 0
                 ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 4) THEN
                     'Skip this line:
-                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2
+                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
+                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
+                    ELSE
+                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2
+                    END IF
                     FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
                         IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
                             ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
@@ -1151,13 +1166,20 @@ SUB SOURCE_VIEW
             ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
                 GOSUB TurnOnNonexecutableMessage
             ELSE
-                'Toggle breakpoint:
-                IF ASC(BREAKPOINTLIST, i) = 1 THEN
-                    ASC(BREAKPOINTLIST, i) = 0
-                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                IF DoubleClick THEN
+                    DoubleClick = 0
+                    ASC(BREAKPOINTLIST, i) = 2
                 ELSE
-                    ASC(BREAKPOINTLIST, i) = 1
-                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                    'Toggle breakpoint/skip this line:
+                    IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                        ASC(BREAKPOINTLIST, i) = 0
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                    ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
+                        ASC(BREAKPOINTLIST, i) = 0
+                    ELSE
+                        ASC(BREAKPOINTLIST, i) = 1
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                    END IF
                 END IF
                 FOR MultiLineToggle = i + 1 TO CLIENT.TOTALSOURCELINES
                     IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
@@ -1275,7 +1297,7 @@ SUB SOURCE_VIEW
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set next statement "
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1, " Clear breakpoint   ", " Set breakpoint     ")
         _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 2), " Run to this line   "
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 3), " Skip this line     "
+        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 3), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2, " Reactivate line    ", " Skip this line     ")
         IF MouseHeld = -1 THEN RETURN
     ELSE
         Clicked = 0
