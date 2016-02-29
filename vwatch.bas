@@ -880,7 +880,7 @@ SUB SOURCE_VIEW
     Buttons(B).ID = 1: Buttons(B).CAPTION = "<F5=Run>": B = B + 1
     Buttons(B).ID = 2: Buttons(B).CAPTION = "<F6=Variables>": B = B + 1
     Buttons(B).ID = 3: Buttons(B).CAPTION = "<Trace " + IIFSTR$(TRACE, "ON>", "OFF>"): B = B + 1
-    Buttons(B).ID = 4: Buttons(B).CAPTION = IIFSTR$(STEPMODE, IIFSTR$(shiftDown = -1, "<F8=Step Over>", "<F8=Step>"), "<F8=Pause>"): B = B + 1
+    Buttons(B).ID = 4: Buttons(B).CAPTION = IIFSTR$(STEPMODE, IIFSTR$(shiftDown = -1, "<F8=Step " + IIFSTR$(TRIM$(CLIENT_CURRENTMODULE) = "MAIN MODULE", "Over", "Out") + ">", "<F8=Step>"), "<F8=Pause>"): B = B + 1
     IF STEPMODE THEN
         Buttons(B).ID = 8: Buttons(B).CAPTION = "<Set Next>": B = B + 1
         IF LEN(FilteredList$) > 0 THEN
