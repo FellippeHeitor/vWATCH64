@@ -3,27 +3,28 @@
 'to trace its execution, run it line by line and also monitor
 'the values of the variables below in real time.
 '
-REM $DYNAMIC
-_DEFINE A-Z AS _UNSIGNED _INTEGER64
+_DEFINE A-Z AS LONG
+$IF WIN THEN
+    CONST PathSep$ = "\"
+$ELSE
+    CONST PathSep$="/"
+$END IF
+CONST True = -1: CONST False = NOT True
+
 DIM yname AS STRING
-DIM SHARED tempo AS DOUBLE
-DIM SHARED tiempo#
-DIM SHARED j AS INTEGER
-DIM SHARED k$
-DIM used$6, used`8
-DIM strayDog, temp
-DIM SHARED a AS STRING, fe(0 TO 5) AS STRING, i AS _UNSIGNED LONG
+DIM SHARED a AS STRING, fe(0 TO 5) AS STRING
 
 CLS
 RANDOMIZE TIMER
 DO: _LIMIT 60
     RESTORE Names
     tempo = TIMER
+    LeftForLOOP = False
     FOR j = 1 TO 10: _LIMIT 10
         READ a
         yname = Revert$(a)
         used$6 = a
-        PRINT a;
+        PRINT a; PathSep$;
         i = _CEIL(RND * 100000)
         k$ = INKEY$
         fe(temp) = a
@@ -32,6 +33,7 @@ DO: _LIMIT 60
             tempo = 0
         IF k$ = CHR$(27) THEN EXIT DO
     NEXT j
+    LeftForLOOP = True
     'VWATCH64:OFF
     used`8 = tiempo#
     strayDog = strayDog + 1
