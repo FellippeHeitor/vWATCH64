@@ -1377,6 +1377,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
             MetaCommand = 0
         END IF
         IF ASC(BREAKPOINTLIST, SourceLineNumber) = 1 THEN COLOR _RGB32(255, 255, 255)
+        IF ASC(BREAKPOINTLIST, SourceLineNumber) = 2 THEN COLOR _RGB32(180, 180, 180)
         IF ASC(CHECKINGOFF_LINES, SourceLineNumber) AND Position >= LINE_TRAIL THEN COLOR _RGB32(170, 170, 170)
         GOSUB PrintChar
     LOOP UNTIL Position = CommentStart
