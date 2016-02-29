@@ -1547,10 +1547,19 @@ SUB VARIABLE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
-            IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1
-            STEPMODE = -1
-            BREAKPOINT.ACTION = NEXTSTEP
-            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            IF shiftDown THEN
+                IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
+                STEPMODE = -1
+                TRACE = -1
+                BREAKPOINT.ACTION = SKIPSUB
+                PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            ELSE
+                IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
+                STEPMODE = -1
+                TRACE = -1
+                BREAKPOINT.ACTION = NEXTSTEP
+                PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+            END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 17152 'F9
             ToggleButton_Click:
@@ -1765,7 +1774,7 @@ SUB VARIABLE_VIEW
     b = 1
     Buttons(b).ID = 1: Buttons(b).CAPTION = "<F5=Run>": b = b + 1
     Buttons(b).ID = 2: Buttons(b).CAPTION = "<F6=Source>": b = b + 1
-    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(STEPMODE, "<F8=Step>", "<F8=Pause>"): b = b + 1
+    Buttons(b).ID = 3: Buttons(b).CAPTION = IIFSTR$(STEPMODE, IIFSTR$(shiftDown = -1, "<F8=Step " + IIFSTR$(TRIM$(CLIENT_CURRENTMODULE) = "MAIN MODULE", "Over", "Out") + ">", "<F8=Step>"), "<F8=Pause>"): b = b + 1
     Buttons(b).ID = 7: Buttons(b).CAPTION = "<Highlight " + IIFSTR$(VARIABLE_HIGHLIGHT, "ON>", "OFF>"): b = b + 1
     IF STEPMODE THEN
         IF TOTALBREAKPOINTS > 0 AND shiftDown = -1 THEN
@@ -3275,7 +3284,10 @@ SUB PROCESSFILE
                 'All criteria met.
                 'Add temporary variable to watchlist: -------------------------
                 TempList$ = STRING$(TOTALVARIABLES, 1)
-                Found = FINDVARIABLES(NextVar$, TempList$)
+                StartAt = 0
+                LookAgain:
+                StartAt = StartAt + 1
+                Found = FINDVARIABLES(StartAt, NextVar$, TempList$)
                 IF Found = 0 THEN
                     IF CurrSF > 0 THEN
                         Found = FIND_KEYWORD(TRIM$(SUBFUNC(CurrSF).NAME), NextVar$, FoundAt)
@@ -3306,6 +3318,13 @@ SUB PROCESSFILE
                         REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
                         LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
                         LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
+                    END IF
+                ELSE
+                    'Check if scope is the same; if not, we can add this var.
+                    IF MainModule THEN
+                        IF TRIM$(VARIABLES(Found).SCOPE) <> "MAIN MODULE" THEN StartAt = Found: GOTO LookAgain
+                    ELSE
+                        IF TRIM$(VARIABLES(Found).SCOPE) <> TRIM$(SUBFUNC(CurrSF).NAME) THEN StartAt = Found: GOTO LookAgain
                     END IF
                 END IF
                 '--------------------------------------------------------------
@@ -3637,7 +3656,7 @@ SUB PROCESSFILE
         LocalSharedAddedTotal = 0
         FOR i = 1 TO TotalLocalVariables
             SourceLine = "    SHARED "
-            Found = FINDVARIABLES(TRIM$(LOCALVARIABLES(i).NAME), AddedList$)
+            Found = FINDVARIABLES(1, TRIM$(LOCALVARIABLES(i).NAME), AddedList$)
             IF Found THEN
                 IF LEN(TRIM$(VARIABLES(Found).UDT)) > 0 THEN
                     IF TotalUDTsAdded > 0 THEN
@@ -4199,8 +4218,8 @@ FUNCTION CHECKLIST (Text$, List$(), UpperBoundary%)
 END FUNCTION
 
 '------------------------------------------------------------------------------
-FUNCTION FINDVARIABLES (Text$, AddedList$)
-    FOR i = 1 TO TOTALVARIABLES
+FUNCTION FINDVARIABLES (StartAt, Text$, AddedList$)
+    FOR i = StartAt TO TOTALVARIABLES
         IF UCASE$(TRIM$(VARIABLES(i).NAME)) = UCASE$(TRIM$(Text$)) AND ASC(AddedList$, i) = 1 THEN
             FINDVARIABLES = i
             EXIT FUNCTION
