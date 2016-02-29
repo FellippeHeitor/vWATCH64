@@ -3140,6 +3140,9 @@ SUB PROCESSFILE
 
     'After all source was processed, we'll parse it once again looking for
     'temporary variables - those not initialized/defined with DIM/STATIC.
+    StatusMessage = "Parsing source for more non-initialized variables..."
+    GOSUB AddVerboseOutputLine
+
     CurrSF = 0
     ProcessLine = 0
     SET_DEF "A-Z", "SINGLE"
@@ -3201,6 +3204,9 @@ SUB PROCESSFILE
 
                 'Variable names must start with A-Z, a-z
                 IF ASC(NextVar$, 1) < 65 OR ASC(NextVar$, 1) > 90 THEN GOTO NoValidVarFound
+
+                '"IS" is not valid.
+                IF NextVar$ = "IS" THEN GOTO NoValidVarFound
 
                 'Check if this is actually a CONST:
                 'CONST TRUE = -1: CONST FALSE = NOT TRUE
