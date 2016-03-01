@@ -32,7 +32,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".960b"
+CONST VERSION = ".961b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 3 'SECONDS
@@ -102,7 +102,6 @@ TYPE VARIABLESTYPE
     SCOPE AS STRING * 50
     UDT AS STRING * 40
     DATATYPE AS STRING * 20
-    TEMP AS _BYTE
 END TYPE
 
 TYPE VARIABLEVALUETYPE
@@ -3482,7 +3481,6 @@ SUB PROCESSFILE
                     TOTALVARIABLES = TOTALVARIABLES + 1
                     REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
                     VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
-                    VARIABLES(TOTALVARIABLES).TEMP = -1
                     IF MainModule THEN
                         VARIABLES(TOTALVARIABLES).SCOPE = "MAIN MODULE"
                     ELSE
@@ -3499,9 +3497,17 @@ SUB PROCESSFILE
                 ELSE
                     'Check if scope is the same; if not, we can add this var.
                     IF MainModule THEN
-                        IF TRIM$(VARIABLES(Found).SCOPE) <> "MAIN MODULE" THEN StartAt = Found: GOTO LookAgain
+                        IF TRIM$(VARIABLES(Found).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(Found).SCOPE) = "SHARED" THEN
+                            'Can't add this var again.
+                        ELSE
+                            StartAt = Found: GOTO LookAgain
+                        END IF
                     ELSE
-                        IF TRIM$(VARIABLES(Found).SCOPE) <> TRIM$(SUBFUNC(CurrSF).NAME) THEN StartAt = Found: GOTO LookAgain
+                        IF TRIM$(VARIABLES(Found).SCOPE) = TRIM$(SUBFUNC(CurrSF).NAME) OR TRIM$(VARIABLES(Found).SCOPE) = "SHARED" THEN
+                            'Can't add this var again.
+                        ELSE
+                            StartAt = Found: GOTO LookAgain
+                        END IF
                     END IF
                 END IF
                 '--------------------------------------------------------------
@@ -3637,7 +3643,6 @@ SUB PROCESSFILE
         PRINT #OutputFile, "    SCOPE AS STRING * 50"
         PRINT #OutputFile, "    UDT AS STRING * 40"
         PRINT #OutputFile, "    DATATYPE AS STRING * 20"
-        PRINT #OutputFile, "    TEMP AS _BYTE"
         PRINT #OutputFile, "END TYPE"
         PRINT #OutputFile, ""
         PRINT #OutputFile, "TYPE vwatch64_VARIABLEVALUETYPE"
@@ -3681,9 +3686,6 @@ SUB PROCESSFILE
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").NAME = " + Q$ + TRIM$(VARIABLES(i).NAME) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").SCOPE = " + Q$ + TRIM$(VARIABLES(i).SCOPE) + Q$
                 PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").DATATYPE = " + Q$ + TRIM$(VARIABLES(i).DATATYPE) + Q$
-                IF VARIABLES(i).TEMP = -1 THEN
-                    PRINT #OutputFile, "vwatch64_VARIABLES(" + LTRIM$(STR$(tempindex)) + ").TEMP = -1"
-                END IF
             END IF
         NEXT i
         PRINT #OutputFile, ""
