@@ -202,6 +202,7 @@ DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
 REDIM SHARED QB64KEYWORDS(0) AS STRING
 REDIM SHARED SOURCECODE(0) AS STRING
+REDIM SHARED SOURCECODE_COLORIZED(0) AS _BYTE
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
 REDIM SHARED VARIABLE_DATA(0) AS VARIABLEVALUETYPE
 REDIM SHARED WATCHPOINT(0) AS WATCHPOINTTYPE
@@ -329,7 +330,8 @@ DATA _UNSIGNED _INTEGER64,SINGLE,DOUBLE,_FLOAT,STRING
 DATA -=END=-
 
 QB64KeywordsDATA:
-DATA _ALPHA,_ALPHA32,_AUTODISPLAY,_AXIS,_BACKGROUNDCOLOR,_BIT,_BLEND
+DATA $IF,$ELSE,$END
+DATA _ALPHA,_ALPHA32,_AUTODISPLAY,_AXIS,_BACKGROUNDCOLOR,_BIT,
 DATA _BLEND,_BLUE,_BLUE32,_BUTTON,_BUTTONCHANGE,_BYTE,$CHECKING
 DATA _CLEARCOLOR,_CLIP,_CLIPBOARD$,_CONNECTED,_CONNECTIONADDRESS$
 DATA $CONSOLE,_CONSOLE,_CONSOLETITLE,_CONTROLCHR,_COPYIMAGE,_COPYPALETTE
@@ -358,7 +360,7 @@ DATA CASE,CDBL,CDECL,CHAIN,CHDIR,CHR$,CINT,CIRCLE,CLEAR,CLNG
 DATA CLOSE,CLS,COLOR,COMMAND$,COMMON,CONST,COS,CSNG,CSRLIN
 DATA CVD,CVDMBF,CVI,CVL,CVS,CVSMBF,DATA,DATE$,DECLARE,DEF
 DATA DEFDBL,DEFINT,DEFLNG,DEFSNG,DEFSTR,DIM,DO,DOUBLE,DRAW
-DATA $DYNAMIC,ELSE,ELSEIF,END,END,ENVIRON,EOF,EQV,ERASE,ERDEV
+DATA $DYNAMIC,ELSE,ELSEIF,END,ENVIRON,EOF,EQV,ERASE,ERDEV
 DATA ERL,ERR,ERROR,EXIT,EXP,FIELD,FILEATTR,FILES,FIX,FOR
 DATA FRE,FREE,FREEFILE,FUNCTION,GET,GOSUB,GOTO,HEX$,IF,IMP
 DATA $INCLUDE,INKEY$,INP,INPUT,INSTR,INT,INTEGER,INTERRUPT
@@ -375,7 +377,7 @@ DATA SQR,STATIC,$STATIC,STEP,STICK,STOP,STR$,STRIG,STRING
 DATA STRING$,SUB,SWAP,SYSTEM,TAB,TAN,THEN,TIME$,TIMER,TO
 DATA TROFF,TRON,TYPE,UBOUND,UCASE$,UEVENT,UNLOCK,UNTIL,VAL
 DATA VARPTR,VARPTR$,VARSEG,VIEW,WAIT,WEND,WHILE,WIDTH,WINDOW
-DATA WRITE,XOR,-=END=-
+DATA WRITE,XOR,_CEIL,-=END=-
 
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
@@ -855,6 +857,7 @@ SUB SOURCE_VIEW
                     'Print only inside the program area
                     GOSUB ColorizeList
                     IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                    IF SOURCECODE_COLORIZED(i) = 0 THEN ADDCOLORCODE i
                     v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                     PRINT_COLORIZED 5, printY, v$, i
                     COLOR _RGB32(0, 0, 0)
@@ -870,6 +873,7 @@ SUB SOURCE_VIEW
                 'Print only inside the program area
                 GOSUB ColorizeList
                 IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                IF SOURCECODE_COLORIZED(i) = 0 THEN ADDCOLORCODE i
                 v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                 PRINT_COLORIZED 5, printY, v$, i
                 COLOR _RGB32(0, 0, 0)
@@ -1407,28 +1411,119 @@ SUB SOURCE_VIEW
 END SUB
 
 '------------------------------------------------------------------------------
+FUNCTION GETELEMENT$ (SourceLine$, Element)
+    SEP$ = " =<>+-/\^:;,*()"
+    i$ = SourceLine$
+    Position = 0
+    InQuote = 0
+    ThisElement = 0
+    DO
+        Position = Position + 1
+        a$ = UCASE$(i$)
+        CommentStart = LEN(STRIPCOMMENTS$(a$))
+        IF MID$(a$, Position) = "" THEN EXIT DO
+        CheckSep:
+        IF INSTR(SEP$, MID$(a$, Position, 1)) > 0 AND Position < LEN(a$) THEN Position = Position + 1: GOTO CheckSep
+        IF ASC(a$, Position) = 34 THEN InQuote = NOT InQuote
+
+        Start = Position
+        Element$ = ""
+        DO
+            Char$ = MID$(a$, Position, 1)
+            IF INSTR(SEP$, Char$) > 0 THEN EXIT DO
+            Element$ = Element$ + Char$
+            Position = Position + 1
+            IF Position > LEN(a$) THEN EXIT DO
+        LOOP
+        a$ = Element$
+        ThisElement = ThisElement + 1
+        IF ThisElement = Element THEN GETELEMENT$ = Element$
+    LOOP
+END FUNCTION
+
+'------------------------------------------------------------------------------
+SUB ADDCOLORCODE (SourceLineNumber)
+    'Add colorization code
+    SEP$ = " =<>+-/\^:;,*()"
+    i = SourceLineNumber
+    Position = 0
+    InQuote = 0
+    DO
+        Position = Position + 1
+        a$ = UCASE$(SOURCECODE(i))
+        CommentStart = LEN(STRIPCOMMENTS$(a$))
+        IF MID$(a$, Position) = "" THEN EXIT DO
+        CheckSep:
+        IF INSTR(SEP$, MID$(a$, Position, 1)) > 0 AND Position < LEN(a$) THEN Position = Position + 1: GOTO CheckSep
+        IF ASC(a$, Position) = 34 THEN InQuote = NOT InQuote
+
+        Start = Position
+        Element$ = ""
+        DO
+            Char$ = MID$(a$, Position, 1)
+            IF INSTR(SEP$, Char$) > 0 THEN EXIT DO
+            Element$ = Element$ + Char$
+            Position = Position + 1
+            IF Position > LEN(a$) THEN EXIT DO
+        LOOP
+        a$ = Element$
+        FOR j = 1 TO UBOUND(QB64KEYWORDS)
+            ThisKW$ = QB64KEYWORDS(j)
+            IF a$ = ThisKW$ THEN
+                IF LEFT$(ThisKW$, 1) = "$" THEN
+                    IF NOT InQuote THEN ColorCode$ = CHR$(1) ELSE ColorCode$ = ""
+                ELSE
+                    IF Start < CommentStart AND InQuote = 0 THEN ColorCode$ = CHR$(3) ELSE ColorCode$ = ""
+                END IF
+                IF Start > 1 THEN
+                    SOURCECODE(i) = LEFT$(SOURCECODE(i), Start - 1) + ColorCode$ + MID$(SOURCECODE(i), Start)
+                ELSE
+                    SOURCECODE(i) = ColorCode$ + SOURCECODE(i)
+                END IF
+            END IF
+        NEXT j
+    LOOP
+    SOURCECODE_COLORIZED(i) = -1
+END SUB
+
+'------------------------------------------------------------------------------
 SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LONG)
     DIM InQuote AS _BYTE
     DIM MetaCommand AS _BYTE
     DIM CommentStart AS LONG
 
+    SEP$ = " =<>+-/\^:;,*()"
+
     CommentStart = LEN(STRIPCOMMENTS$(v$))
     DO
-        COLOR _RGB32(0, 0, 0)
         Position = Position + 1
         IF ASC(v$, Position) = 34 OR InQuote THEN
             'Text in "quotation marks"
             IF ASC(v$, Position) = 34 THEN InQuote = NOT InQuote
             COLOR _RGB32(255, 165, 0)
-        ELSEIF (Position = LINE_TRAIL + 1 AND ASC(v$, Position) = 36) OR MetaCommand THEN
-            '$METACOMMAND
+            GOTO ColorSet
+        END IF
+        IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 AND (MetaCommand OR KeyWord) AND NOT InQuote THEN
+            IF MetaCommand THEN MetaCommand = 0
+            IF KeyWord THEN KeyWord = 0
+            'IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 THEN Position = Position + 1
+        END IF
+        IF (ASC(v$, Position) = 1 OR MetaCommand = -1) AND NOT InQuote THEN
             MetaCommand = -1
             COLOR _RGB32(46, 160, 87)
-        ELSEIF ASC(v$, Position) = 32 AND MetaCommand THEN
-            MetaCommand = 0
+            GOTO ColorSet
         END IF
+        IF (ASC(v$, Position) = 3 OR KeyWord = -1) AND NOT InQuote THEN
+            KeyWord = -1
+            COLOR _RGB32(0, 0, 255)
+            GOTO ColorSet
+        END IF
+
+        COLOR _RGB32(0, 0, 0)
         IF ASC(BREAKPOINTLIST, SourceLineNumber) = 1 THEN COLOR _RGB32(255, 255, 255)
         IF ASC(BREAKPOINTLIST, SourceLineNumber) = 2 THEN COLOR _RGB32(180, 180, 180)
+
+        ColorSet:
         IF ASC(CHECKINGOFF_LINES, SourceLineNumber) AND Position >= LINE_TRAIL THEN COLOR _RGB32(170, 170, 170)
         GOSUB PrintChar
     LOOP UNTIL Position = CommentStart
@@ -1437,7 +1532,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
         COLOR _RGB32(170, 170, 170)
         _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position)
 
-        FoundMetaCommand = INSTR(CommentStart, v$, "$")
+        FoundMetaCommand = INSTR(CommentStart, v$, CHR$(255))
         IF FoundMetaCommand > 0 THEN
             COLOR _RGB32(46, 160, 87)
             _PRINTSTRING (StartX + (_FONTWIDTH * (FoundMetaCommand - 1)), Y), MID$(v$, FoundMetaCommand)
@@ -1446,7 +1541,12 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
 
     EXIT SUB
     PrintChar:
-    _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position, 1)
+    Char = ASC(v$, Position)
+    IF (Char = 1 OR Char = 3) AND NOT InQuote THEN
+        StartX = StartX - _FONTWIDTH
+    ELSE
+        _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), CHR$(Char)
+    END IF
     RETURN
 END SUB
 
@@ -1814,10 +1914,10 @@ SUB VARIABLE_VIEW
     tl.x = 3 + _PRINTWIDTH(TopLine$)
     IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
         LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
-        COLOR _RGB32(255, 255, 255)
     END IF
+    IF SOURCECODE_COLORIZED(CLIENT.LINENUMBER) = 0 THEN ADDCOLORCODE CLIENT.LINENUMBER
     TopLine$ = SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " " + CHR$(16) + " " + SourceLine
-    _PRINTSTRING (tl.x, _FONTHEIGHT + 3), TopLine$
+    PRINT_COLORIZED tl.x, _FONTHEIGHT + 3, TopLine$, CLIENT.LINENUMBER
     COLOR _RGB32(0, 0, 0)
     TopLine$ = "Filter: " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -1931,9 +2031,15 @@ SUB VARIABLE_VIEW
     IF VARIABLE_HIGHLIGHT THEN
         vs$ = TRIM$(VARIABLES(i).NAME)
         IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
-        IF FIND_KEYWORD(SourceLine, vs$, FoundAt) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT_CURRENTMODULE)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
-            LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
-        END IF
+        Element = 0
+        DO
+            Element = Element + 1
+            a$ = GETELEMENT$(SourceLine, Element)
+            IF a$ = "" THEN EXIT DO
+            IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT_CURRENTMODULE)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+                LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
+            END IF
+        LOOP
     END IF
     'or that it was right-clicked:
     IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
@@ -3860,14 +3966,14 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP THEN StepMode = -1"
     PRINT #OutputFile, "    IF vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB THEN StepAround = -1"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "    IF StepAround = -1 AND IsSub = -1 THEN EXIT FUNCTION"
-    PRINT #OutputFile, ""
     PRINT #OutputFile, "    GOSUB vwatch64_PING"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Get the breakpoint list:"
     PRINT #OutputFile, "    vwatch64_BREAKPOINT.ACTION = vwatch64_READY"
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTBLOCK, vwatch64_BREAKPOINT"
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_BREAKPOINTLISTBLOCK, vwatch64_BREAKPOINTLIST"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF StepAround = -1 AND IsSub = -1 AND (ASC(vwatch64_BREAKPOINTLIST, LineNumber) <> 1) THEN EXIT FUNCTION"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "    vwatch64_VARIABLEWATCH"
@@ -4657,6 +4763,7 @@ SUB SETUP_CONNECTION
             'Scan for $CHECKING/VWATCH64:OFF blocks:
             CHECKINGOFF_LINES = STRING$(CLIENT.TOTALSOURCELINES, 0)
             SOURCEFILE = "LOADED"
+            REDIM SOURCECODE_COLORIZED(1 TO TotalSourceLines) AS _BYTE
 
             'Scan the file for line starts:
             CurrentLineNo = 1
@@ -5241,7 +5348,7 @@ END SUB
 
 '------------------------------------------------------------------------------
 FUNCTION FIND_KEYWORD (Text$, SearchTerm$, SearchTermFound)
-    SEP$ = " =<>+-/\^:;,*()!#$%&`"
+    SEP$ = " =<>+-/\^:;,*()!#%&`$"
     T$ = UCASE$(TRIM$(STRIPCOMMENTS$(Text$)))
     S$ = UCASE$(TRIM$(SearchTerm$))
     T.L = LEN(Text$) - LEN(LTRIM$(Text$))
@@ -6029,9 +6136,11 @@ SUB FIND_CURRENTMODULE
             isSF = 0
             ncthisline$ = UCASE$(thisline$)
             IF LEFT$(ncthisline$, 4) = "SUB " THEN isSF = 1
+            IF LEFT$(ncthisline$, 5) = CHR$(3) + "SUB " THEN isSF = 1
             IF LEFT$(ncthisline$, 9) = "FUNCTION " THEN isSF = 2
+            IF LEFT$(ncthisline$, 10) = CHR$(3) + "FUNCTION " THEN isSF = 2
             IF isSF > 0 THEN
-                IF RIGHT$(ncthisline$, 7) = " STATIC" THEN
+                IF RIGHT$(ncthisline$, 7) = " STATIC" OR RIGHT$(ncthisline$, 8) = " " + CHR$(3) + "STATIC" THEN
                     thisline$ = RTRIM$(LEFT$(thisline$, LEN(thisline$) - 7))
                 END IF
 
@@ -6051,7 +6160,9 @@ SUB FIND_CURRENTMODULE
                     thisline$ = TRIM$(thisline$)
                     ncthisline$ = UCASE$(thisline$)
                     IF LEFT$(ncthisline$, 8) = "DECLARE " AND INSTR(ncthisline$, " LIBRARY") > 0 THEN InsideDECLARE = -1: EXIT FOR
+                    IF LEFT$(ncthisline$, 9) = CHR$(3) + "DECLARE " AND INSTR(ncthisline$, " LIBRARY") > 0 THEN InsideDECLARE = -1: EXIT FOR
                     IF LEFT$(ncthisline$, 11) = "END DECLARE" THEN EXIT FOR
+                    IF LEFT$(ncthisline$, 13) = CHR$(3) + "END " + CHR$(3) + "DECLARE" THEN EXIT FOR
                 NEXT
 
                 IF InsideDECLARE = -1 THEN
@@ -6062,6 +6173,7 @@ SUB FIND_CURRENTMODULE
         NEXT
     END IF
 
+    IF ASC(sfname$, 1) = 3 THEN sfname$ = MID$(sfname$, 2)
     CLIENT_CURRENTMODULE = sfname$
 END SUB
 
@@ -6093,9 +6205,11 @@ SUB READ_KEYWORDS
     LOOP
 END SUB
 
+'------------------------------------------------------------------------------
 FUNCTION IS_KEYWORD (Text$)
     uText$ = UCASE$(TRIM$(Text$))
     FOR i = 1 TO UBOUND(QB64KEYWORDS)
         IF QB64KEYWORDS(i) = uText$ THEN IS_KEYWORD = -1: EXIT FUNCTION
     NEXT i
 END FUNCTION
+
