@@ -555,6 +555,9 @@ SUB SOURCE_VIEW
                     SetNext_Click:
                     IF DesiredLine <= CLIENT.TOTALSOURCELINES THEN
                         DesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(DesiredLine)))
+                        IF LEN(DesiredSourceLine$) > 0 THEN
+                            IF ASC(DesiredSourceLine$, 1) = 1 OR ASC(DesiredSourceLine$, 1) = 3 THEN DesiredSourceLine$ = MID$(DesiredSourceLine$, 2)
+                        END IF
                         PrevDesiredSourceLine$ = " "
                         IF DesiredLine > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(DesiredLine - 1)))
                         CanGo = -1
@@ -581,6 +584,9 @@ SUB SOURCE_VIEW
                                 CanGo = -1
                                 FOR dl.Check = DesiredLine TO 1 STEP -1
                                     SearchedLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(dl.Check)))
+                                    IF LEN(SearchedLine$) > 0 THEN
+                                        IF ASC(SearchedLine$, 1) = 1 OR ASC(SearchedLine$, 1) = 3 THEN SearchedLine$ = MID$(SearchedLine$, 2)
+                                    END IF
                                     IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
                                         CanGo = 1
                                         EXIT FOR
@@ -590,6 +596,9 @@ SUB SOURCE_VIEW
                                 CanGo = 2
                                 FOR dl.Check = DesiredLine TO 1 STEP -1
                                     SearchedLine$ = TRIM$(GETLINE$(dl.Check))
+                                    IF LEN(SearchedLine$) > 0 THEN
+                                        IF ASC(SearchedLine$, 1) = 1 OR ASC(SearchedLine$, 1) = 3 THEN SearchedLine$ = MID$(SearchedLine$, 2)
+                                    END IF
                                     cm$ = TRIM$(CLIENT_CURRENTMODULE)
                                     IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
                                         IF LEFT$(SearchedLine$, LEN(cm$)) = cm$ THEN
@@ -675,8 +684,7 @@ SUB SOURCE_VIEW
                 _KEYCLEAR
                 VARIABLE_VIEW
             ELSE
-                Message$ = "There are no watchable variables (defined with DIM) in your program,"
-                Message$ = Message$ + CHR$(LF) + "or you didn't select any variables when processing your source file."
+                Message$ = "There are no variables in your watch list."
                 MESSAGEBOX_RESULT = MESSAGEBOX("No variables", Message$, MKI$(OK_ONLY), 1, -1)
             END IF
             IF Clicked THEN Clicked = 0: RETURN
@@ -1504,7 +1512,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
             GOTO ColorSet
         END IF
         IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 AND (MetaCommand OR KeyWord) AND NOT InQuote THEN
-            IF MetaCommand THEN MetaCommand = 0
+            'IF MetaCommand THEN MetaCommand = 0
             IF KeyWord THEN KeyWord = 0
             'IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 THEN Position = Position + 1
         END IF
@@ -1529,13 +1537,15 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
     LOOP UNTIL Position = CommentStart
 
     IF CommentStart < LEN(v$) THEN
-        COLOR _RGB32(170, 170, 170)
-        _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position)
-
-        FoundMetaCommand = INSTR(CommentStart, v$, CHR$(255))
+        FoundMetaCommand = INSTR(CommentStart, v$, CHR$(1))
         IF FoundMetaCommand > 0 THEN
+            COLOR _RGB32(170, 170, 170)
+            _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position, FoundMetaCommand - Position)
             COLOR _RGB32(46, 160, 87)
-            _PRINTSTRING (StartX + (_FONTWIDTH * (FoundMetaCommand - 1)), Y), MID$(v$, FoundMetaCommand)
+            _PRINTSTRING (StartX + (_FONTWIDTH * (FoundMetaCommand - 1)), Y), MID$(v$, FoundMetaCommand + 1)
+        ELSE
+            COLOR _RGB32(170, 170, 170)
+            _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), MID$(v$, Position)
         END IF
     END IF
 
