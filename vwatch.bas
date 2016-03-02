@@ -35,7 +35,7 @@ CONST ID = "vWATCH64"
 CONST VERSION = ".961b"
 
 CONST LF = 10
-CONST TIMEOUTLIMIT = 3 'SECONDS
+CONST TIMEOUTLIMIT = 10 'SECONDS
 
 'Messagebox
 CONST MB_CUSTOM = -1
@@ -77,7 +77,6 @@ TYPE HEADERTYPE
     VERSION AS STRING * 5
     CONNECTED AS _BYTE
     RESPONSE AS _BYTE
-    HOST_PING AS _BYTE
     PID AS LONG
 END TYPE
 
@@ -88,7 +87,6 @@ TYPE CLIENTTYPE
     EXENAME AS STRING * 256
     LINENUMBER AS LONG
     TOTALVARIABLES AS LONG
-    CLIENT_PING AS _BYTE
     PID AS LONG
 END TYPE
 
@@ -144,7 +142,6 @@ DIM SHARED FILEERRORRAISED AS _BIT
 DIM SHARED CONVERSIONERRORRAISED AS _BIT
 DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
-DIM SHARED LAST_PING#
 DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LINE_TRAIL AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
@@ -482,7 +479,9 @@ SUB SOURCE_VIEW
         PUT #FILE, HEADERBLOCK, HEADER
         CLOSE #FILE
         ON ERROR GOTO FileError
-        KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
+        DO WHILE _FILEEXISTS(_CWD$ + PATHSEP$ + "vwatch64.dat")
+            KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
+        LOOP
         ON ERROR GOTO 0
         EXIT SUB
     END IF
@@ -3677,7 +3676,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "CONST vwatch64_ID = " + Q$ + "vWATCH64" + Q$
     PRINT #OutputFile, "CONST vwatch64_VERSION = " + Q$ + VERSION + Q$
     PRINT #OutputFile, "CONST vwatch64_CHECKSUM = " + Q$ + CHECKSUM + Q$
-    PRINT #OutputFile, "CONST vwatch64_TIMEOUTLIMIT =" + STR$(TIMEOUTLIMIT)
+    PRINT #OutputFile, "CONST vwatch64_FILENAME = " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
     PRINT #OutputFile, ""
     PRINT #OutputFile, "'Breakpoint control:"
     PRINT #OutputFile, "CONST vwatch64_CONTINUE = 1"
@@ -3692,7 +3691,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    VERSION AS STRING * 5"
     PRINT #OutputFile, "    CONNECTED AS _BYTE"
     PRINT #OutputFile, "    RESPONSE AS _BYTE"
-    PRINT #OutputFile, "    HOST_PING AS _BYTE"
     PRINT #OutputFile, "    PID AS LONG"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
@@ -3703,7 +3701,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    EXENAME AS STRING * 256"
     PRINT #OutputFile, "    LINENUMBER AS LONG"
     PRINT #OutputFile, "    TOTALVARIABLES AS LONG"
-    PRINT #OutputFile, "    CLIENT_PING AS _BYTE"
     PRINT #OutputFile, "    PID AS LONG"
     PRINT #OutputFile, "END TYPE"
     PRINT #OutputFile, ""
@@ -3743,7 +3740,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADERBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BIT"
-    PRINT #OutputFile, "DIM SHARED vwatch64_LAST_PING#"
     PRINT #OutputFile, "DIM SHARED vwatch64_NEXTLINE AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_TARGETVARINDEX AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_TIMER AS INTEGER"
@@ -3779,13 +3775,10 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
     IF TotalSelected > 0 THEN
-        PRINT #OutputFile, "IF vwatch64_HEADER.CONNECTED = -1 THEN"
-        PRINT #OutputFile, "    'Initialize the data export timer:"
-        PRINT #OutputFile, "    vwatch64_TIMER = _FREETIMER"
-        PRINT #OutputFile, "    ON TIMER(vwatch64_TIMER, .1) vwatch64_VARIABLEWATCH"
-        PRINT #OutputFile, "    TIMER(vwatch64_TIMER) ON"
-        PRINT #OutputFile, "    vwatch64_LAST_PING# = TIMER"
-        PRINT #OutputFile, "END IF"
+        PRINT #OutputFile, "'Initialize the data export timer:"
+        PRINT #OutputFile, "vwatch64_TIMER = _FREETIMER"
+        PRINT #OutputFile, "ON TIMER(vwatch64_TIMER, .1) vwatch64_VARIABLEWATCH"
+        PRINT #OutputFile, "TIMER(vwatch64_TIMER) ON"
     END IF
     PRINT #OutputFile, ""
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
@@ -3818,37 +3811,60 @@ SUB PROCESSFILE
     RANDOMIZE TIMER
     PRINT #OutputFile, "    DIM k AS LONG"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "    IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
-    PRINT #OutputFile, "        DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS"
-    PRINT #OutputFile, "        _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
-    PRINT #OutputFile, "    ELSE"
-    PRINT #OutputFile, "        _CONSOLETITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, "    vwatch64_CHECKFILE:"
+    PRINT #OutputFile, "    IF _FILEEXISTS(vwatch64_FILENAME) = 0 THEN"
+    PRINT #OutputFile, "        Message1$ = " + Q$ + "vWATCH64 doesn't seem to be running." + Q$
+    PRINT #OutputFile, "        Message2$ = " + Q$ + "(Checking for 'vwatch64.dat'; ESC to cancel...)" + Q$
+    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "            _TITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, "            _PRINTSTRING(_WIDTH \ 2 - LEN(Message1$) \ 2, _HEIGHT \ 2), Message1$"
+    PRINT #OutputFile, "            _PRINTSTRING(_WIDTH \ 2 - LEN(Message2$) \ 2, _HEIGHT \ 2 + 1), Message2$"
+    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Connecting to vWATCH64..." + Q$
+    PRINT #OutputFile, "            PRINT Message1$: PRINT Message1$"
+    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "        DO: _LIMIT 30"
+    PRINT #OutputFile, "            k = _KEYHIT"
+    PRINT #OutputFile, "            IF k = -27 THEN SYSTEM"
+    PRINT #OutputFile, "            IF _FILEEXISTS(vwatch64_FILENAME) THEN _KEYCLEAR: EXIT DO"
+    PRINT #OutputFile, "        LOOP"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CLIENTFILE = " + LTRIM$(TRIM$(STR$(_CEIL(RND * 30000) + 100)))
-    PRINT #OutputFile, "    OPEN " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$ + " FOR BINARY AS vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "    OPEN vwatch64_FILENAME FOR BINARY AS vwatch64_CLIENTFILE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Check if a connection is already active"
-    PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
-    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = -1 THEN"
-    PRINT #OutputFile, "        'Check if the existing file belongs to this program."
-    PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
-    PRINT #OutputFile, "        IF vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM THEN"
-    PRINT #OutputFile, "            EXIT SUB"
-    PRINT #OutputFile, "        ELSE"
+    PRINT #OutputFile, "    IF LOF(vwatch64_CLIENTFILE) > 0 THEN"
+    PRINT #OutputFile, "        'Check if the file can be deleted; if so, vWATCH64 is not running."
+    PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
+    PRINT #OutputFile, "        KILL vwatch64_FILENAME"
+    PRINT #OutputFile, "        ON ERROR GOTO 0"
+    PRINT #OutputFile, "        IF _FILEEXISTS(vwatch64_FILENAME) THEN"
+    PRINT #OutputFile, "            CLS"
+    PRINT #OutputFile, "            Message1$ = " + Q$ + "ERROR: vWATCH64 is already connected to another" + Q$
+    PRINT #OutputFile, "            Message2$ = " + Q$ + "client/debuggee." + Q$
     PRINT #OutputFile, "            IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
     PRINT #OutputFile, "                _TITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "                _PRINTSTRING(_WIDTH \ 2 - LEN(Message1$) \ 2, _HEIGHT \ 2), Message1$"
+    PRINT #OutputFile, "                _PRINTSTRING(_WIDTH \ 2 - LEN(Message2$) \ 2, _HEIGHT \ 2 + 1), Message2$"
     PRINT #OutputFile, "            ELSE"
     PRINT #OutputFile, "                _CONSOLETITLE " + Q$ + "FAILED!" + Q$
+    PRINT #OutputFile, "                PRINT Message1$: PRINT Message1$"
     PRINT #OutputFile, "            END IF"
-    PRINT #OutputFile, "            vwatch64_HEADER.CONNECTED = 0"
-    PRINT #OutputFile, "            CLOSE #vwatch64_CLIENTFILE"
-    PRINT #OutputFile, "            ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #OutputFile, "            KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-    PRINT #OutputFile, "            EXIT SUB"
+    PRINT #OutputFile, "            END"
     PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "        GOTO vwatch64_CHECKFILE"
+    PRINT #OutputFile, "    ELSEIF LOF(vwatch64_CLIENTFILE) = 0 THEN"
+    PRINT #OutputFile, "        'Check if the file can be deleted; if so, vWATCH64 is not running."
+    PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
+    PRINT #OutputFile, "        KILL vwatch64_FILENAME"
+    PRINT #OutputFile, "        ON ERROR GOTO 0"
+    PRINT #OutputFile, "        IF _FILEEXISTS(vwatch64_FILENAME) = 0 THEN GOTO vwatch64_CHECKFILE"
     PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
+    PRINT #OutputFile, "    OPEN vwatch64_FILENAME FOR BINARY AS vwatch64_CLIENTFILE"
     PRINT #OutputFile, "    vwatch64_CLIENT.NAME = " + Q$ + FILENAME$ + Q$
     PRINT #OutputFile, "    vwatch64_CLIENT.CHECKSUM = vwatch64_CHECKSUM"
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALSOURCELINES =" + STR$(TotalSourceLines)
@@ -3864,38 +3880,26 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_DATAINFOBLOCK, vwatch64_VARIABLES()"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Wait for authorization:"
-    PRINT #OutputFile, "    vwatch64_WAITSTART# = TIMER"
+    PRINT #OutputFile, "    CLS"
+    PRINT #OutputFile, "    Message1$ = " + Q$ + "Waiting for authorization; ESC to cancel..." + Q$
+    PRINT #OutputFile, "    IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "        _PRINTSTRING(_WIDTH \ 2 - LEN(Message1$) \ 2, _HEIGHT \ 2), Message1$"
+    PRINT #OutputFile, "    ELSE"
+    PRINT #OutputFile, "        PRINT Message1$"
+    PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, "    DO: _LIMIT 30"
-    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
-    PRINT #OutputFile, "        ELSE"
-    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Connecting to vWATCH64... (" + Q$ + " + LTRIM$(STR$(vwatch64_TIMEOUTLIMIT - INT(TIMER - vwatch64_WAITSTART#))) + " + Q$ + ")" + Q$
-    PRINT #OutputFile, "        END IF"
     PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "        k = _KEYHIT"
-    PRINT #OutputFile, "        IF k = 27 THEN _KEYCLEAR: EXIT DO"
-    PRINT #OutputFile, "        IF TIMER - vwatch64_WAITSTART# > vwatch64_TIMEOUTLIMIT THEN EXIT DO"
+    PRINT #OutputFile, "        IF k = -27 THEN SYSTEM"
     PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
     PRINT #OutputFile, ""
-    PRINT #OutputFile, "    IF vwatch64_HEADER.RESPONSE = 0 THEN"
-    PRINT #OutputFile, "        vwatch64_HEADER.CONNECTED = 0"
-    PRINT #OutputFile, "        CLOSE #vwatch64_CLIENTFILE"
-    PRINT #OutputFile, "        ON ERROR GOTO vwatch64_FILEERROR"
-    PRINT #OutputFile, "        KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
-    PRINT #OutputFile, "        ON ERROR GOTO 0"
-    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "FAILED!" + Q$
-    PRINT #OutputFile, "        ELSE"
-    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "FAILED!" + Q$
-    PRINT #OutputFile, "        END IF"
+    PRINT #OutputFile, "    CLS"
+    PRINT #OutputFile, "    IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
+    PRINT #OutputFile, "        _TITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "    ELSE"
-    PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "Untitled" + Q$
-    PRINT #OutputFile, "        ELSE"
-    PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Untitled" + Q$
-    PRINT #OutputFile, "        END IF"
-    PRINT #OutputFile, "        PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
+    PRINT #OutputFile, "        _CONSOLETITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "    END IF"
+    PRINT #OutputFile, "    PUT #vwatch64_CLIENTFILE, vwatch64_CLIENTBLOCK, vwatch64_CLIENT"
     PRINT #OutputFile, "END SUB"
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
