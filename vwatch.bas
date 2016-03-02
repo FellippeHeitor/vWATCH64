@@ -121,6 +121,7 @@ END TYPE
 TYPE SUBFUNC_TYPE
     NAME AS STRING * 50
     LINE AS LONG
+    ENDING AS LONG
 END TYPE
 
 TYPE BUTTONSTYPE
@@ -202,6 +203,8 @@ DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 REDIM SHARED QB64KEYWORDS(0) AS STRING
 REDIM SHARED SOURCECODE(0) AS STRING
 REDIM SHARED SOURCECODE_COLORIZED(0) AS _BYTE
+REDIM SHARED SUBFUNC(0) AS SUBFUNC_TYPE
+REDIM SHARED SUBFUNC_ENDLINE(0) AS LONG
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
 REDIM SHARED VARIABLE_DATA(0) AS VARIABLEVALUETYPE
 REDIM SHARED WATCHPOINT(0) AS WATCHPOINTTYPE
@@ -1455,10 +1458,13 @@ SUB ADDCOLORCODE (SourceLineNumber)
     i = SourceLineNumber
     Position = 0
     InQuote = 0
+
     DO
         Position = Position + 1
         a$ = UCASE$(SOURCECODE(i))
         CommentStart = LEN(STRIPCOMMENTS$(a$))
+        IF CommentStart = LEN(a$) THEN CommentStart = CommentStart + 1
+
         IF MID$(a$, Position) = "" THEN EXIT DO
         CheckSep:
         IF INSTR(SEP$, MID$(a$, Position, 1)) > 0 AND Position < LEN(a$) THEN Position = Position + 1: GOTO CheckSep
@@ -1474,64 +1480,142 @@ SUB ADDCOLORCODE (SourceLineNumber)
             IF Position > LEN(a$) THEN EXIT DO
         LOOP
         a$ = Element$
+        IF LEN(a$) = 0 THEN EXIT DO
+        ColorCode$ = ""
+
+        'Check if it's a QB64 keyword:
         FOR j = 1 TO UBOUND(QB64KEYWORDS)
             ThisKW$ = QB64KEYWORDS(j)
             IF a$ = ThisKW$ THEN
                 IF LEFT$(ThisKW$, 1) = "$" THEN
-                    IF NOT InQuote THEN ColorCode$ = CHR$(1) ELSE ColorCode$ = ""
+                    IF NOT InQuote THEN ColorCode$ = CHR$(1)
                 ELSE
-                    IF Start < CommentStart AND InQuote = 0 THEN ColorCode$ = CHR$(3) ELSE ColorCode$ = ""
+                    IF Start < CommentStart AND InQuote = 0 THEN ColorCode$ = CHR$(3)
                 END IF
-                IF Start > 1 THEN
-                    SOURCECODE(i) = LEFT$(SOURCECODE(i), Start - 1) + ColorCode$ + MID$(SOURCECODE(i), Start)
-                ELSE
-                    SOURCECODE(i) = ColorCode$ + SOURCECODE(i)
-                END IF
+                IF LEN(ColorCode$) > 0 THEN GOSUB AddThisColorCode
+                EXIT FOR
             END IF
         NEXT j
+
+        'Check if it's a SUB/FUNCTION
+        IF ColorCode$ = "" THEN
+            FOR j = 1 TO UBOUND(SUBFUNC)
+                ThisKW$ = UCASE$(TRIM$(SUBFUNC(j).NAME))
+                IF a$ = ThisKW$ THEN
+                    IF Start < CommentStart AND InQuote = 0 THEN
+                        ColorCode$ = CHR$(5)
+                        GOSUB AddThisColorCode
+                    END IF
+                    EXIT FOR
+                END IF
+            NEXT j
+        END IF
+
+        'Check if it's a numeric value
+        IF ColorCode$ = "" THEN
+            SELECT CASE ASC(Element$, 1)
+                CASE 48 TO 57
+                    'Fine, it's numerical.
+                    CheckNegative:
+                    IF Start > 1 THEN
+                        'Is it a negative?
+                        IF ASC(SOURCECODE(i), Start - 1) = 45 THEN
+                            'Yup. Include the minus sign.
+                            Start = Start - 1
+                        END IF
+                    END IF
+                    IF Start < CommentStart AND NOT InQuote THEN ColorCode$ = CHR$(4)
+                CASE 46
+                    'Periods are fine as long as the next character is numeric
+                    IF LEN(Element$) > 1 THEN
+                        SELECT CASE ASC(Element$, 2)
+                            CASE 48 TO 57
+                                'Fine, it's numerical.
+                                GOTO CheckNegative
+                        END SELECT
+                    END IF
+                CASE ELSE
+                    ColorCode$ = ""
+            END SELECT
+            IF LEN(ColorCode$) > 0 THEN GOSUB AddThisColorCode
+        END IF
     LOOP
+
     SOURCECODE_COLORIZED(i) = -1
+
+    EXIT SUB
+    AddThisColorCode:
+    IF Start > 1 THEN
+        SOURCECODE(i) = LEFT$(SOURCECODE(i), Start - 1) + ColorCode$ + MID$(SOURCECODE(i), Start)
+    ELSE
+        SOURCECODE(i) = ColorCode$ + SOURCECODE(i)
+    END IF
+    RETURN
 END SUB
 
 '------------------------------------------------------------------------------
 SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LONG)
     DIM InQuote AS _BYTE
-    DIM MetaCommand AS _BYTE
+    DIM MetaCommand AS LONG
+    DIM IsNumber AS LONG
+    DIM IsSubFunc AS LONG
     DIM CommentStart AS LONG
 
     SEP$ = " =<>+-/\^:;,*()"
 
     CommentStart = LEN(STRIPCOMMENTS$(v$))
+
     DO
         Position = Position + 1
+        'Lines with breakpoints, skip flags or in $CHECKING/VWATCH:OFF blocks are printed in white/gray
+        IF ASC(BREAKPOINTLIST, SourceLineNumber) = 1 THEN COLOR _RGB32(255, 255, 255): GOTO ColorSet
+        IF ASC(BREAKPOINTLIST, SourceLineNumber) = 2 THEN COLOR _RGB32(180, 180, 180): GOTO ColorSet
+        IF ASC(CHECKINGOFF_LINES, SourceLineNumber) AND Position >= LINE_TRAIL THEN COLOR _RGB32(170, 170, 170): GOTO ColorSet
+
         IF ASC(v$, Position) = 34 OR InQuote THEN
             'Text in "quotation marks"
             IF ASC(v$, Position) = 34 THEN InQuote = NOT InQuote
             COLOR _RGB32(255, 165, 0)
             GOTO ColorSet
         END IF
-        IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 AND (MetaCommand OR KeyWord) AND NOT InQuote THEN
-            'IF MetaCommand THEN MetaCommand = 0
-            IF KeyWord THEN KeyWord = 0
-            'IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 THEN Position = Position + 1
+        IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 AND (MetaCommand > 0 OR KeyWord > 0 OR IsNumber > 0 OR IsSubFunc > 0) AND NOT InQuote THEN
+            IF KeyWord > 0 THEN KeyWord = 0
+            IF IsSubFunc > 0 THEN IsSubFunc = 0
+            IF MID$(v$, Position, 1) = "-" AND IsNumber > 0 THEN
+                IF Position = IsNumber + 1 THEN
+                    'It's a negative.
+                ELSE
+                    'It's a separator.
+                    IsNumber = 0
+                END IF
+            ELSEIF IsNumber > 0 THEN
+                IsNumber = 0
+            END IF
         END IF
-        IF (ASC(v$, Position) = 1 OR MetaCommand = -1) AND NOT InQuote THEN
-            MetaCommand = -1
+        IF (ASC(v$, Position) = 1 OR MetaCommand > 0) AND NOT InQuote THEN
+            IF ASC(v$, Position) = 1 THEN MetaCommand = Position
             COLOR _RGB32(46, 160, 87)
             GOTO ColorSet
         END IF
-        IF (ASC(v$, Position) = 3 OR KeyWord = -1) AND NOT InQuote THEN
-            KeyWord = -1
+        IF (ASC(v$, Position) = 3 OR KeyWord > 0) AND NOT InQuote THEN
+            IF ASC(v$, Position) = 3 THEN KeyWord = Position
             COLOR _RGB32(0, 0, 255)
+            GOTO ColorSet
+        END IF
+        IF (ASC(v$, Position) = 4 OR IsNumber > 0) AND NOT InQuote THEN
+            IF ASC(v$, Position) = 4 THEN IsNumber = Position
+            COLOR _RGB32(255, 0, 0)
+            GOTO ColorSet
+        END IF
+        IF (ASC(v$, Position) = 5 OR IsSubFunc > 0) AND NOT InQuote THEN
+            IF ASC(v$, Position) = 5 THEN IsSubFunc = Position
+            COLOR _RGB32(255, 0, 255)
             GOTO ColorSet
         END IF
 
         COLOR _RGB32(0, 0, 0)
-        IF ASC(BREAKPOINTLIST, SourceLineNumber) = 1 THEN COLOR _RGB32(255, 255, 255)
-        IF ASC(BREAKPOINTLIST, SourceLineNumber) = 2 THEN COLOR _RGB32(180, 180, 180)
 
         ColorSet:
-        IF ASC(CHECKINGOFF_LINES, SourceLineNumber) AND Position >= LINE_TRAIL THEN COLOR _RGB32(170, 170, 170)
         GOSUB PrintChar
     LOOP UNTIL Position = CommentStart
 
@@ -1551,7 +1635,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
     EXIT SUB
     PrintChar:
     Char = ASC(v$, Position)
-    IF (Char = 1 OR Char = 3) AND NOT InQuote THEN
+    IF (Char = 1 OR Char = 3 OR Char = 4 OR Char = 5) AND NOT InQuote THEN
         StartX = StartX - _FONTWIDTH
     ELSE
         _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), CHR$(Char)
@@ -2797,8 +2881,6 @@ SUB PROCESSFILE
     REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
     REDIM OutputLines(1) AS STRING
-    REDIM SUBFUNC(1) AS SUBFUNC_TYPE
-    REDIM SUBFUNC_ENDLINE(1) AS LONG
     REDIM SetNextLineData(1) AS STRING
     REDIM UDT(1) AS UDTTYPE, UDT_ADDED(1) AS VARIABLESTYPE
 
@@ -4772,18 +4854,20 @@ SUB SETUP_CONNECTION
                 GOTO StartSetup
             END IF
         ELSE
-            'Scan for $CHECKING/VWATCH64:OFF blocks:
+            'Scan for $CHECKING/VWATCH64:OFF blocks and build SUB/FUNCTION list
             CHECKINGOFF_LINES = STRING$(CLIENT.TOTALSOURCELINES, 0)
             SOURCEFILE = "LOADED"
             REDIM SOURCECODE_COLORIZED(1 TO TotalSourceLines) AS _BYTE
+            REDIM SUBFUNC(0) AS SUBFUNC_TYPE
 
-            'Scan the file for line starts:
             CurrentLineNo = 1
             LONGESTLINE = 1
             InsideCheckingOffBlock = 0
+            TotalSubFunc = 0
             FOR i = 1 TO TotalSourceLines
                 bkpSourceLine$ = SOURCECODE(i)
-                SourceLine$ = UCASE$(TRIM$(bkpSourceLine$))
+                caseBkpSourceLine$ = TRIM$(bkpSourceLine$)
+                SourceLine$ = UCASE$(TRIM$(caseBkpSourceLine$))
                 IF SourceLine$ = "$CHECKING:OFF" OR LEFT$(SourceLine$, 13) = "'VWATCH64:OFF" THEN
                     InsideCheckingOffBlock = -1
                 END IF
@@ -4792,6 +4876,34 @@ SUB SETUP_CONNECTION
                     InsideCheckingOffBlock = 0
                 END IF
                 IF LEN(bkpSourceLine$) > LONGESTLINE THEN LONGESTLINE = LEN(bkpSourceLine$)
+
+                'SUB/FUNCTION LIST:--------------------------------------------------------------
+                SourceLine$ = STRIPCOMMENTS$(SourceLine$)
+                IF LEFT$(SourceLine$, 4) = "SUB " THEN
+                    IF INSTR(SourceLine$, "(") THEN
+                        CurrentSubFunc$ = TRIM$(MID$(caseBkpSourceLine$, 5, INSTR(SourceLine$, "(") - 5))
+                    ELSE
+                        CurrentSubFunc$ = MID$(caseBkpSourceLine$, 5)
+                    END IF
+                    TotalSubFunc = TotalSubFunc + 1
+                    REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
+                    SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
+                    SUBFUNC(TotalSubFunc).LINE = i
+                ELSEIF LEFT$(SourceLine$, 9) = "FUNCTION " THEN
+                    IF INSTR(SourceLine$, "(") THEN
+                        CurrentSubFunc$ = TRIM$(MID$(caseBkpSourceLine$, 10, INSTR(SourceLine$, "(") - 10))
+                    ELSE
+                        CurrentSubFunc$ = MID$(caseBkpSourceLine$, 10)
+                    END IF
+                    TotalSubFunc = TotalSubFunc + 1
+                    REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
+                    SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
+                    SUBFUNC(TotalSubFunc).LINE = i
+                ELSEIF LEFT$(SourceLine$, 7) = "END SUB" OR LEFT$(SourceLine$, 12) = "END FUNCTION" THEN
+                    SUBFUNC(TotalSubFunc).ENDING = i
+                    CurrentSubFunc$ = ""
+                END IF
+                'END OF SUB/FUNCTION LIST BUILDING-----------------------------------------------
             NEXT i
         END IF
     ELSE
