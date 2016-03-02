@@ -3415,12 +3415,7 @@ SUB PROCESSFILE
                 SUBFUNC(TotalSubFunc).LINE = ProcessLine
                 REDIM _PRESERVE SUBFUNC_ENDLINE(1 TO TotalSubFunc) AS LONG
             ELSE
-                IF FIND_KEYWORD(SourceLine, "GetModuleFileNameA", FoundAt) AND (LibName$ = "" OR LibName$ = "KERNEL32") THEN
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'" + bkpSourceLine$
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'FUNCTION declaration skipped; vWATCH64 already declared it above."
-                ELSE
-                    GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-                END IF
+                GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             END IF
         ELSEIF LEFT$(SourceLine, 7) = "END SUB" OR LEFT$(SourceLine, 12) = "END FUNCTION" THEN
             IF INSTR(SourceLine, "END SUB") > 0 THEN
@@ -3672,7 +3667,6 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "DECLARE LIBRARY"
     PRINT #OutputFile, "    FUNCTION vwatch64_GETPID& ALIAS getpid ()"
-    PRINT #OutputFile, "    FUNCTION GetModuleFileNameA (BYVAL hModule AS LONG, lpFileName AS STRING, BYVAL nSize AS LONG)"
     PRINT #OutputFile, "END DECLARE"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "DECLARE LIBRARY " + Q$ + "timers" + Q$
@@ -3822,7 +3816,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, "SUB vwatch64_CONNECTTOHOST"
     RANDOMIZE TIMER
-    PRINT #OutputFile, "    DIM vwatch64_EXENAME AS STRING * 256, Ret AS LONG, k AS LONG"
+    PRINT #OutputFile, "    DIM k AS LONG"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
     PRINT #OutputFile, "        DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS"
@@ -3860,15 +3854,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALSOURCELINES =" + STR$(TotalSourceLines)
     PRINT #OutputFile, "    vwatch64_CLIENT.TOTALVARIABLES =" + STR$(TotalSelected)
     PRINT #OutputFile, "    vwatch64_CLIENT.PID = vwatch64_GETPID&"
-    PRINT #OutputFile, ""
-    $IF WIN THEN
-        PRINT #OutputFile, "    Ret = GetModuleFileNameA(0, vwatch64_EXENAME, LEN(vwatch64_EXENAME))"
-        PRINT #OutputFile, "    IF Ret > 0 THEN"
-        PRINT #OutputFile, "        vwatch64_CLIENT.EXENAME = LEFT$(vwatch64_EXENAME, Ret)"
-        PRINT #OutputFile, "    END IF"
-    $ELSE
-        PRINT #OutputFile, "    vwatch64_CLIENT.EXENAME = " + Q$ + Q$
-    $END IF
+    PRINT #OutputFile, "    vwatch64_CLIENT.EXENAME = COMMAND$(0)"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    'Send this client's version and connection request"
     PRINT #OutputFile, "    vwatch64_HEADER.CLIENT_ID = vwatch64_ID"
