@@ -24,7 +24,8 @@ DO: _LIMIT 60
         READ a
         yname = Revert$(a)
         used$6 = a
-        PRINT a; PathSep$;
+        PRINT a;
+        PRINT PathSep$; 'But why? :)
         i = _CEIL(RND * 100000)
         k$ = INKEY$
         fe(temp) = a
