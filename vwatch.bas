@@ -428,7 +428,7 @@ SUB SOURCE_VIEW
 
         IF LEN(SOURCEFILE) > 0 THEN
             FOR i = 1 TO CLIENT.TOTALVARIABLES
-                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
+                IF INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
                     VARIABLE_DATA(i).VALUE = "<out of scope>"
                 END IF
             NEXT i
@@ -583,12 +583,18 @@ SUB SOURCE_VIEW
                         IF CanGo = -1 THEN
                             IF TRIM$(CLIENT_CURRENTMODULE) = "MAIN MODULE" THEN
                                 CanGo = -1
+                                DeclaringLibrary = 0
                                 FOR dl.Check = DesiredLine TO 1 STEP -1
                                     SearchedLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(dl.Check)))
                                     IF LEN(SearchedLine$) > 0 THEN
                                         IF ASC(SearchedLine$, 1) = 1 OR ASC(SearchedLine$, 1) = 3 THEN SearchedLine$ = MID$(SearchedLine$, 2)
                                     END IF
-                                    IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
+                                    IF GETELEMENT$(SearchedLine$, 1) = "DECLARE" AND FIND_SYMBOL(1, SearchedLine$, "LIBRARY") THEN
+                                        DeclaringLibrary = 0
+                                    ELSEIF GETELEMENT$(SearchedLine$, 1) = "END" AND GETELEMENT$(SearchedLine$, 2) = "DECLARE" THEN
+                                        DeclaringLibrary = -1
+                                    END IF
+                                    IF (GETELEMENT$(SearchedLine$, 1) = "SUB" OR GETELEMENT$(SearchedLine$, 1) = "FUNCTION") AND DeclaringLibrary = 0 THEN
                                         CanGo = 1
                                         EXIT FOR
                                     END IF
@@ -600,9 +606,9 @@ SUB SOURCE_VIEW
                                     IF LEN(SearchedLine$) > 0 THEN
                                         IF ASC(SearchedLine$, 1) = 1 OR ASC(SearchedLine$, 1) = 3 THEN SearchedLine$ = MID$(SearchedLine$, 2)
                                     END IF
-                                    cm$ = TRIM$(CLIENT_CURRENTMODULE)
-                                    IF (LEFT$(SearchedLine$, 4) = "SUB " OR LEFT$(SearchedLine$, 9) = "FUNCTION ") THEN
-                                        IF LEFT$(SearchedLine$, LEN(cm$)) = cm$ THEN
+                                    cm$ = CLIENT_CURRENTMODULE
+                                    IF (GETELEMENT$(SearchedLine$, 1) = "SUB" OR GETELEMENT$(SearchedLine$, 1) = "FUNCTION") THEN
+                                        IF GETELEMENT$(SearchedLine$, 2) = GETELEMENT$(cm$, 2) THEN
                                             'We're in the same module as the desired line
                                             CanGo = -1
                                             EXIT FOR
@@ -625,7 +631,7 @@ SUB SOURCE_VIEW
                             END IF
                         ELSEIF CanGo = 1 OR CanGo = 2 THEN
                             Message$ = ""
-                            Message$ = Message$ + "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + cm$) + CHR$(LF)
+                            Message$ = Message$ + "Next line must be " + IIFSTR$(CanGo = 1, "in the main module", "inside " + GETELEMENT$(cm$, 1) + " " + GETELEMENT$(cm$, 2)) + CHR$(LF)
                             MESSAGEBOX_RESULT = MESSAGEBOX("Outside boundaries", Message$, MKI$(OK_ONLY), 1, -1)
                         ELSE
                             Message$ = ""
@@ -929,12 +935,12 @@ SUB SOURCE_VIEW
     COLOR _RGB32(255, 255, 255)
     _PRINTSTRING (4, 2), ModeTitle$
     COLOR _RGB32(0, 0, 0)
-    TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + TRIM$(CLIENT_CURRENTMODULE) + ")"
+    TopLine$ = "Breakpoints: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(TOTALBREAKPOINTS)))) + TRIM$(STR$(TOTALBREAKPOINTS)) + TAB(5) + "Next line: " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " (in " + GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2) + ")"
     _PRINTSTRING (5, (_FONTHEIGHT + 3)), TopLine$
     IF SearchIn = CODE OR SearchIn = LINENUMBERS THEN
         TopLine$ = "Filter (" + IIFSTR$(SearchIn = CODE, "source code", "line numbers") + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
     ELSE
-        TopLine$ = "Set next line (must be inside " + TRIM$(CLIENT_CURRENTMODULE) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
+        TopLine$ = "Set next line (must be inside " + GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2) + "): " + UCASE$(Filter$) + IIFSTR$(cursorBlink% > 25, CHR$(179), "")
         LINE (0, (_FONTHEIGHT * 2 + 3))-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT + 1), _RGB32(255, 255, 0), BF
     END IF
     _PRINTSTRING (5, (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -1421,7 +1427,7 @@ END SUB
 
 '------------------------------------------------------------------------------
 FUNCTION GETELEMENT$ (SourceLine$, Element)
-    SEP$ = " =<>+-/\^:;,*()"
+    SEP$ = " =<>+-/\^:;,*()" + CHR$(1) + CHR$(3) + CHR$(4) + CHR$(5)
     i$ = SourceLine$
     Position = 0
     InQuote = 0
@@ -1687,7 +1693,7 @@ SUB VARIABLE_VIEW
 
         IF LEN(SOURCEFILE) > 0 THEN
             FOR i = 1 TO CLIENT.TOTALVARIABLES
-                IF INSTR(VARIABLES(i).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
+                IF INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
                     VARIABLE_DATA(i).VALUE = "<out of scope>"
                 END IF
             NEXT i
@@ -1997,7 +2003,7 @@ SUB VARIABLE_VIEW
     COLOR _RGB32(255, 255, 255)
     _PRINTSTRING (4, 2), ModeTitle$
     COLOR _RGB32(0, 0, 0)
-    TopLine$ = TRIM$(CLIENT_CURRENTMODULE)
+    TopLine$ = GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)
     _PRINTSTRING (_WIDTH - 3 - _PRINTWIDTH(TopLine$), 3), TopLine$
     TopLine$ = "Total variables:" + STR$(CLIENT.TOTALVARIABLES) + IIFSTR$(LEN(FilteredList$), " (showing " + TRIM$(STR$(LEN(FilteredList$) / 4)) + ")", "")
     _PRINTSTRING (_WIDTH - 5 - _PRINTWIDTH(TopLine$), (_FONTHEIGHT * 2 + 3)), TopLine$
@@ -2128,7 +2134,7 @@ SUB VARIABLE_VIEW
             Element = Element + 1
             a$ = GETELEMENT$(SourceLine, Element)
             IF a$ = "" THEN EXIT DO
-            IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(TRIM$(VARIABLES(i).SCOPE), TRIM$(CLIENT_CURRENTMODULE)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+            IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
                 LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
             END IF
         LOOP
@@ -2248,7 +2254,7 @@ SUB VARIABLE_VIEW
             ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
                 'Edit
                 EditVariableRoutine:
-                IF INSTR(VARIABLES(ContextualMenuLineRef).SCOPE, TRIM$(CLIENT_CURRENTMODULE)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
+                IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                     Message$ = ""
                     Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
                     Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
