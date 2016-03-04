@@ -1204,70 +1204,51 @@ SUB SOURCE_VIEW
             END IF
         ELSE
             temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+            e1$ = GETELEMENT$(temp.SourceLine$, 1)
+            e2$ = GETELEMENT$(temp.SourceLine$, 2)
             PrevDesiredSourceLine$ = " "
             IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
-            IF LEN(temp.SourceLine$) = 0 THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFINT " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFLNG " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSTR " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSNG " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFDBL " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 8) = "DECLARE " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 8) = "_DEFINE " THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF LEFT$(temp.SourceLine$, 11) = "END DECLARE" THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
-                GOSUB TurnOnNonexecutableMessage
-            ELSE
-                IF DoubleClick THEN
-                    DoubleClick = 0
-                    ASC(BREAKPOINTLIST, i) = 2
-                ELSE
-                    'Toggle breakpoint/skip this line:
-                    IF ASC(BREAKPOINTLIST, i) = 1 THEN
-                        ASC(BREAKPOINTLIST, i) = 0
-                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
-                    ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
-                        ASC(BREAKPOINTLIST, i) = 0
-                    ELSE
-                        ASC(BREAKPOINTLIST, i) = 1
-                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+            SELECT CASE e1$
+                CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
+                    GOSUB TurnOnNonexecutableMessage
+                CASE "END"
+                    IF e2$ = "DECLARE" OR e2$ = "FUNCTION" OR e2$ = "SUB" THEN
+                        GOSUB TurnOnNonexecutableMessage
                     END IF
-                END IF
-                FOR MultiLineToggle = i + 1 TO CLIENT.TOTALSOURCELINES
-                    IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
-                        ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, i)
+                CASE ELSE
+                    IF LEN(temp.SourceLine$) = 0 THEN
+                        GOSUB TurnOnNonexecutableMessage
+                    ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
+                        GOSUB TurnOnNonexecutableMessage
+                    ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
+                        GOSUB TurnOnNonexecutableMessage
+                    ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
+                        GOSUB TurnOnNonexecutableMessage
                     ELSE
-                        EXIT FOR
+                        IF DoubleClick THEN
+                            DoubleClick = 0
+                            ASC(BREAKPOINTLIST, i) = 2
+                        ELSE
+                            'Toggle breakpoint/skip this line:
+                            IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                                ASC(BREAKPOINTLIST, i) = 0
+                                TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                            ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
+                                ASC(BREAKPOINTLIST, i) = 0
+                            ELSE
+                                ASC(BREAKPOINTLIST, i) = 1
+                                TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                            END IF
+                        END IF
+                        FOR MultiLineToggle = i + 1 TO CLIENT.TOTALSOURCELINES
+                            IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, i)
+                            ELSE
+                                EXIT FOR
+                            END IF
+                        NEXT MultiLineToggle
                     END IF
-                NEXT MultiLineToggle
-            END IF
+            END SELECT
         END IF
     END IF
 
@@ -1277,60 +1258,42 @@ SUB SOURCE_VIEW
         WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb2 = 0
         temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+        e1$ = GETELEMENT$(temp.SourceLine$, 1)
+        e2$ = GETELEMENT$(temp.SourceLine$, 2)
         PrevDesiredSourceLine$ = " "
         IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
-        IF LEN(temp.SourceLine$) = 0 THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 1) = "$" THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 4) = "DIM " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 5) = "DATA " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 5) = "CASE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 5) = "TYPE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 6) = "REDIM " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 6) = "CONST " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "STATIC " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFINT " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFLNG " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSTR " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFSNG " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 7) = "DEFDBL " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 8) = "DECLARE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 8) = "_DEFINE " THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF LEFT$(temp.SourceLine$, 11) = "END DECLARE" THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
-            GOSUB TurnOnNonexecutableMessage
-        ELSE
-            IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
-                'Set contextual menu coordinates relative to this item
-                ShowContextualMenu = -1
-                ContextualMenuYRef = y
-                ContextualMenuLineRef = i
-                ContextualMenu.printY = printY
-                ContextualMenu.FilteredList$ = FilteredList$
-                ContextualMenu.W = _PRINTWIDTH(" Set next statement ") + 6
-                ContextualMenu.H = _FONTHEIGHT * 4.5
-                ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
-                ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
-            END IF
-        END IF
+
+        SELECT CASE e1$
+            CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
+                GOSUB TurnOnNonexecutableMessage
+            CASE "END"
+                IF e2$ = "DECLARE" OR e2$ = "FUNCTION" OR e2$ = "SUB" THEN
+                    GOSUB TurnOnNonexecutableMessage
+                END IF
+            CASE ELSE
+                IF LEN(temp.SourceLine$) = 0 THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSE
+                    IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+                        'Set contextual menu coordinates relative to this item
+                        ShowContextualMenu = -1
+                        ContextualMenuYRef = y
+                        ContextualMenuLineRef = i
+                        ContextualMenu.printY = printY
+                        ContextualMenu.FilteredList$ = FilteredList$
+                        ContextualMenu.W = _PRINTWIDTH(" Set next statement ") + 6
+                        ContextualMenu.H = _FONTHEIGHT * 4.5
+                        ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
+                        ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
+                    END IF
+                END IF
+        END SELECT
     END IF
     RETURN
 
@@ -2134,7 +2097,7 @@ SUB VARIABLE_VIEW
             Element = Element + 1
             a$ = GETELEMENT$(SourceLine, Element)
             IF a$ = "" THEN EXIT DO
-            IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+            IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
                 LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
             END IF
         LOOP
@@ -3045,28 +3008,28 @@ SUB PROCESSFILE
 
             'BREAKPOINTS: Handle exceptions - cases in which a call to vwatch64_CHECKBREAKPOINT is
             'not necessary (comments, CONST, etc...) or not allowed (CASE, TYPE, etc...):
+            e1$ = GETELEMENT$(SourceLine, 1)
+            e2$ = GETELEMENT$(SourceLine, 2)
             IF DefiningType = 0 AND InBetweenSubs = 0 AND DeclaringLibrary = 0 THEN
                 IF LEN(SourceLine) = 0 THEN
                 ELSEIF LEFT$(SourceLine, 1) = "$" THEN
-                ELSEIF LEFT$(SourceLine, 4) = "DIM " THEN
-                ELSEIF LEFT$(SourceLine, 4) = "SUB " THEN
-                ELSEIF LEFT$(SourceLine, 5) = "DATA " THEN
-                ELSEIF LEFT$(SourceLine, 5) = "CASE " THEN
-                ELSEIF LEFT$(SourceLine, 5) = "TYPE " THEN
-                ELSEIF LEFT$(SourceLine, 6) = "REDIM " THEN
-                ELSEIF LEFT$(SourceLine, 6) = "CONST " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "STATIC " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "DEFINT " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "DEFLNG " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "DEFSTR " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "DEFSNG " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "DEFDBL " THEN
-                ELSEIF LEFT$(SourceLine, 7) = "END SUB" THEN
-                ELSEIF LEFT$(SourceLine, 8) = "DECLARE " THEN
-                ELSEIF LEFT$(SourceLine, 8) = "_DEFINE " THEN
-                ELSEIF LEFT$(SourceLine, 9) = "FUNCTION " THEN
-                ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
-                ELSEIF LEFT$(SourceLine, 12) = "END FUNCTION" THEN
+                ELSEIF e1$ = "DIM" THEN
+                ELSEIF e1$ = "SUB" THEN
+                ELSEIF e1$ = "DATA" THEN
+                ELSEIF e1$ = "CASE" THEN
+                ELSEIF e1$ = "TYPE" THEN
+                ELSEIF e1$ = "REDIM" THEN
+                ELSEIF e1$ = "CONST" THEN
+                ELSEIF e1$ = "STATIC" THEN
+                ELSEIF e1$ = "DEFINT" THEN
+                ELSEIF e1$ = "DEFLNG" THEN
+                ELSEIF e1$ = "DEFSTR" THEN
+                ELSEIF e1$ = "DEFSNG" THEN
+                ELSEIF e1$ = "DEFDBL" THEN
+                ELSEIF e1$ = "DECLARE" THEN
+                ELSEIF e1$ = "_DEFINE" THEN
+                ELSEIF e1$ = "FUNCTION" THEN
+                ELSEIF e1$ = "END" AND (e2$ = "DECLARE" OR e2$ = "FUNCTION" OR e2$ = "SUB") THEN
                 ELSE
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         IF FirstExecutableLine THEN FirstExecutableLine = 0
