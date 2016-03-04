@@ -2831,6 +2831,7 @@ SUB PROCESSFILE
     DIM OutputFile AS INTEGER
     DIM PrecompilerBlock AS _BIT
     DIM ProcessLine AS LONG
+    DIM ProcessStepDescription AS STRING
     DIM SourceLine AS STRING
     DIM StatusMessage AS STRING
     DIM ThisKeyword AS STRING
@@ -2937,9 +2938,7 @@ SUB PROCESSFILE
     _AUTODISPLAY
     COLOR _RGB32(0, 0, 0), _RGB32(230, 230, 230)
     CLS
-    StatusMessage = ""
-    GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
-    StatusMessage = "Checking $INCLUDE files...": GOSUB AddVerboseOutputLine
+    ProcessStepDescription = "Checking $INCLUDE files...": VerboseMaxProgress = 100: VerboseProgress = 0: GOSUB AddVerboseOutputLine
     MergeResult = OpenInclude(FILENAME$, SOURCECODE(), TotalSourceLines)
     IF MergeResult = MISSINGFILE THEN
         Message$ = ""
@@ -2949,19 +2948,26 @@ SUB PROCESSFILE
         MESSAGEBOX_RESULT = MESSAGEBOX("Processing failed", Message$, MKI$(OK_ONLY), 1, 0)
         EXIT SUB
     ELSEIF MergeResult = MERGESUCCESSFUL THEN
-        StatusMessage = "Source file has $INCLUDE files; merge successful.": GOSUB AddVerboseOutputLine
+        ProcessStepDescription = "Source file has $INCLUDE files; merge successful.": VerboseMaxProgress = 100: VerboseProgress = 100: GOSUB AddVerboseOutputLine
     END IF
 
     'Calculate checksum:
-    PRINT "Calculating checksum...";: row = CSRLIN: col = POS(1)
+    ProcessStepDescription = "Loading file and all $INCLUDE modules..."
+    VerboseMaxProgress = TotalSourceLines
     SOURCEFILE = ""
+    UpdateStep = TotalSourceLines / 5
     FOR i = 1 TO TotalSourceLines
         SOURCEFILE = SOURCEFILE + SOURCECODE(i)
-        LOCATE row, col
-        PRINT USING "###"; (i / TotalSourceLines) * 100;: PRINT "%"
+        k$ = INKEY$
+        IF k$ = CHR$(27) THEN GOTO ProcessingCanceled
+        IF i > UpdateStep THEN
+            UpdateStep = UpdateStep + (TotalSourceLines / 5)
+            VerboseProgress = i
+            StatusMessage = TRIM$(STR$(i)) + "/" + TRIM$(STR$(TotalSourceLines))
+            GOSUB AddVerboseOutputLine
+        END IF
     NEXT i
-    PRINT
-    CHECKSUM = ADLER32(SOURCEFILE)
+    CHECKSUM = ADLER32(SOURCEFILE, -1)
 
     MainModule = -1
     FirstExecutableLine = -1
@@ -2970,15 +2976,17 @@ SUB PROCESSFILE
     TotalOutputLines = 0
     ProcessLine = 0
     ThisLineHasBPControl = 0
+    UpdateStep = TotalSourceLines / 10
     'Look for variables inside the main module and store information in VARIABLES()
     'and LOCALVARIABLES. If SYSTEM is found, inject cleanup procedures (also when main module ends):
     TOTALVARIABLES = 0
-    StatusMessage = "Parsing .BAS and injecting breakpoint control code...": GOSUB AddVerboseOutputLine
+    ProcessStepDescription = "Parsing .BAS and injecting breakpoint control code..."
     MULTILINE_DIM = 0
     MULTILINE = 0
     DO
         k$ = INKEY$
         IF k$ = CHR$(27) THEN
+            ProcessingCanceled:
             Message$ = ""
             Message$ = Message$ + "Processing canceled."
             PCOPY 0, 1
@@ -2988,6 +2996,13 @@ SUB PROCESSFILE
         IF LEN(caseBkpNextVar$) = 0 THEN 'Read next line unless we're in the middle of processing a line
             ProcessLine = ProcessLine + 1
             IF ProcessLine > TotalSourceLines THEN EXIT DO
+
+            IF ProcessLine > UpdateStep THEN
+                UpdateStep = UpdateStep + (TotalSourceLines / 10)
+                VerboseProgress = ProcessLine
+                StatusMessage = TRIM$(STR$(ProcessLine)) + "/" + TRIM$(STR$(TotalSourceLines))
+                GOSUB AddVerboseOutputLine
+            END IF
             bkpSourceLine$ = SOURCECODE(ProcessLine) 'Read the next source line
             caseBkpSourceLine = TRIM$(STRIPCOMMENTS(bkpSourceLine$)) 'Generate a version without comments or extra spaces
             SourceLine = UCASE$(caseBkpSourceLine) 'Generate an all upper case version
@@ -3064,8 +3079,6 @@ SUB PROCESSFILE
                     UDT(TotalUDTs).UDT = KeywordList(TotalKeywords)
                     UDT(TotalUDTs).ELEMENT = LEFT$(caseBkpSourceLine, INSTR(UCASE$(SourceLine), " AS "))
                     UDT(TotalUDTs).DATATYPE = RIGHT$(caseBkpSourceLine, LEN(SourceLine) - INSTR(SourceLine, " AS ") - 3)
-                    StatusMessage = "Found UDT: " + TRIM$(UDT(TotalUDTs).UDT) + "." + TRIM$(UDT(TotalUDTs).ELEMENT) + " AS " + TRIM$(UDT(TotalUDTs).DATATYPE)
-                    GOSUB AddVerboseOutputLine
                 END IF
             END IF
         END IF
@@ -3128,9 +3141,6 @@ SUB PROCESSFILE
                     LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
                     LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
                 END IF
-
-                StatusMessage = STR$(TOTALVARIABLES) + IIFSTR$(LocalVariable, " LOCAL  ", " SHARED ") + VARIABLES(TOTALVARIABLES).DATATYPE + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                GOSUB AddVerboseOutputLine
             ELSE
                 FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
 
@@ -3171,16 +3181,6 @@ SUB PROCESSFILE
                         LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
                         LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
                     END IF
-
-                    StatusMessage = STR$(TOTALVARIABLES)
-                    IF MainModule THEN
-                        StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
-                    ELSE
-                        StatusMessage = StatusMessage + " " + CurrentSubFunc$ + " "
-                    END IF
-                    StatusMessage = StatusMessage + VARIABLES(TOTALVARIABLES).DATATYPE
-                    StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                    GOSUB AddVerboseOutputLine
                 ELSE
                     'Variable is defined as a user defined type.
                     IsArray = 0
@@ -3209,16 +3209,6 @@ SUB PROCESSFILE
                                             LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
                                             LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
                                         END IF
-
-                                        StatusMessage = STR$(TOTALVARIABLES)
-                                        IF MainModule THEN
-                                            StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
-                                        ELSE
-                                            StatusMessage = StatusMessage + " " + CurrentSubFunc$ + " "
-                                        END IF
-                                        StatusMessage = StatusMessage + UDT(i).DATATYPE
-                                        StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                                        GOSUB AddVerboseOutputLine
                                     END IF
                                 NEXT i
                             NEXT ItemsinArray
@@ -3244,16 +3234,6 @@ SUB PROCESSFILE
                                     LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
                                     LOCALVARIABLES(TotalLocalVariables).DATATYPE = VARIABLES(TOTALVARIABLES).DATATYPE
                                 END IF
-
-                                StatusMessage = STR$(TOTALVARIABLES)
-                                IF MainModule THEN
-                                    StatusMessage = StatusMessage + IIFSTR$(LocalVariable, " MAIN MODULE ", " SHARED ")
-                                ELSE
-                                    StatusMessage = StatusMessage + " " + CurrentSubFunc$ + " "
-                                END IF
-                                StatusMessage = StatusMessage + UDT(i).DATATYPE
-                                StatusMessage = StatusMessage + TRIM$(VARIABLES(TOTALVARIABLES).NAME)
-                                GOSUB AddVerboseOutputLine
                             END IF
                         NEXT i
                     END IF
@@ -3417,16 +3397,23 @@ SUB PROCESSFILE
 
     'After all source was processed, we'll parse it once again looking for
     'temporary variables - those not initialized/defined with DIM/STATIC.
-    StatusMessage = "Parsing source for non-initialized variables..."
-    GOSUB AddVerboseOutputLine
+    ProcessStepDescription = "Parsing source for non-initialized variables..."
 
     CurrSF = 0
     ProcessLine = 0
     SET_DEF "A-Z", "SINGLE"
+    UpdateStep = TotalSourceLines / 10
     DO
         SEP$ = "<> "
         ProcessLine = ProcessLine + 1
         IF ProcessLine > TotalSourceLines THEN EXIT DO
+        k$ = INKEY$: IF k$ = CHR$(27) THEN GOTO ProcessingCanceled
+        IF ProcessLine > UpdateStep THEN
+            UpdateStep = UpdateStep + (TotalSourceLines / 10)
+            VerboseProgress = ProcessLine
+            StatusMessage = TRIM$(STR$(ProcessLine)) + "/" + TRIM$(STR$(TotalSourceLines))
+            GOSUB AddVerboseOutputLine
+        END IF
 
         IF CurrSF < TotalSubFunc THEN
             IF ProcessLine >= SUBFUNC(CurrSF + 1).LINE THEN CurrSF = CurrSF + 1
@@ -3561,20 +3548,7 @@ SUB PROCESSFILE
         LOOP UNTIL StartPos = 0
     LOOP
 
-    StatusMessage = "Processing finished."
-    GOSUB AddVerboseOutputLine
-
-    IF TOTALVARIABLES = 0 THEN
-        GOSUB AddVerboseOutputLine: GOSUB AddVerboseOutputLine
-        StatusMessage = "No variables in the .BAS source."
-        COLOR _RGB32(255, 0, 0)
-        GOSUB AddVerboseOutputLine
-
-        StatusMessage = "(watchable variables are those initialized using DIM)"
-        GOSUB AddVerboseOutputLine
-        COLOR _RGB32(0, 0, 0)
-        GOSUB AddVerboseOutputLine
-    ELSE
+    IF TOTALVARIABLES > 0 THEN
         Message$ = "Total watchable variables found:" + STR$(TOTALVARIABLES)
         IF TOTALVARIABLES > 50 THEN
             Message$ = Message$ + CHR$(LF) + "(watching too many variables will considerably slow your program down)"
@@ -3596,16 +3570,7 @@ SUB PROCESSFILE
             LOCATE bkpy%, bkpx%
             IF AddedList$ = CHR$(3) THEN
                 'Processing was canceled by user.
-                GOSUB AddVerboseOutputLine
-                COLOR _RGB32(255, 0, 0)
-                StatusMessage = "Processing canceled."
-                GOSUB AddVerboseOutputLine
-                COLOR _RGB32(0, 0, 0)
-                GOSUB AddVerboseOutputLine
                 EXIT SUB
-            ELSE
-                StatusMessage = IIFSTR$(TOTALVARIABLES = TotalSelected, "All", STR$(TotalSelected)) + " variable" + IIFSTR$(TotalSelected > 1, "s", "") + " selected."
-                GOSUB AddVerboseOutputLine
             END IF
         ELSE
             AddedList$ = STRING$(TOTALVARIABLES, 1)
@@ -3627,7 +3592,9 @@ SUB PROCESSFILE
     OutputFile = FREEFILE
     OPEN NEWFILENAME$ FOR OUTPUT AS #OutputFile
 
-    StatusMessage = "Generating " + NEWFILENAME$ + "..."
+    ProcessStepDescription = "Generating " + NOPATH$(NEWFILENAME$) + "..."
+    VerboseMaxProgress = 100
+    VerboseProgress = 0
     GOSUB AddVerboseOutputLine
     'Creates the output .vwatch.bas:
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
@@ -3744,6 +3711,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     PRINT #OutputFile, "vwatch64_CONNECTTOHOST"
     IF TotalSelected > 0 THEN
+        PRINT #OutputFile, ""
         PRINT #OutputFile, "'Initialize the data export timer:"
         PRINT #OutputFile, "vwatch64_TIMER = _FREETIMER"
         PRINT #OutputFile, "ON TIMER(vwatch64_TIMER, .1) vwatch64_VARIABLEWATCH"
@@ -3755,6 +3723,13 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     PRINT #OutputFile, ""
 
+    VerboseProgress = 100
+    GOSUB AddVerboseOutputLine
+
+    ProcessStepDescription = "Dumping processed source code to disk..."
+    StatusMessage = ""
+    VerboseMaxProgress = TotalOutputLines
+    UpdateStep = TotalOutputLines / 10
     'Dump the processed source into the output file.
     'Add end of SUB/FUNCTION variable watch.
     FOR i = 1 TO TotalOutputLines
@@ -3769,7 +3744,17 @@ SUB PROCESSFILE
             END IF
         NEXT j
         PRINT #OutputFile, OutputLines(i)
+        IF i > UpdateStep THEN
+            UpdateStep = UpdateStep + (TotalOutputLines / 10)
+            VerboseProgress = i
+            GOSUB AddVerboseOutputLine
+        END IF
     NEXT i
+
+    ProcessStepDescription = "Adding vWATCH64's custom procedures..."
+    VerboseMaxProgress = 100
+    VerboseProgress = 0
+    GOSUB AddVerboseOutputLine
 
     'Add vWATCH64's procedures:
     PRINT #OutputFile, ""
@@ -4075,9 +4060,12 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    'On the first time this procedure is called, execution is halted,"
     PRINT #OutputFile, "    'until the user presses F5 or F8 in vWATCH64"
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
+    PRINT #OutputFile, "        Message1$ = " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
+    PRINT #OutputFile, "        Message2$ = " + Q$ + "(ESC to quit)" + Q$
     PRINT #OutputFile, "        IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
-    PRINT #OutputFile, "            _TITLE " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
-    PRINT #OutputFile, "            _PRINTSTRING(_WIDTH \ 2 - LEN(" + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$ + ") \ 2, _HEIGHT \ 2), " + Q$ + "Hit F8 to run line by line or switch to vWATCH64 and hit F5 to run;" + Q$
+    PRINT #OutputFile, "            _TITLE Message1$"
+    PRINT #OutputFile, "            _PRINTSTRING(_WIDTH \ 2 - LEN(Message1$) \ 2, _HEIGHT \ 2), Message1$"
+    PRINT #OutputFile, "            _PRINTSTRING(_WIDTH \ 2 - LEN(Message2$) \ 2, _HEIGHT \ 2 + 1), Message2$"
     PRINT #OutputFile, "        ELSE"
     PRINT #OutputFile, "            _CONSOLETITLE " + Q$ + "Switch to vWATCH64 and hit F5 to run or F8 to run line by line;" + Q$
     PRINT #OutputFile, "        END IF"
@@ -4100,6 +4088,10 @@ SUB PROCESSFILE
     PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            k = _KEYHIT"
     PRINT #OutputFile, "            IF k = 16896 THEN vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP 'F8"
+    PRINT #OutputFile, "            IF k = -27 THEN 'ESC"
+    PRINT #OutputFile, "                CLOSE #vwatch64_CLIENTFILE"
+    PRINT #OutputFile, "                SYSTEM"
+    PRINT #OutputFile, "            END IF"
     PRINT #OutputFile, "            _KEYCLEAR"
     PRINT #OutputFile, "            GOSUB vwatch64_PING"
     PRINT #OutputFile, "        LOOP UNTIL vwatch64_BREAKPOINT.ACTION = vwatch64_CONTINUE OR vwatch64_BREAKPOINT.ACTION = vwatch64_NEXTSTEP OR vwatch64_BREAKPOINT.ACTION = vwatch64_SETVAR OR vwatch64_BREAKPOINT.ACTION = vwatch64_SKIPSUB"
@@ -4261,7 +4253,9 @@ SUB PROCESSFILE
     PRINT #OutputFile, "'End of vWATCH64 procedures."
     PRINT #OutputFile, "'--------------------------------------------------------------------------------"
     CLOSE OutputFile
-    StatusMessage = "Output file generated."
+    ProcessStepDescription = "Output file generated."
+    VerboseMaxProgress = 100
+    VerboseProgress = 100
     GOSUB AddVerboseOutputLine
 
     $IF WIN THEN
@@ -4274,23 +4268,32 @@ SUB PROCESSFILE
     Compiler$ = "qb64" + ExecutableExtension$
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
-        PRINT "Attempting to compile...";
+        ProcessStepDescription = "Attempting to compile..."
+        StatusMessage = Compiler$ + " -x " + Q$ + NOPATH$(NEWFILENAME$) + Q$
+        VerboseMaxProgress = 100
+        VerboseProgress = 0
+        GOSUB AddVerboseOutputLine
         AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -x " + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
-            PRINT "failed (error code: "; TRIM$(STR$(AttemptCompile%)); ")"
-            PRINT "File has been output, you will have to compile it yourself."
-            PRINT "Press any key to go back..."
-            SLEEP
+            Message$ = ""
+            Message$ = Message$ + "Compilation failed (error code: " + TRIM$(STR$(AttemptCompile%)) + ")." + CHR$(LF)
+            Message$ = Message$ + "The file has been output, you will have to compile it yourself."
+            PCOPY 0, 1
+            MESSAGEBOX_RESULT = MESSAGEBOX("Compilation failed", Message$, MKI$(OK_ONLY), 1, 0)
             EXIT SUB
         ELSE
-            PRINT "done."
+            ProcessStepDescription = "Compilation successful. Launching..."
+            VerboseMaxProgress = 100
+            VerboseProgress = 0
+            GOSUB AddVerboseOutputLine
             IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$) THEN
                 SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
             ELSE
-                PRINT "Could not run "; LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
-                PRINT "You will have to compile/run it yourself."
-                PRINT "Press any key to go back..."
-                SLEEP
+                Message$ = ""
+                Message$ = Message$ + "Could not run " + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
+                Message$ = Message$ + "The file has been output, you will have to compile/run it yourself."
+                PCOPY 0, 1
+                MESSAGEBOX_RESULT = MESSAGEBOX("Error", Message$, MKI$(OK_ONLY), 1, 0)
                 EXIT SUB
             END IF
         END IF
@@ -4459,10 +4462,16 @@ SUB PROCESSFILE
     RETURN
 
     AddVerboseOutputLine:
-    'TotalVerboseOutputLines = TotalVerboseOutputLines + 1
-    'REDIM _PRESERVE VerboseOutput(1 TO TotalVerboseOutputLines) AS STRING
-    'VerboseOutput(TotalVerboseOutputLines) = StatusMessage
-    PRINT StatusMessage
+    IF PrevStepDescription$ <> ProcessStepDescription THEN
+        PrevStepDescription$ = ProcessStepDescription
+        IF PrevMessage$ = StatusMessage THEN
+            StatusMessage = ""
+        END IF
+    END IF
+    Message$ = ""
+    Message$ = Message$ + ProcessStepDescription + CHR$(LF)
+    Message$ = Message$ + StatusMessage
+    PROGRESSBOX "Processing...", Message$, VerboseMaxProgress, VerboseProgress
     RETURN
 END SUB
 
@@ -4829,7 +4838,7 @@ SUB SETUP_CONNECTION
             SOURCEFILE = SOURCEFILE + SOURCECODE(i)
         NEXT i
 
-        IF CLIENT.CHECKSUM <> ADLER32(SOURCEFILE) THEN
+        IF CLIENT.CHECKSUM <> ADLER32(SOURCEFILE, 0) THEN
             IF CLIENT.TOTALVARIABLES > 0 THEN
                 SOURCEFILE = ""
                 Message$ = ""
@@ -5419,7 +5428,7 @@ SUB RESTORE_LIBRARY
 END SUB
 
 '------------------------------------------------------------------------------
-FUNCTION ADLER32$ (DataArray$)
+FUNCTION ADLER32$ (DataArray$, ShowProgress AS _BYTE)
     'This function comes from Videogamer555. Read the original topic below:
     'http://www.qb64.net/forum/index.php?topic=2804.msg24245#msg24245
     DIM A32$
@@ -5428,7 +5437,17 @@ FUNCTION ADLER32$ (DataArray$)
     A = 1
     B = 0
 
+    UpdateStep = LEN(DataArray$) / 10
     FOR i = 1 TO LEN(DataArray$)
+        IF ShowProgress AND i > UpdateStep THEN
+            UpdateStep = UpdateStep + (LEN(DataArray$) / 10)
+            StatusMessage$ = TRIM$(STR$(i)) + "/" + TRIM$(STR$(LEN(DataArray$)))
+            Message$ = ""
+            Message$ = Message$ + "Calculating checksum..." + CHR$(LF)
+            Message$ = Message$ + StatusMessage$
+            PROGRESSBOX "Processing...", Message$, LEN(DataArray$), i
+            IF _KEYHIT = -27 THEN EXIT SUB
+        END IF
         A = (A + ASC(MID$(DataArray$, i, 1))) MOD 65521
         B = (B + A) MOD 65521
     NEXT i
@@ -5797,7 +5816,6 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageSetup AS STRING, DefaultButton A
         LINE (DialogX, DialogY)-STEP(DialogW, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Title$) / 2, DialogY + 1), Title$
 
-        DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         FOR i = 1 TO totalLines
             Message.X = _WIDTH / 2 - _PRINTWIDTH(MessageLines(i)) / 2
@@ -5912,6 +5930,67 @@ FUNCTION MESSAGEBOX (tTitle$, tMessage$, MessageSetup AS STRING, DefaultButton A
 END FUNCTION
 
 '------------------------------------------------------------------------------
+SUB PROGRESSBOX (tTitle$, tMessage$, MaxValue, Value)
+    Message$ = tMessage$
+    Title$ = TRIM$(tTitle$)
+    IF Title$ = "" THEN Title$ = ID
+
+    CharW = _PRINTWIDTH("_")
+    REDIM MessageLines(1) AS STRING
+    PCOPY 1, 0
+    LINE (0, 0)-STEP(SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1), _RGBA32(170, 170, 170, 170), BF
+    MaxLen = 1
+    DO
+        lineBreak = INSTR(lineBreak + 1, Message$, CHR$(LF))
+        IF lineBreak = 0 AND totalLines = 0 THEN
+            totalLines = 1
+            MessageLines(1) = Message$
+            MaxLen = LEN(Message$)
+            EXIT DO
+        ELSEIF lineBreak = 0 AND totalLines > 0 THEN
+            totalLines = totalLines + 1
+            REDIM _PRESERVE MessageLines(1 TO totalLines) AS STRING
+            MessageLines(totalLines) = RIGHT$(Message$, LEN(Message$) - prevlinebreak + 1)
+            IF LEN(MessageLines(totalLines)) > MaxLen THEN MaxLen = LEN(MessageLines(totalLines))
+            EXIT DO
+        END IF
+        IF totalLines = 0 THEN prevlinebreak = 1
+        totalLines = totalLines + 1
+        REDIM _PRESERVE MessageLines(1 TO totalLines) AS STRING
+        MessageLines(totalLines) = MID$(Message$, prevlinebreak, lineBreak - prevlinebreak)
+        IF LEN(MessageLines(totalLines)) > MaxLen THEN MaxLen = LEN(MessageLines(totalLines))
+        prevlinebreak = lineBreak + 1
+    LOOP
+
+    ProgressBarLength = 62
+    ThisStepLength = 62 * (Value / MaxValue)
+
+    DialogH = _FONTHEIGHT * (5 + totalLines) + 10
+    DialogW = (CharW * ProgressBarLength) + 10
+    IF DialogW < MaxLen * CharW + 10 THEN DialogW = MaxLen * CharW + 10
+
+    DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
+    DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
+    ProgressBar.X = (DialogX + (DialogW / 2)) - (((ProgressBarLength * CharW) - 10) / 2) - 4
+
+    LINE (DialogX, DialogY)-STEP(DialogW - 1, DialogH - 1), _RGB32(255, 255, 255), BF
+    LINE (DialogX, DialogY)-STEP(DialogW - 1, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Title$) / 2, DialogY + 1), Title$
+
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+    FOR i = 1 TO totalLines
+        Message.X = _WIDTH / 2 - _PRINTWIDTH(MessageLines(i)) / 2
+        _PRINTSTRING (Message.X, DialogY + 5 + _FONTHEIGHT * (i + 1)), MessageLines(i)
+    NEXT i
+
+    'Progress bar
+    LINE (ProgressBar.X - 2, DialogY + 3 + _FONTHEIGHT * (3 + totalLines))-STEP(ProgressBarLength * CharW, _FONTHEIGHT + 4), _RGB32(200, 200, 200), BF
+    LINE (ProgressBar.X - 2, DialogY + 3 + _FONTHEIGHT * (3 + totalLines))-STEP(ThisStepLength * CharW, _FONTHEIGHT + 4), _RGB32(0, 178, 179), BF
+
+    _DISPLAY
+END SUB
+
+'------------------------------------------------------------------------------
 FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRING, Selected, SendPing AS _BYTE)
     'Show a dialog and allow user input. Returns 1 = OK or 2 = Cancel.
     'ReturnValue is always a string: caller procedure must convert it.
@@ -5959,7 +6038,7 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
 
     DialogX = _WIDTH(MAINSCREEN) / 2 - DialogW / 2
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
-    InputField.X = (DialogX + (DialogW / 2)) - (((FieldArea * CharW) - 10) / 2)
+    InputField.X = (DialogX + (DialogW / 2)) - (((FieldArea * CharW) - 10) / 2) - 4
 
     TotalButtons = 2
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -5984,7 +6063,6 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
         LINE (DialogX, DialogY)-STEP(DialogW - 1, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Title$) / 2, DialogY + 1), Title$
 
-        DialogX = (_WIDTH(MAINSCREEN) / 2 - DialogW / 2) + 5
         COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
         FOR i = 1 TO totalLines
             Message.X = _WIDTH / 2 - _PRINTWIDTH(MessageLines(i)) / 2
