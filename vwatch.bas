@@ -3143,6 +3143,7 @@ SUB PROCESSFILE
                 END IF
             ELSE
                 FoundType = RIGHT$(NextVar$, LEN(NextVar$) - INSTR(NextVar$, " AS ") - 3)
+                IF INSTR(FoundType, "STRING") > 0 THEN FoundType = "STRING"
 
                 IF CHECKLIST(FoundType, KeywordList(), INTERNALKEYWORDS) THEN
                     'Variable is defined as an internal DATA TYPE.
