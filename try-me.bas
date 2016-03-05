@@ -3,6 +3,10 @@
 'to trace its execution, run it line by line and also monitor
 'the values of the variables below in real time.
 '
+DECLARE LIBRARY
+    FUNCTION getpid ()
+END DECLARE
+
 _DEFINE A-Z AS LONG
 $IF WIN THEN
     CONST PathSep$ = "\"
@@ -12,8 +16,9 @@ $END IF
 CONST True = -1: CONST False = NOT True
 
 DIM yname AS STRING
-DIM SHARED a AS STRING, fe(0 TO 5) AS STRING
+DIM SHARED a AS STRING, fe(0 TO 5) AS STRING * 10
 
+my_pid = getpid
 CLS
 RANDOMIZE TIMER
 DO: _LIMIT 60
@@ -26,6 +31,10 @@ DO: _LIMIT 60
         used$6 = a
         PRINT a;
         PRINT PathSep$; 'But why? :)
+        x = CSRLIN: y = POS(1)
+        LOCATE 1, 70
+        PRINT my_pid
+        LOCATE x, y
         i = _CEIL(RND * 100000)
         k$ = INKEY$
         fe(temp) = a
