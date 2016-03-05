@@ -32,7 +32,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".961b"
+CONST VERSION = ".962b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -3895,7 +3895,11 @@ SUB PROCESSFILE
     PRINT #OutputFile, "        GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "        k = _KEYHIT"
     PRINT #OutputFile, "        IF k = -27 THEN SYSTEM"
-    PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1"
+    PRINT #OutputFile, "     LOOP UNTIL vwatch64_HEADER.RESPONSE = -1 OR vwatch64_HEADER.CONNECTED = 0"
+    PRINT #OutputFile, ""
+    PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
+    PRINT #OutputFile, "        SYSTEM"
+    PRINT #OutputFile, "    END IF"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    CLS"
     PRINT #OutputFile, "    IF NOT _SCREENHIDE AND _DEST <> _CONSOLE THEN"
@@ -4164,7 +4168,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_HEADERBLOCK, vwatch64_HEADER"
     PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN"
     PRINT #OutputFile, "        CLOSE vwatch64_CLIENTFILE"
-    PRINT #OutputFile, "        IF FirstRunDone = 0 THEN FirstRunDone = -1: _TITLE " + Q$ + "Untitled" + Q$
+    PRINT #OutputFile, "        IF FirstRunDone = 0 THEN FirstRunDone = -1: CLS: _TITLE " + Q$ + "Untitled" + Q$
     PRINT #OutputFile, "        VWATCH64_STARTTIMERS"
     PRINT #OutputFile, "        EXIT FUNCTION"
     PRINT #OutputFile, "    END IF"
@@ -4777,6 +4781,8 @@ SUB SETUP_CONNECTION
         Message$ = Message$ + "Attempted connection by client with ID " + CHR$(34) + HEADER.CLIENT_ID + CHR$(34) + CHR$(LF)
         Message$ = Message$ + "Reported version: " + HEADER.VERSION
         MESSAGEBOX_RESULT = MESSAGEBOX("Client not compatible", Message$, MKI$(OK_ONLY), 1, 0)
+        HEADER.CONNECTED = 0
+        PUT #FILE, HEADERBLOCK, HEADER
         GOTO StartSetup
     END IF
 
