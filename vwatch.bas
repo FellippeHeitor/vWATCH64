@@ -326,7 +326,7 @@ DataTypeKeywordDATA:
 DATA _BIT,_UNSIGNED _BIT,_BYTE,_UNSIGNED _BYTE,INTEGER
 DATA _UNSIGNED INTEGER,LONG,_UNSIGNED LONG,_INTEGER64
 DATA _UNSIGNED _INTEGER64,SINGLE,DOUBLE,_FLOAT,STRING
-DATA -=END=-
+DATA **END**
 
 QB64KeywordsDATA:
 DATA $IF,$ELSE,$END
@@ -376,7 +376,7 @@ DATA SQR,STATIC,$STATIC,STEP,STICK,STOP,STR$,STRIG,STRING
 DATA STRING$,SUB,SWAP,SYSTEM,TAB,TAN,THEN,TIME$,TIMER,TO
 DATA TROFF,TRON,TYPE,UBOUND,UCASE$,UEVENT,UNLOCK,UNTIL,VAL
 DATA VARPTR,VARPTR$,VARSEG,VIEW,WAIT,WEND,WHILE,WIDTH,WINDOW
-DATA WRITE,XOR,_CEIL,-=END=-
+DATA WRITE,XOR,_CEIL,**END**
 
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
@@ -2867,7 +2867,7 @@ SUB PROCESSFILE
     'Populate KeywordList() with DATA TYPES:
     DO
         READ ThisKeyword
-        IF ThisKeyword = "-=END=-" THEN
+        IF ThisKeyword = "**END**" THEN
             INTERNALKEYWORDS = TotalKeywords
             EXIT DO
         END IF
@@ -3491,6 +3491,13 @@ SUB PROCESSFILE
 
                 'NextVar$ can't be an internal keyword
                 IF IS_KEYWORD(NextVar$) THEN GOTO NoValidVarFound
+
+                'NextVar$ can't be a FUNCTION name:
+                IF NOT MainModule THEN
+                    IF GETELEMENT$(SUBFUNC(CurrSF).NAME, 1) = "FUNCTION" THEN
+                        IF NextVar$ = UCASE$(GETELEMENT$(SUBFUNC(CurrSF).NAME, 2)) THEN GOTO NoValidVarFound
+                    END IF
+                END IF
 
                 'Check if this is actually a CONST:
                 'CONST TRUE = -1: CONST FALSE = NOT TRUE
@@ -6413,7 +6420,7 @@ SUB READ_KEYWORDS
     'Populate QB64KEYWORDS():
     DO
         READ ThisKeyword$
-        IF ThisKeyword$ = "-=END=-" THEN
+        IF ThisKeyword$ = "**END**" THEN
             EXIT DO
         END IF
         TotalKeywords = TotalKeywords + 1
