@@ -2770,9 +2770,18 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
                 Lines& = Lines& + 1
                 GOSUB AddStringToArray
                 readx$ = TRIM$(readx$)
-                IF UCASE$(LEFT$(readx$, 10)) = "'$INCLUDE:" OR UCASE$(LEFT$(readx$, 13)) = "REM $INCLUDE:" THEN
+                CommentStart = LEN(STRIPCOMMENTS$(readx$))
+                IF CommentStart = 0 THEN CommentStart = 1
+                insinc% = INSTR(CommentStart, UCASE$(readx$), "$INCLUDE:")
+                IF insinc% > 0 THEN
+                    IF MID$(readx$, CommentStart, 1) = "'" THEN
+                        CommentStart = CommentStart + 1
+                    ELSEIF MID$(UCASE$(readx$), CommentStart, 4) = "REM " THEN
+                        CommentStart = CommentStart + 3
+                    END IF
+                    TextBeforeMetaCommand$ = MID$(readx$, CommentStart, insinc% - CommentStart)
+                    IF LEN(TRIM$(TextBeforeMetaCommand$)) > 0 THEN GOTO InvalidInclude
                     FoundInclude = -1
-                    insinc% = INSTR(UCASE$(readx$), "$INCLUDE:")
                     insc1% = INSTR(insinc%, readx$, "'")
                     insc2% = INSTR(insc1% + 1, readx$, "'")
                     IncludedFile$ = MID$(readx$, insc1% + 1, insc2% - insc1% - 1)
@@ -2793,6 +2802,7 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
                     InclResult = OpenInclude(IncludedFile$, CodeText(), Lines&)
                     IF InclResult = MISSINGFILE THEN f$ = IncludedFile$: OpenInclude = MISSINGFILE: EXIT FUNCTION
                 END IF
+                InvalidInclude:
             END IF
         LOOP
         CLOSE c%
