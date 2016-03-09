@@ -197,6 +197,7 @@ DIM SHARED DEBUGGEE_CLOSED AS _BIT
 DIM SHARED TRACE AS _BIT
 DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
 
+'Dynamic arrays:
 REDIM SHARED QB64KEYWORDS(0) AS STRING
 REDIM SHARED SOURCECODE(0) AS STRING
 REDIM SHARED SOURCECODE_COLORIZED(0) AS _BYTE
@@ -1212,10 +1213,13 @@ SUB SOURCE_VIEW
                 CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
                     GOSUB TurnOnNonexecutableMessage
                 CASE "END"
-                    IF e2$ = "DECLARE" OR e2$ = "FUNCTION" OR e2$ = "SUB" THEN
+                    IF e2$ = "DECLARE" THEN
                         GOSUB TurnOnNonexecutableMessage
+                    ELSE
+                        GOTO EndAllowed1
                     END IF
                 CASE ELSE
+                    EndAllowed1:
                     IF LEN(temp.SourceLine$) = 0 THEN
                         GOSUB TurnOnNonexecutableMessage
                     ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
@@ -1267,10 +1271,13 @@ SUB SOURCE_VIEW
             CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
                 GOSUB TurnOnNonexecutableMessage
             CASE "END"
-                IF e2$ = "DECLARE" OR e2$ = "FUNCTION" OR e2$ = "SUB" THEN
+                IF e2$ = "DECLARE" THEN
                     GOSUB TurnOnNonexecutableMessage
+                ELSE
+                    GOTO EndAllowed2
                 END IF
             CASE ELSE
+                EndAllowed2:
                 IF LEN(temp.SourceLine$) = 0 THEN
                     GOSUB TurnOnNonexecutableMessage
                 ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
@@ -3054,11 +3061,16 @@ SUB PROCESSFILE
                 ELSEIF e1$ = "DECLARE" THEN
                 ELSEIF e1$ = "_DEFINE" THEN
                 ELSEIF e1$ = "FUNCTION" THEN
-                ELSEIF e1$ = "END" AND (e2$ = "DECLARE" OR e2$ = "FUNCTION" OR e2$ = "SUB") THEN
+                ELSEIF e1$ = "END" AND (e2$ = "DECLARE") THEN
                 ELSE
+                    IF e1$ = "END" AND (e2$ = "FUNCTION" OR e2$ = "SUB") THEN
+                        SkipStatement$ = "vWATCH64_DUMMY%% = 0"
+                    ELSE
+                        SkipStatement$ = "GOTO vwatch64_SKIP_" + LTRIM$(STR$(ProcessLine))
+                    END IF
                     IF PrecompilerBlock = 0 AND CheckingOff = 0 AND MULTILINE = 0 THEN
                         IF FirstExecutableLine THEN FirstExecutableLine = 0
-                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: " + IIFSTR$(MainModule = 0, "GOSUB vwatch64_VARIABLEWATCH: ", "") + "vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + ", " + IIFSTR$(MainModule = 0, "-1", "0") + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE ELSE IF vwatch64_NEXTLINE = -2 THEN GOTO vwatch64_SKIP_" + LTRIM$(STR$(ProcessLine)) + " ELSE IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
+                        GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine)) + ":::: " + IIFSTR$(MainModule = 0, "GOSUB vwatch64_VARIABLEWATCH: ", "") + "vwatch64_NEXTLINE = vwatch64_CHECKBREAKPOINT(" + TRIM$(STR$(ProcessLine)) + ", " + IIFSTR$(MainModule = 0, "-1", "0") + "): IF vwatch64_NEXTLINE > 0 THEN GOTO vwatch64_SETNEXTLINE ELSE IF vwatch64_NEXTLINE = -2 THEN " + SkipStatement$ + " ELSE IF vwatch64_NEXTLINE = -1 THEN GOSUB vwatch64_SETVARIABLE: GOTO vwatch64_LABEL_" + LTRIM$(STR$(ProcessLine))
                         ThisLineHasBPControl = ProcessLine
                         GOSUB AddNextLineData
                     ELSE
