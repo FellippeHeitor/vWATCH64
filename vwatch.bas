@@ -2096,7 +2096,7 @@ SUB VARIABLE_VIEW
 
     ColorizeSelection:
     'Indicate that this variable is used in the current source line
-    IF VARIABLE_HIGHLIGHT THEN
+    IF VARIABLE_HIGHLIGHT = -1 THEN
         vs$ = TRIM$(VARIABLES(i).NAME)
         IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
         Element = 0
@@ -2106,6 +2106,7 @@ SUB VARIABLE_VIEW
             IF a$ = "" THEN EXIT DO
             IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
                 LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
+                EXIT DO
             END IF
         LOOP
     END IF
