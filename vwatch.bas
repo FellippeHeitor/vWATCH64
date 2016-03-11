@@ -1179,6 +1179,7 @@ SUB SOURCE_VIEW
                                 EXIT FOR
                             END IF
                         NEXT MultiLineToggle
+                        PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
                     END IF
                     Clicked = -1
                     GOSUB RunButton_Click
