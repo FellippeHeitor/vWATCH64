@@ -1238,6 +1238,7 @@ SUB SOURCE_VIEW
                     ELSE
                         IF DoubleClick THEN
                             DoubleClick = 0
+                            IF ASC(BREAKPOINTLIST, i) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                             ASC(BREAKPOINTLIST, i) = 2
                         ELSE
                             'Toggle breakpoint/skip this line:
