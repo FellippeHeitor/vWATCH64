@@ -408,7 +408,6 @@ SUB SOURCE_VIEW
     SB_ThumbY = 0
     grabbedY = -1
     ListEnd_Label = "(end of source file)"
-    ShowContextualMenu = 0
     ShowTempMessage = 0
     STEPMODE = -1
     TRACE = -1
@@ -516,8 +515,6 @@ SUB SOURCE_VIEW
         mb = _MOUSEBUTTON(1)
         mb2 = _MOUSEBUTTON(2)
     LOOP WHILE _MOUSEINPUT
-
-    IF my < SCREEN_TOPBAR AND ShowContextualMenu THEN ShowContextualMenu = 0
 
     SELECT EVERYCASE k
         CASE 32 TO 126 'Printable ASCII characters
@@ -648,9 +645,7 @@ SUB SOURCE_VIEW
             END IF
         CASE 27 'ESC clears the current search filter or exits interactive mode
             ExitButton_Click:
-            IF ShowContextualMenu THEN
-                ShowContextualMenu = 0
-            ELSEIF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
+            IF (SearchIn = CODE OR SearchIn = LINENUMBERS) AND LEN(Filter$) > 0 THEN
                 Filter$ = ""
             ELSEIF SearchIn = SETNEXT THEN
                 SearchIn = PrevSearchIn
@@ -756,7 +751,9 @@ SUB SOURCE_VIEW
             ClearButton_Click:
             IF LEN(FilteredList$) = 0 THEN
                 TOTALBREAKPOINTS = 0
-                BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+                FOR clear.BP = 1 TO CLIENT.TOTALSOURCELINES
+                    IF ASC(BREAKPOINTLIST, clear.BP) = 1 THEN ASC(BREAKPOINTLIST, clear.BP) = 0
+                NEXT clear.BP
             ELSE
                 FOR setAll = 1 TO LEN(FilteredList$) / 4
                     which_Line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
@@ -847,8 +844,6 @@ SUB SOURCE_VIEW
             IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
         END IF
 
-        IF ShowContextualMenu AND (ContextualMenu.FilteredList$ <> FilteredList$) THEN ShowContextualMenu = 0
-
         'Scroll to the next line of code that will be run
         IF TRACE AND LEN(FilteredList$) = 0 THEN
             CurrentLineY = (CLIENT.LINENUMBER - 1) * _FONTHEIGHT
@@ -860,10 +855,6 @@ SUB SOURCE_VIEW
         END IF
 
         CHECK_SCREEN_LIMITS y
-
-        IF ShowContextualMenu AND (y <> ContextualMenuYRef) THEN
-            ShowContextualMenu = 0
-        END IF
 
         CLS , _RGB32(255, 255, 255)
         'Print list items to the screen:
@@ -901,8 +892,6 @@ SUB SOURCE_VIEW
                 COLOR _RGB32(0, 0, 0)
             NEXT i
         END IF
-
-        IF ShowContextualMenu THEN GOSUB DetectClick
 
         IF LEN(Filter$) AND LEN(FilteredList$) = 0 AND SearchIn <> SETNEXT THEN 'A filter is on, but nothing was found
             _PRINTSTRING (5, 4 * _FONTHEIGHT), "Search terms not found."
@@ -1003,11 +992,7 @@ SUB SOURCE_VIEW
         Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
     NEXT cb
 
-    IF NOT ShowContextualMenu THEN
-        GOSUB CheckButtons
-    ELSE
-        _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
-    END IF
+    GOSUB CheckButtons
 
     FOR i = 1 TO LEN(ButtonLine$)
         IF (ASC(ButtonLine$, i) <> 60) AND (ASC(ButtonLine$, i) <> 62) THEN
@@ -1074,14 +1059,6 @@ SUB SOURCE_VIEW
         END IF
     END IF
 
-    'Show contextual menu
-    IF ShowContextualMenu THEN
-        DrawContextualMenu:
-        LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(200, 200, 200), BF
-        LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(0, 0, 0), B
-        IF MouseHeld THEN RETURN
-        GOSUB CheckButtons
-    END IF
     _DISPLAY
     RETURN
 
@@ -1100,10 +1077,6 @@ SUB SOURCE_VIEW
     IF ASC(BREAKPOINTLIST, i) = 2 THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(255, 255, 0, 200), BF
     END IF
-    '...and if it was right-clicked before.
-    IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
-        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 200), BF
-    END IF
     IF (ShowTempMessage AND TempMessage.printY = printY) THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 255, 0, 255 - (170 * FadeStep#)), BF
     END IF
@@ -1111,7 +1084,7 @@ SUB SOURCE_VIEW
 
     DetectClick:
     'Hover:
-    IF ShowContextualMenu = 0 AND STEPMODE THEN LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
+    IF STEPMODE THEN LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
 
     'Select/Clear the item if a mouse click was detected.
     IF mb THEN
@@ -1130,12 +1103,6 @@ SUB SOURCE_VIEW
         MouseHeld = -1
         WHILE _MOUSEBUTTON(1)
             _LIMIT 500
-            IF ShowContextualMenu THEN
-                PCOPY 1, 0
-                GOSUB DrawContextualMenu
-                GOSUB MenuHoverHighlight
-                _DISPLAY
-            END IF
             SEND_PING
             mb = _MOUSEINPUT
             my = _MOUSEY
@@ -1146,122 +1113,56 @@ SUB SOURCE_VIEW
 
         IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click: RETURN
 
-        IF ShowContextualMenu THEN
-            IF (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
-                'Click on contextual menu
-                IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
-                    Clicked = -1
-                    DesiredLine = ContextualMenuLineRef
-                    ShowContextualMenu = 0
-                    GOSUB SetNext_Click
-                ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
-                    'Toggle breakpoint:
-                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
-                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
-                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
-                    ELSE
-                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
-                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
-                    END IF
-                    FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
-                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
-                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
-                        ELSE
-                            EXIT FOR
-                        END IF
-                    NEXT MultiLineToggle
-                    ShowContextualMenu = 0
-                ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
-                    'Run to this line
-                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
-                        RunToThisLine = 0
-                    ELSE
-                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
-                        RunToThisLine = ContextualMenuLineRef
-                        FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
-                            IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
-                                ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
-                            ELSE
-                                EXIT FOR
-                            END IF
-                        NEXT MultiLineToggle
-                        PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
-                    END IF
-                    Clicked = -1
-                    GOSUB RunButton_Click
-                    ShowContextualMenu = 0
-                ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 4) THEN
-                    'Skip this line:
-                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
-                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
-                    ELSE
-                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2
-                    END IF
-                    FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
-                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
-                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
-                        ELSE
-                            EXIT FOR
-                        END IF
-                    NEXT MultiLineToggle
-                    ShowContextualMenu = 0
-                END IF
-            ELSE
-                'Click outside contextual menu
-                ShowContextualMenu = 0
-            END IF
-        ELSE
-            temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
-            e1$ = GETELEMENT$(temp.SourceLine$, 1)
-            e2$ = GETELEMENT$(temp.SourceLine$, 2)
-            PrevDesiredSourceLine$ = " "
-            IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
-            SELECT CASE e1$
-                CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
+        temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
+        e1$ = GETELEMENT$(temp.SourceLine$, 1)
+        e2$ = GETELEMENT$(temp.SourceLine$, 2)
+        PrevDesiredSourceLine$ = " "
+        IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
+        SELECT CASE e1$
+            CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
+                GOSUB TurnOnNonexecutableMessage
+            CASE "END"
+                IF e2$ = "DECLARE" THEN
                     GOSUB TurnOnNonexecutableMessage
-                CASE "END"
-                    IF e2$ = "DECLARE" THEN
-                        GOSUB TurnOnNonexecutableMessage
+                ELSE
+                    GOTO EndAllowed1
+                END IF
+            CASE ELSE
+                EndAllowed1:
+                IF LEN(temp.SourceLine$) = 0 THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSE
+                    IF DoubleClick THEN
+                        DoubleClick = 0
+                        IF ASC(BREAKPOINTLIST, i) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        ASC(BREAKPOINTLIST, i) = 2
                     ELSE
-                        GOTO EndAllowed1
-                    END IF
-                CASE ELSE
-                    EndAllowed1:
-                    IF LEN(temp.SourceLine$) = 0 THEN
-                        GOSUB TurnOnNonexecutableMessage
-                    ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
-                        GOSUB TurnOnNonexecutableMessage
-                    ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
-                        GOSUB TurnOnNonexecutableMessage
-                    ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
-                        GOSUB TurnOnNonexecutableMessage
-                    ELSE
-                        IF DoubleClick THEN
-                            DoubleClick = 0
-                            IF ASC(BREAKPOINTLIST, i) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
-                            ASC(BREAKPOINTLIST, i) = 2
+                        'Toggle breakpoint/skip this line:
+                        IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                            ASC(BREAKPOINTLIST, i) = 0
+                            TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
+                            ASC(BREAKPOINTLIST, i) = 0
                         ELSE
-                            'Toggle breakpoint/skip this line:
-                            IF ASC(BREAKPOINTLIST, i) = 1 THEN
-                                ASC(BREAKPOINTLIST, i) = 0
-                                TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
-                            ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
-                                ASC(BREAKPOINTLIST, i) = 0
-                            ELSE
-                                ASC(BREAKPOINTLIST, i) = 1
-                                TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
-                            END IF
+                            ASC(BREAKPOINTLIST, i) = 1
+                            TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                         END IF
-                        FOR MultiLineToggle = i + 1 TO CLIENT.TOTALSOURCELINES
-                            IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
-                                ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, i)
-                            ELSE
-                                EXIT FOR
-                            END IF
-                        NEXT MultiLineToggle
                     END IF
-            END SELECT
-        END IF
+                    FOR MultiLineToggle = i + 1 TO CLIENT.TOTALSOURCELINES
+                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, i)
+                        ELSE
+                            EXIT FOR
+                        END IF
+                    NEXT MultiLineToggle
+                END IF
+        END SELECT
     END IF
 
     'Turn on contextual options if right mouse click and while in step mode.
@@ -1297,15 +1198,77 @@ SUB SOURCE_VIEW
                 ELSE
                     IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
                         'Set contextual menu coordinates relative to this item
-                        ShowContextualMenu = -1
                         ContextualMenuYRef = y
                         ContextualMenuLineRef = i
                         ContextualMenu.printY = printY
                         ContextualMenu.FilteredList$ = FilteredList$
-                        ContextualMenu.W = _PRINTWIDTH(" Set next statement ") + 6
-                        ContextualMenu.H = _FONTHEIGHT * 4.5
-                        ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
-                        ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
+
+                        MenuSetup$ = "": MenuID$ = ""
+                        MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF)
+                        MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF)
+                        MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF)
+                        MenuSetup$ = MenuSetup$ + "&Skip this line" + CHR$(LF)
+                        FOR setMenuID = 1 TO 4
+                            MenuID$ = MenuID$ + MKI$(setMenuID)
+                        NEXT setMenuID
+
+                        Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
+                        SELECT CASE Choice
+                            CASE 1
+                                'Set next statement
+                                Clicked = -1
+                                DesiredLine = ContextualMenuLineRef
+                                GOSUB SetNext_Click
+                            CASE 2
+                                'Set breakpoint
+                                IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
+                                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
+                                    TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                                ELSE
+                                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
+                                    TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                                END IF
+                                FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
+                                    IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                        ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
+                                    ELSE
+                                        EXIT FOR
+                                    END IF
+                                NEXT MultiLineToggle
+                            CASE 3
+                                'Run to this line
+                                IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
+                                    RunToThisLine = 0
+                                ELSE
+                                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
+                                    RunToThisLine = ContextualMenuLineRef
+                                    FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
+                                        IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                            ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
+                                        ELSE
+                                            EXIT FOR
+                                        END IF
+                                    NEXT MultiLineToggle
+                                    PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
+                                END IF
+                                Clicked = -1
+                                GOSUB RunButton_Click
+                            CASE 4
+                                'Skip this line
+                                IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
+                                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
+                                ELSE
+                                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2
+                                END IF
+                                FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
+                                    IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
+                                        ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
+                                    ELSE
+                                        EXIT FOR
+                                    END IF
+                                NEXT MultiLineToggle
+                        END SELECT
                     END IF
                 END IF
         END SELECT
@@ -1313,92 +1276,67 @@ SUB SOURCE_VIEW
     RETURN
 
     TurnOnNonexecutableMessage:
-    IF NOT ShowContextualMenu THEN
-        ShowTempMessage = -1
-        TempMessageYRef = y
-        TempMessage.printY = printY
-        IF ASC(CHECKINGOFF_LINES, i) THEN
-            TempMessage$ = " $CHECKING/VWATCH64:OFF block (not accessible) "
-        ELSEIF LEN(TRIM$(SourceLine)) = 0 THEN
-            TempMessage$ = " Blank line "
-        ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
-            TempMessage$ = " Multiline statement "
-        ELSE
-            TempMessage$ = " Nonexecutable statement "
-        END IF
-        TempMessage.W = _PRINTWIDTH(TempMessage$) + 6
-        TempMessage.H = _FONTHEIGHT * 1.5
-        TempMessage.X = mx + _FONTWIDTH * 2: IF TempMessage.X + TempMessage.W > _WIDTH THEN TempMessage.X = _WIDTH - TempMessage.W
-        TempMessage.Y = my + _FONTHEIGHT: IF TempMessage.Y + TempMessage.H > _HEIGHT THEN TempMessage.Y = _HEIGHT - TempMessage.H
-        TempMessage.Start# = TIMER
+    ShowTempMessage = -1
+    TempMessageYRef = y
+    TempMessage.printY = printY
+    IF ASC(CHECKINGOFF_LINES, i) THEN
+        TempMessage$ = " $CHECKING/VWATCH64:OFF block (not accessible) "
+    ELSEIF LEN(TRIM$(SourceLine)) = 0 THEN
+        TempMessage$ = " Blank line "
+    ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
+        TempMessage$ = " Multiline statement "
     ELSE
-        ShowContextualMenu = 0
+        TempMessage$ = " Nonexecutable statement "
     END IF
+    TempMessage.W = _PRINTWIDTH(TempMessage$) + 6
+    TempMessage.H = _FONTHEIGHT * 1.5
+    TempMessage.X = mx + _FONTWIDTH * 2: IF TempMessage.X + TempMessage.W > _WIDTH THEN TempMessage.X = _WIDTH - TempMessage.W
+    TempMessage.Y = my + _FONTHEIGHT: IF TempMessage.Y + TempMessage.H > _HEIGHT THEN TempMessage.Y = _HEIGHT - TempMessage.H
+    TempMessage.Start# = TIMER
     RETURN
 
     CheckButtons:
-    IF ShowContextualMenu THEN
-        MenuHoverHighlight:
-        IF (mx >= ContextualMenu.X) AND (mx <= ContextualMenu.X + ContextualMenu.W) THEN
-            IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
-                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
-            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
-                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
-            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) THEN
-                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT * 2)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
-            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT * 3) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 4) THEN
-                LINE (ContextualMenu.X + 2, ContextualMenu.Y + 4 + _FONTHEIGHT * 3)-STEP(ContextualMenu.W - 5, _FONTHEIGHT - 1), _RGB32(0, 178, 179), BF
-            END IF
+    Clicked = 0
+    IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
+    'Hover highlight:
+    FOR cb = 1 TO TotalButtons
+        IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
+            LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
         END IF
+    NEXT cb
+    _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
 
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4), " Set next statement "
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1, " Clear breakpoint   ", " Set breakpoint     ")
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 2), " Run to this line   "
-        _PRINTSTRING (ContextualMenu.X, ContextualMenu.Y + 4 + _FONTHEIGHT * 3), IIFSTR$(ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2, " Reactivate line    ", " Skip this line     ")
-        IF MouseHeld = -1 THEN RETURN
-    ELSE
-        Clicked = 0
-        IF my > _FONTHEIGHT THEN _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$: RETURN
-        'Hover highlight:
+    IF mb THEN
         FOR cb = 1 TO TotalButtons
             IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                LINE (Buttons(cb).X - 3, 3)-STEP(Buttons(cb).W, _FONTHEIGHT - 1), _RGBA32(230, 230, 230, 235), BF
+                WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
+                mb = 0: mx = _MOUSEX: my = _MOUSEY
+                'Check if the user moved the mouse out of the button before releasing it (=cancel)
+                IF my > _FONTHEIGHT THEN RETURN
+                IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
+                Clicked = -1
+                SELECT CASE Buttons(cb).ID
+                    CASE 1: GOSUB RunButton_Click
+                    CASE 2: GOSUB WindowButton_Click
+                    CASE 3: TRACE = NOT TRACE
+                    CASE 4: GOSUB StepButton_Click
+                    CASE 5: GOSUB ToggleButton_Click
+                    CASE 6: GOSUB ClearButton_Click
+                    CASE 7: GOSUB ExitButton_Click
+                    CASE 8
+                        IF SearchIn <> SETNEXT THEN
+                            PrevFilter$ = Filter$
+                            PrevSearchIn = SearchIn
+                            Filter$ = ""
+                            SearchIn = SETNEXT
+                        ELSE
+                            Filter$ = PrevFilter$
+                            SearchIn = PrevSearchIn
+                        END IF
+                    CASE ELSE: SYSTEM_BEEP 0
+                END SELECT
             END IF
         NEXT cb
-        _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
-
-        IF mb THEN
-            FOR cb = 1 TO TotalButtons
-                IF (mx >= Buttons(cb).X) AND (mx <= Buttons(cb).X + Buttons(cb).W) THEN
-                    WHILE _MOUSEBUTTON(1): _LIMIT 500: SEND_PING: mb = _MOUSEINPUT: WEND
-                    mb = 0: mx = _MOUSEX: my = _MOUSEY
-                    'Check if the user moved the mouse out of the button before releasing it (=cancel)
-                    IF my > _FONTHEIGHT THEN RETURN
-                    IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
-                    Clicked = -1
-                    SELECT CASE Buttons(cb).ID
-                        CASE 1: GOSUB RunButton_Click
-                        CASE 2: GOSUB WindowButton_Click
-                        CASE 3: TRACE = NOT TRACE
-                        CASE 4: GOSUB StepButton_Click
-                        CASE 5: GOSUB ToggleButton_Click
-                        CASE 6: GOSUB ClearButton_Click
-                        CASE 7: GOSUB ExitButton_Click
-                        CASE 8
-                            IF SearchIn <> SETNEXT THEN
-                                PrevFilter$ = Filter$
-                                PrevSearchIn = SearchIn
-                                Filter$ = ""
-                                SearchIn = SETNEXT
-                            ELSE
-                                Filter$ = PrevFilter$
-                                SearchIn = PrevSearchIn
-                            END IF
-                        CASE ELSE: SYSTEM_BEEP 0
-                    END SELECT
-                END IF
-            NEXT cb
-        END IF
     END IF
     RETURN
 END SUB
@@ -1648,7 +1586,6 @@ SUB VARIABLE_VIEW
     _KEYCLEAR
     longestVarName = 1
     longestScopeSpec = 1
-    ShowContextualMenu = 0
 
     FOR i = 1 TO CLIENT.TOTALVARIABLES
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
@@ -1709,7 +1646,7 @@ SUB VARIABLE_VIEW
         mb2 = _MOUSEBUTTON(2)
     LOOP WHILE _MOUSEINPUT
 
-    IF my < SCREEN_TOPBAR AND (ShowContextualMenu OR ShowPopupWatchpoint) THEN ShowContextualMenu = 0: ShowPopupWatchpoint = 0
+    IF my < SCREEN_TOPBAR AND (ShowPopupWatchpoint) THEN ShowPopupWatchpoint = 0
 
     SELECT EVERYCASE k
         CASE 86, 118 'V
@@ -1731,9 +1668,7 @@ SUB VARIABLE_VIEW
             END SELECT
         CASE 27 'ESC clears the current search filter or exits MONITOR_MODE
             ExitButton_Click:
-            IF ShowContextualMenu THEN
-                ShowContextualMenu = 0
-            ELSEIF LEN(Filter$) THEN
+            IF LEN(Filter$) THEN
                 Filter$ = ""
             ELSE
                 CLOSE_SESSION = -1
@@ -1897,13 +1832,7 @@ SUB VARIABLE_VIEW
         IF LEN(FilteredList$) > 0 THEN PAGE_HEIGHT = _FONTHEIGHT * ((LEN(FilteredList$) / 4) + 3)
     END IF
 
-    IF ShowContextualMenu AND (ContextualMenu.FilteredList$ <> FilteredList$) THEN ShowContextualMenu = 0
-
     CHECK_SCREEN_LIMITS y
-
-    IF ShowContextualMenu AND (y <> ContextualMenuYRef) THEN
-        ShowContextualMenu = 0
-    END IF
 
     'Place a light gray rectangle under the column that can currently be filtered
     SELECT CASE SearchIn
@@ -1953,7 +1882,6 @@ SUB VARIABLE_VIEW
         NEXT i
     END IF
     COLOR _RGB32(0, 0, 0)
-    IF ShowContextualMenu THEN GOSUB DetectClick
 
     IF LEN(Filter$) AND LEN(FilteredList$) = 0 THEN 'A filter is on, but nothing was found
         _PRINTSTRING (columnHighlightX + 5, 4 * _FONTHEIGHT), "Not found."
@@ -2037,11 +1965,7 @@ SUB VARIABLE_VIEW
         Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
     NEXT cb
 
-    IF NOT ShowContextualMenu THEN
-        GOSUB CheckButtons
-    ELSE
-        _PRINTSTRING (5 + _PRINTWIDTH(ModeTitle$), 3), ButtonLine$
-    END IF
+    GOSUB CheckButtons
     IF SWITCH_VIEW THEN RETURN
 
     FOR i = 1 TO LEN(ButtonLine$)
@@ -2097,14 +2021,6 @@ SUB VARIABLE_VIEW
         END IF
     END IF
 
-    'Show contextual menu
-    IF ShowContextualMenu THEN
-        DrawContextualMenu:
-        LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(200, 200, 200), BF
-        LINE (ContextualMenu.X, ContextualMenu.Y)-STEP(ContextualMenu.W - 1, ContextualMenu.H - 1), _RGB32(0, 0, 0), B
-        IF MouseHeld THEN RETURN
-        GOSUB CheckButtons
-    END IF
     _DISPLAY
     RETURN
 
@@ -2124,10 +2040,7 @@ SUB VARIABLE_VIEW
             END IF
         LOOP
     END IF
-    'or that it was right-clicked:
-    IF (ShowContextualMenu AND ContextualMenu.printY = printY) THEN
-        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(102, 255, 102, 200), BF
-    END IF
+
     COLOR _RGB(0, 0, 0)
 
     'or that it has a watchpoint set
@@ -2139,7 +2052,7 @@ SUB VARIABLE_VIEW
 
     DetectClick:
     'Hover/Watchpoint popup:
-    IF ShowContextualMenu = 0 AND STEPMODE THEN
+    IF STEPMODE THEN
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 200, 50), BF
 
         IF ASC(WATCHPOINTLIST, i) = 1 THEN
@@ -2174,12 +2087,6 @@ SUB VARIABLE_VIEW
         MouseHeld = -1
         WHILE _MOUSEBUTTON(1)
             _LIMIT 500
-            IF ShowContextualMenu THEN
-                PCOPY 1, 0
-                GOSUB DrawContextualMenu
-                GOSUB MenuHoverHighlight
-                _DISPLAY
-            END IF
             SEND_PING
             mb = _MOUSEINPUT
             my = _MOUSEY
@@ -2190,129 +2097,12 @@ SUB VARIABLE_VIEW
 
         IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click: RETURN
 
-        IF ShowContextualMenu AND (my > ContextualMenu.Y) AND (my < ContextualMenu.Y + ContextualMenu.H) AND (mx > ContextualMenu.X) AND (mx < ContextualMenu.X + ContextualMenu.W) THEN
-            'Click on contextual menu
-            ShowContextualMenu = 0
-            IF (my >= ContextualMenu.Y + 4) AND (my <= ContextualMenu.Y + 4 + _FONTHEIGHT) THEN
-                'Create a watchpoint
-                Message$ = "Run until '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")" + CHR$(LF)
-                Message$ = Message$ + "meets the following condition (you can use =, <>, >, >=, <, <=):"
-                InitialValue$ = "=" + VARIABLE_DATA(ContextualMenuLineRef).VALUE
-                InitialSelection = 1
-                IF LEN(TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION)) > 0 THEN InitialValue$ = TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION): InitialSelection = -1
-                MESSAGEBOX_RESULT = INPUTBOX("Set a watchpoint", Message$, InitialValue$, NewValue$, InitialSelection, -1)
-                IF MESSAGEBOX_RESULT = 2 THEN GOTO WatchPointDone
-                IF LEN(NewValue$) < 2 THEN
-                    ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
-                    WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
-                ELSE
-                    StartWatchPointEval:
-                    op1$ = MID$(NewValue$, 1, 1)
-                    op2$ = MID$(NewValue$, 2, 1)
-                    SELECT CASE op1$
-                        CASE "="
-                            IF op2$ = "<" OR op2$ = ">" THEN
-                                MID$(NewValue$, 1, 2) = op2$ + "="
-                                GOTO StartWatchPointEval
-                            END IF
-                            ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
-                            WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
-                        CASE ">"
-                            IF op2$ = "<" OR op2$ = ">" THEN
-                                GOTO WatchpointInvalidExpression
-                            END IF
-                            ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
-                            WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
-                        CASE "<"
-                            ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
-                            WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
-                        CASE ELSE
-                            GOTO WatchpointInvalidExpression
-                    END SELECT
-                END IF
-                GOTO WatchPointDone
-
-                WatchpointInvalidExpression:
-                MESSAGEBOX_RESULT = MESSAGEBOX("Set a watchpoint", "Invalid expression.", MKI$(OK_ONLY), 1, -1)
-
-                WatchPointDone:
-            ELSEIF (my >= ContextualMenu.Y + 5 + _FONTHEIGHT) AND (my <= ContextualMenu.Y + 5 + _FONTHEIGHT * 2) THEN
-                'Edit
-                EditVariableRoutine:
-                IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
-                    Message$ = ""
-                    Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
-                    Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
-                    MESSAGEBOX_RESULT = MESSAGEBOX("Out of scope", Message$, MKI$(OK_ONLY), 1, -1)
-                ELSE
-                    DataType$ = VARIABLES(ContextualMenuLineRef).DATATYPE
-                    Message$ = "New value for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")"
-                    MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$, -1, -1)
-                    IF MESSAGEBOX_RESULT = 1 THEN
-                        'Send to the client:
-                        '1- Variable index to change;
-                        '2- MKL$(data size);
-                        '3- Actual data.
-                        EXCHANGEDATASIZE$4 = MKL$(ContextualMenuLineRef)
-                        PUT #FILE, EXCHANGEBLOCK, EXCHANGEDATASIZE$4
-                        CONVERSIONERRORRAISED = 0
-                        ON ERROR GOTO DataConversionERROR
-                        SELECT CASE UCASE$(TRIM$(DataType$))
-                            CASE "_BIT"
-                                EXCHANGEDATA = _MK$(_BIT, VAL(NewValue$))
-                            CASE "_UNSIGNED _BIT"
-                                EXCHANGEDATA = _MK$(_UNSIGNED _BIT, VAL(NewValue$))
-                            CASE "_BYTE"
-                                EXCHANGEDATA = _MK$(_BYTE, VAL(NewValue$))
-                            CASE "_UNSIGNED _BUTE"
-                                EXCHANGEDATA = _MK$(_BIT, VAL(NewValue$))
-                            CASE "INTEGER"
-                                EXCHANGEDATA = _MK$(INTEGER, VAL(NewValue$))
-                            CASE "_UNSIGNED INTEGER"
-                                EXCHANGEDATA = _MK$(_UNSIGNED INTEGER, VAL(NewValue$))
-                            CASE "LONG"
-                                EXCHANGEDATA = _MK$(LONG, VAL(NewValue$))
-                            CASE "_UNSIGNED LONG"
-                                EXCHANGEDATA = _MK$(_UNSIGNED LONG, VAL(NewValue$))
-                            CASE "_INTEGER64"
-                                EXCHANGEDATA = _MK$(_INTEGER64, VAL(NewValue$))
-                            CASE "_UNSIGNED _INTEGER64"
-                                EXCHANGEDATA = _MK$(_UNSIGNED _INTEGER64, VAL(NewValue$))
-                            CASE "SINGLE"
-                                EXCHANGEDATA = _MK$(SINGLE, VAL(NewValue$))
-                            CASE "DOUBLE"
-                                EXCHANGEDATA = _MK$(DOUBLE, VAL(NewValue$))
-                            CASE "_FLOAT"
-                                EXCHANGEDATA = _MK$(_FLOAT, VAL(NewValue$))
-                            CASE "STRING"
-                                EXCHANGEDATA = NewValue$
-                        END SELECT
-                        ON ERROR GOTO 0
-                        IF CONVERSIONERRORRAISED THEN
-                            Message$ = ""
-                            Message$ = Message$ + "Value could not be set (variable type is " + TRIM$(DataType$) + ")." + CHR$(LF)
-                            MESSAGEBOX_RESULT = MESSAGEBOX("Invalid input", Message$, MKI$(OK_ONLY), 1, -1)
-                        ELSE
-                            EXCHANGEDATASIZE$4 = MKL$(LEN(EXCHANGEDATA))
-                            PUT #FILE, , EXCHANGEDATASIZE$4
-                            PUT #FILE, , EXCHANGEDATA
-                            BREAKPOINT.ACTION = SETVAR
-                            PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
-                        END IF
-                    END IF
-                    IF DoubleClick THEN RETURN
-                END IF
-            END IF
-        ELSEIF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+        IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
             'Click on variable lines
-            IF ShowContextualMenu THEN
-                ShowContextualMenu = 0
-            ELSE
-                IF DoubleClick THEN
-                    ContextualMenuLineRef = i
-                    GOSUB EditVariableRoutine
-                    DoubleClick = 0
-                END IF
+            IF DoubleClick THEN
+                ContextualMenuLineRef = i
+                GOSUB EditVariableRoutine
+                DoubleClick = 0
             END IF
         END IF
     END IF
@@ -2324,16 +2114,145 @@ SUB VARIABLE_VIEW
         mb2 = 0
         IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
             'Set contextual menu coordinates relative to this item
-            ShowContextualMenu = -1
             ShowPopupWatchpoint = 0
             ContextualMenuYRef = y
             ContextualMenuLineRef = i
             ContextualMenu.printY = printY
             ContextualMenu.FilteredList$ = FilteredList$
-            ContextualMenu.W = _PRINTWIDTH(" Set/Edit a watchpoint ") + 6
-            ContextualMenu.H = _FONTHEIGHT * 2.5
-            ContextualMenu.X = mx: IF ContextualMenu.X + ContextualMenu.W > _WIDTH THEN ContextualMenu.X = _WIDTH - ContextualMenu.W
-            ContextualMenu.Y = my: IF ContextualMenu.Y + ContextualMenu.H > _HEIGHT THEN ContextualMenu.Y = _HEIGHT - ContextualMenu.H
+
+            MenuSetup$ = "": MenuID$ = ""
+            IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1 THEN
+                MenuSetup$ = MenuSetup$ + "&Edit watchpoint" + CHR$(LF)
+                MenuID$ = MenuID$ + MKI$(2)
+                MenuSetup$ = MenuSetup$ + "&Clear watchpoint" + CHR$(LF)
+                MenuID$ = MenuID$ + MKI$(4)
+            ELSE
+                MenuSetup$ = MenuSetup$ + "S&et watchpoint" + CHR$(LF)
+                MenuID$ = MenuID$ + MKI$(1)
+            END IF
+            IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
+                'Can't edit variable outside scope.
+            ELSE
+                MenuSetup$ = MenuSetup$ + "Edit &value of '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF)
+                MenuID$ = MenuID$ + MKI$(3)
+            END IF
+
+            Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
+            SELECT CASE Choice
+                CASE 4
+                    'Clear watchpoint
+                    ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
+                    WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
+                CASE 1, 2
+                    'Create a watchpoint
+                    Message$ = "Run until '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")" + CHR$(LF)
+                    Message$ = Message$ + "meets the following condition (you can use =, <>, >, >=, <, <=):"
+                    InitialValue$ = "=" + VARIABLE_DATA(ContextualMenuLineRef).VALUE
+                    InitialSelection = 1
+                    IF LEN(TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION)) > 0 THEN InitialValue$ = TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION): InitialSelection = -1
+                    MESSAGEBOX_RESULT = INPUTBOX("Set a watchpoint", Message$, InitialValue$, NewValue$, InitialSelection, -1)
+                    IF MESSAGEBOX_RESULT = 2 THEN GOTO WatchPointDone
+                    IF LEN(NewValue$) < 2 THEN
+                        ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
+                        WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
+                    ELSE
+                        StartWatchPointEval:
+                        op1$ = MID$(NewValue$, 1, 1)
+                        op2$ = MID$(NewValue$, 2, 1)
+                        SELECT CASE op1$
+                            CASE "="
+                                IF op2$ = "<" OR op2$ = ">" THEN
+                                    MID$(NewValue$, 1, 2) = op2$ + "="
+                                    GOTO StartWatchPointEval
+                                END IF
+                                ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
+                                WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
+                            CASE ">"
+                                IF op2$ = "<" OR op2$ = ">" THEN
+                                    GOTO WatchpointInvalidExpression
+                                END IF
+                                ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
+                                WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
+                            CASE "<"
+                                ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
+                                WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
+                            CASE ELSE
+                                GOTO WatchpointInvalidExpression
+                        END SELECT
+                    END IF
+                    GOTO WatchPointDone
+
+                    WatchpointInvalidExpression:
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Set a watchpoint", "Invalid expression.", MKI$(OK_ONLY), 1, -1)
+
+                    WatchPointDone:
+                CASE 3
+                    'Edit
+                    EditVariableRoutine:
+                    IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
+                        Message$ = ""
+                        Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
+                        Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
+                        MESSAGEBOX_RESULT = MESSAGEBOX("Out of scope", Message$, MKI$(OK_ONLY), 1, -1)
+                    ELSE
+                        DataType$ = VARIABLES(ContextualMenuLineRef).DATATYPE
+                        Message$ = "New value for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")"
+                        MESSAGEBOX_RESULT = INPUTBOX("Edit variable", Message$, VARIABLE_DATA(ContextualMenuLineRef).VALUE, NewValue$, -1, -1)
+                        IF MESSAGEBOX_RESULT = 1 THEN
+                            'Send to the client:
+                            '1- Variable index to change;
+                            '2- MKL$(data size);
+                            '3- Actual data.
+                            EXCHANGEDATASIZE$4 = MKL$(ContextualMenuLineRef)
+                            PUT #FILE, EXCHANGEBLOCK, EXCHANGEDATASIZE$4
+                            CONVERSIONERRORRAISED = 0
+                            ON ERROR GOTO DataConversionERROR
+                            SELECT CASE UCASE$(TRIM$(DataType$))
+                                CASE "_BIT"
+                                    EXCHANGEDATA = _MK$(_BIT, VAL(NewValue$))
+                                CASE "_UNSIGNED _BIT"
+                                    EXCHANGEDATA = _MK$(_UNSIGNED _BIT, VAL(NewValue$))
+                                CASE "_BYTE"
+                                    EXCHANGEDATA = _MK$(_BYTE, VAL(NewValue$))
+                                CASE "_UNSIGNED _BUTE"
+                                    EXCHANGEDATA = _MK$(_BIT, VAL(NewValue$))
+                                CASE "INTEGER"
+                                    EXCHANGEDATA = _MK$(INTEGER, VAL(NewValue$))
+                                CASE "_UNSIGNED INTEGER"
+                                    EXCHANGEDATA = _MK$(_UNSIGNED INTEGER, VAL(NewValue$))
+                                CASE "LONG"
+                                    EXCHANGEDATA = _MK$(LONG, VAL(NewValue$))
+                                CASE "_UNSIGNED LONG"
+                                    EXCHANGEDATA = _MK$(_UNSIGNED LONG, VAL(NewValue$))
+                                CASE "_INTEGER64"
+                                    EXCHANGEDATA = _MK$(_INTEGER64, VAL(NewValue$))
+                                CASE "_UNSIGNED _INTEGER64"
+                                    EXCHANGEDATA = _MK$(_UNSIGNED _INTEGER64, VAL(NewValue$))
+                                CASE "SINGLE"
+                                    EXCHANGEDATA = _MK$(SINGLE, VAL(NewValue$))
+                                CASE "DOUBLE"
+                                    EXCHANGEDATA = _MK$(DOUBLE, VAL(NewValue$))
+                                CASE "_FLOAT"
+                                    EXCHANGEDATA = _MK$(_FLOAT, VAL(NewValue$))
+                                CASE "STRING"
+                                    EXCHANGEDATA = NewValue$
+                            END SELECT
+                            ON ERROR GOTO 0
+                            IF CONVERSIONERRORRAISED THEN
+                                Message$ = ""
+                                Message$ = Message$ + "Value could not be set (variable type is " + TRIM$(DataType$) + ")." + CHR$(LF)
+                                MESSAGEBOX_RESULT = MESSAGEBOX("Invalid input", Message$, MKI$(OK_ONLY), 1, -1)
+                            ELSE
+                                EXCHANGEDATASIZE$4 = MKL$(LEN(EXCHANGEDATA))
+                                PUT #FILE, , EXCHANGEDATASIZE$4
+                                PUT #FILE, , EXCHANGEDATA
+                                BREAKPOINT.ACTION = SETVAR
+                                PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+                            END IF
+                        END IF
+                        IF DoubleClick THEN RETURN
+                    END IF
+            END SELECT
         END IF
     END IF
     RETURN
@@ -6475,5 +6394,170 @@ FUNCTION IS_KEYWORD (Text$)
     FOR i = 1 TO UBOUND(QB64KEYWORDS)
         IF QB64KEYWORDS(i) = uText$ THEN IS_KEYWORD = -1: EXIT FUNCTION
     NEXT i
+END FUNCTION
+
+'------------------------------------------------------------------------------
+FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
+    TYPE MenuType
+        Caption AS STRING * 50
+        Highlight AS _BYTE
+        Inactive AS _BYTE
+        Y AS SINGLE
+    END TYPE
+
+    DIM MenuH AS SINGLE
+
+    IF LEN(MenuSetup$) = 0 THEN EXIT FUNCTION
+
+    REDIM Choices(1 TO 1) AS MenuType
+    TotalChoices = 1
+    MaxLen = 30
+    IF INSTR(MenuSetup$, CHR$(LF)) = 0 THEN
+        IF LEFT$(MenuSetup$, 1) = "~" THEN Choices(TotalChoices).Inactive = -1: MenuSetup$ = MID$(MenuSetup$, 2)
+        CheckHighlight = INSTR(MenuSetup$, "&")
+        Choices(TotalChoices).Caption = LEFT$(MenuSetup$, CheckHighlight - 1) + MID$(MenuSetup$, CheckHighlight + 1)
+        IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
+    ELSE
+        Position = 0
+        DO
+            Position = Position + 1
+            IF Position > LEN(MenuSetup$) THEN EXIT DO
+            ThisChar = ASC(MenuSetup$, Position)
+            SELECT CASE ThisChar
+                CASE LF
+                    Choices(TotalChoices).Caption = TempCaption$
+                    IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
+                    TempCaption$ = ""
+                    IF LEN(MID$(MenuSetup$, Position + 1)) > 0 THEN
+                        TotalChoices = TotalChoices + 1
+                        REDIM _PRESERVE Choices(1 TO TotalChoices) AS MenuType
+                    END IF
+                CASE 126 '~
+                    Choices(TotalChoices).Inactive = -1
+                CASE 38 '&
+                    Choices(TotalChoices).Highlight = LEN(TempCaption$) + 1
+                CASE ELSE
+                    TempCaption$ = TempCaption$ + CHR$(ThisChar)
+            END SELECT
+        LOOP
+        IF LEN(TempCaption$) > 0 THEN Choices(TotalChoices).Caption = TempCaption$
+        IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
+    END IF
+
+    MenuW = (MaxLen + 4) * _FONTWIDTH
+    IF _WIDTH - mx < MenuW THEN MenuX = _WIDTH - MenuW ELSE MenuX = mx
+    MenuH = TotalChoices * (_FONTHEIGHT * 1.5)
+    IF _HEIGHT - my < MenuH THEN MenuY = _HEIGHT - MenuH ELSE MenuY = my
+
+    _KEYCLEAR
+    DO
+        _LIMIT 30
+        GOSUB DrawMenu
+        WHILE _MOUSEINPUT: WEND
+        mx = _MOUSEX
+        my = _MOUSEY
+        mb1 = _MOUSEBUTTON(1)
+        mb2 = _MOUSEBUTTON(2)
+
+        'Hover highlight:
+        IF mx <> prev.mx OR my <> prev.my THEN
+            prev.mx = mx: prev.my = my
+            SelectedItem = 0
+            FOR i = 1 TO TotalChoices
+                IF mx >= MenuX AND mx <= MenuX + MenuW AND my >= Choices(i).Y - (_FONTHEIGHT / 3) AND my <= Choices(i).Y + (_FONTHEIGHT * 1.5) THEN
+                    SelectedItem = i
+                    GOSUB Highlight
+                    EXIT FOR
+                END IF
+            NEXT i
+        ELSE
+            i = SelectedItem
+            GOSUB Highlight
+        END IF
+
+        _DISPLAY
+
+        'Check for click
+        IF mb1 THEN
+            WHILE _MOUSEBUTTON(1): _LIMIT 500: mi = _MOUSEINPUT: WEND
+            IF mx = _MOUSEX AND my = _MOUSEY THEN
+                CheckForClick:
+                FOR i = 1 TO TotalChoices
+                    IF mx >= MenuX AND mx <= MenuX + MenuW AND my >= Choices(i).Y - (_FONTHEIGHT / 3) AND my <= Choices(i).Y + (_FONTHEIGHT * 1.5) THEN
+                        ForceCheckForClick:
+                        IF Choices(i).Inactive = 0 THEN
+                            SHOWMENU = CVI(MID$(MenuID$, i * 2 - 1, 2))
+                            PCOPY 1, 0
+                            EXIT FUNCTION
+                        END IF
+                        IF k = -13 OR CheckingHotkey = -1 THEN EXIT FOR
+                    END IF
+                NEXT i
+                'Click outside menu boundaries
+                PCOPY 1, 0
+                EXIT FUNCTION
+            END IF
+        ELSEIF mb2 THEN
+            IF mx < MenuX OR mx > MenuX + MenuW OR my < MenuY OR my > MenuY + MenuH THEN
+                PCOPY 1, 0
+                EXIT FUNCTION
+            ELSE
+                GOTO CheckForClick
+            END IF
+        END IF
+
+        k = _KEYHIT
+        IF k = -13 THEN i = SelectedItem: GOTO ForceCheckForClick
+        IF k = 20480 THEN 'Down arrow key
+            SelectedItem = SelectedItem + 1
+            IF SelectedItem > TotalChoices THEN SelectedItem = 1
+            i = SelectedItem
+            GOSUB Highlight
+        ELSEIF k = 18432 THEN 'Up arrow key
+            SelectedItem = SelectedItem - 1
+            IF SelectedItem < 1 THEN SelectedItem = TotalChoices
+            i = SelectedItem
+            GOSUB Highlight
+        END IF
+
+        'Check hotkey presses
+        IF (k >= 65 AND k <= 90) OR (k >= 97 AND k <= 122) THEN
+            CheckingHotkey = -1
+            FOR i = 1 TO TotalChoices
+                IF UCASE$(CHR$(k)) = UCASE$(MID$(Choices(i).Caption, Choices(i).Highlight, 1)) THEN
+                    GOTO ForceCheckForClick
+                END IF
+            NEXT i
+        END IF
+        CheckingHotkey = 0
+    LOOP UNTIL k = -27
+
+    _KEYCLEAR
+    PCOPY 1, 0
+    EXIT FUNCTION
+    DrawMenu:
+    PCOPY 1, 0
+    LINE (MenuX, MenuY)-STEP(MenuW, MenuH), _RGB32(170, 170, 170), BF
+    LINE (MenuX - 1, MenuY - 1)-STEP(MenuW + 2, MenuH + 2), _RGB32(0, 0, 0), B
+    COLOR , _RGBA32(0, 0, 0, 0)
+    FOR i = 1 TO TotalChoices
+        IF Choices(i).Inactive THEN COLOR _RGB32(150, 150, 150) ELSE COLOR _RGB32(0, 0, 0)
+        Choices(i).Y = MenuY + (_FONTHEIGHT / 3) + ((_FONTHEIGHT * 1.5) * (i - 1))
+        _PRINTSTRING (MenuX + _FONTWIDTH, Choices(i).Y), RTRIM$(Choices(i).Caption)
+        IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
+            LINE (MenuX + (_FONTWIDTH * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_FONTWIDTH, 0), _RGB32(0, 0, 0)
+        END IF
+    NEXT
+    RETURN
+
+    Highlight:
+    IF i < 1 OR i > TotalChoices THEN RETURN
+    LINE (MenuX, Choices(i).Y - (_FONTHEIGHT / 3))-STEP(MenuW, _FONTHEIGHT * 1.5), _RGB32(0, 178, 179), BF
+    IF Choices(i).Inactive THEN COLOR _RGB32(150, 150, 150) ELSE COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (MenuX + _FONTWIDTH, Choices(i).Y), RTRIM$(Choices(i).Caption)
+    IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
+        LINE (MenuX + (_FONTWIDTH * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_FONTWIDTH, 0), _RGB32(255, 255, 255)
+    END IF
+    RETURN
 END FUNCTION
 
