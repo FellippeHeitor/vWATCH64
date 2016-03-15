@@ -6564,14 +6564,12 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
 
         'Check hotkey presses
         IF (k >= 65 AND k <= 90) OR (k >= 97 AND k <= 122) THEN
-            CheckingHotkey = -1
             FOR i = 1 TO TotalChoices
                 IF UCASE$(CHR$(k)) = UCASE$(MID$(Choices(i).Caption, Choices(i).Highlight, 1)) THEN
                     GOTO ForceCheckForClick
                 END IF
             NEXT i
         END IF
-        CheckingHotkey = 0
     LOOP UNTIL k = -27
 
     _KEYCLEAR
