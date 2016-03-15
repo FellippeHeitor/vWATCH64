@@ -658,10 +658,14 @@ SUB SOURCE_VIEW
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 18432 'Up
-            IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ((_HEIGHT - 50) * SB_Ratio)
+            ArrowStep! = ((_HEIGHT - 50) * SB_Ratio)
+            IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
+            IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ArrowStep!
             TRACE = 0
         CASE 20480 'Down
-            IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ((_HEIGHT - 50) * SB_Ratio)
+            ArrowStep! = ((_HEIGHT - 50) * SB_Ratio)
+            IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
+            IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ArrowStep!
             TRACE = 0
         CASE 16128 'F5
             RunButton_Click:
@@ -672,9 +676,8 @@ SUB SOURCE_VIEW
                     MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, MKI$(YN_QUESTION), 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
                         ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
+                        totalwatchpoints = totalwatchpoints - 1
                         WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
-                        PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
-                        PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
                     END IF
                 END IF
             END IF
@@ -1620,6 +1623,7 @@ SUB VARIABLE_VIEW
     FOR i = 1 TO CLIENT.TOTALVARIABLES
         IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
         IF LEN(TRIM$(VARIABLES(i).SCOPE)) > longestScopeSpec THEN longestScopeSpec = LEN(TRIM$(VARIABLES(i).SCOPE))
+        IF ASC(WATCHPOINTLIST, i) = 1 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS + 1
     NEXT i
 
     SWITCH_VIEW = 0
@@ -1706,12 +1710,16 @@ SUB VARIABLE_VIEW
             END IF
             IF Clicked THEN Clicked = 0: RETURN
         CASE 18432 'Up
+            ArrowStep! = ((_HEIGHT - 50) * SB_Ratio)
+            IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
             IF PAGE_HEIGHT > LIST_AREA THEN
-                IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ((_HEIGHT - 50) * SB_Ratio)
+                IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ArrowStep!
             END IF
         CASE 20480 'Down
+            ArrowStep! = ((_HEIGHT - 50) * SB_Ratio)
+            IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
             IF PAGE_HEIGHT > LIST_AREA THEN
-                IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ((_HEIGHT - 50) * SB_Ratio)
+                IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ArrowStep!
             END IF
         CASE 16128 'F5
             RunButton_Click:
@@ -1722,6 +1730,7 @@ SUB VARIABLE_VIEW
                     MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, MKI$(YN_QUESTION), 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
                         ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
+                        TOTALWATCHPOINTS = TOTALWATCHPOINTS - 1
                         WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
                         PUT #FILE, WATCHPOINTLISTBLOCK, WATCHPOINTLIST
                         PUT #FILE, WATCHPOINTEXPBLOCK, WATCHPOINT()
@@ -2157,11 +2166,15 @@ SUB VARIABLE_VIEW
             IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1 THEN
                 MenuSetup$ = MenuSetup$ + "&Edit watchpoint" + CHR$(LF)
                 MenuID$ = MenuID$ + MKI$(2)
-                MenuSetup$ = MenuSetup$ + "&Clear watchpoint" + CHR$(LF)
+                MenuSetup$ = MenuSetup$ + "&Clear watchpoint for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF)
                 MenuID$ = MenuID$ + MKI$(4)
             ELSE
                 MenuSetup$ = MenuSetup$ + "S&et watchpoint" + CHR$(LF)
                 MenuID$ = MenuID$ + MKI$(1)
+            END IF
+            IF TOTALWATCHPOINTS > 0 THEN
+                MenuSetup$ = MenuSetup$ + "Clear all &watchpoints" + CHR$(LF)
+                MenuID$ = MenuID$ + MKI$(5)
             END IF
             IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                 'Can't edit variable outside scope.
@@ -2173,9 +2186,17 @@ SUB VARIABLE_VIEW
             Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
             MenuWasInvoked = -1
             SELECT CASE Choice
+                CASE 5
+                    'Clear all watchpoints
+                    WATCHPOINTLIST = STRING$(CLIENT.TOTALVARIABLES, 0)
+                    TOTALWATCHPOINTS = 0
+                    FOR clear.WP = 1 TO CLIENT.TOTALVARIABLES
+                        WATCHPOINT(clear.WP).EXPRESSION = ""
+                    NEXT
                 CASE 4
                     'Clear watchpoint
                     ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
+                    TOTALWATCHPOINTS = TOTALWATCHPOINTS - 1
                     WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
                 CASE 1, 2
                     'Create a watchpoint
@@ -2188,6 +2209,7 @@ SUB VARIABLE_VIEW
                     MESSAGEBOX_RESULT = INPUTBOX("Set a watchpoint", Message$, InitialValue$, NewValue$, InitialSelection, -1)
                     IF MESSAGEBOX_RESULT = 2 THEN GOTO WatchPointDone
                     IF LEN(NewValue$) < 2 THEN
+                        IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS - 1
                         ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
                         WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
                     ELSE
@@ -2200,15 +2222,18 @@ SUB VARIABLE_VIEW
                                     MID$(NewValue$, 1, 2) = op2$ + "="
                                     GOTO StartWatchPointEval
                                 END IF
+                                IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS + 1
                                 ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
                                 WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
                             CASE ">"
                                 IF op2$ = "<" OR op2$ = ">" THEN
                                     GOTO WatchpointInvalidExpression
                                 END IF
+                                IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS + 1
                                 ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
                                 WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
                             CASE "<"
+                                IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS + 1
                                 ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1
                                 WATCHPOINT(ContextualMenuLineRef).EXPRESSION = NewValue$
                             CASE ELSE
@@ -2431,9 +2456,13 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
                 EXIT SUB
             END IF
         CASE 18432 'Up
-            IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - (LIST_AREA / 10)
+            ArrowStep! = (LIST_AREA / 10)
+            IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
+            IF ctrlDown = -1 THEN y = y - _FONTHEIGHT ELSE y = y - ArrowStep!
         CASE 20480 'Down
-            IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + (LIST_AREA / 10)
+            ArrowStep! = (LIST_AREA / 10)
+            IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
+            IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ArrowStep!
         CASE 15360 'F2
             SelectButton_Click:
             IF LEN(Filter$) = 0 THEN
