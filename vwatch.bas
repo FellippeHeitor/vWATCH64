@@ -158,6 +158,7 @@ DIM SHARED SOURCEFILE AS STRING
 DIM SHARED CHECKINGOFF_LINES AS STRING
 DIM SHARED TITLESTRING AS STRING
 DIM SHARED TOTALBREAKPOINTS AS LONG
+DIM SHARED TOTALSKIPLINES AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
 DIM SHARED TTFONT AS LONG
 DIM SHARED WATCHPOINTLIST AS STRING
@@ -397,6 +398,7 @@ SUB SOURCE_VIEW
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
 
     TOTALBREAKPOINTS = 0
+    TOTALSKIPLINES = 0
     BREAKPOINT.ACTION = 0 'Start paused; execution starts with F5 or F8.
     BREAKPOINT.LINENUMBER = 0
     PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
@@ -1144,6 +1146,7 @@ SUB SOURCE_VIEW
                     IF DoubleClick THEN
                         DoubleClick = 0
                         IF ASC(BREAKPOINTLIST, i) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        TOTALSKIPLINES = TOTALSKIPLINES + 1
                         ASC(BREAKPOINTLIST, i) = 2
                     ELSE
                         'Toggle breakpoint/skip this line:
@@ -1151,6 +1154,7 @@ SUB SOURCE_VIEW
                             ASC(BREAKPOINTLIST, i) = 0
                             TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                         ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
+                            TOTALSKIPLINES = TOTALSKIPLINES - 1
                             ASC(BREAKPOINTLIST, i) = 0
                         ELSE
                             ASC(BREAKPOINTLIST, i) = 1
@@ -1207,17 +1211,21 @@ SUB SOURCE_VIEW
                         ContextualMenu.FilteredList$ = FilteredList$
 
                         MenuSetup$ = "": MenuID$ = ""
-                        MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF)
-                        MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF)
-                        MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF)
-                        IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
-                            MenuSetup$ = MenuSetup$ + "Un&skip this line" + CHR$(LF)
-                        ELSE
-                            MenuSetup$ = MenuSetup$ + "&Skip this line" + CHR$(LF)
+                        MenuSetup$ = MenuSetup$ + "Continue execution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+                        MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
+                        MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
+                        MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
+                        IF TOTALBREAKPOINTS > 0 THEN
+                            MenuSetup$ = MenuSetup$ + "&Clear all breakpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
                         END IF
-                        FOR setMenuID = 1 TO 4
-                            MenuID$ = MenuID$ + MKI$(setMenuID)
-                        NEXT setMenuID
+                        IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
+                            MenuSetup$ = MenuSetup$ + "Un&skip this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(4)
+                        ELSE
+                            MenuSetup$ = MenuSetup$ + "&Skip this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(4)
+                        END IF
+                        IF TOTALSKIPLINES > 0 THEN
+                            MenuSetup$ = MenuSetup$ + "Unskip all &lines" + CHR$(LF): MenuID$ = MenuID$ + MKI$(6)
+                        END IF
 
                         Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
                         MenuWasInvoked = -1
@@ -1264,9 +1272,11 @@ SUB SOURCE_VIEW
                             CASE 4
                                 'Skip this line
                                 IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
+                                    TOTALSKIPLINES = TOTALSKIPLINES - 1
                                     ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
                                 ELSE
                                     IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                                    TOTALSKIPLINES = TOTALSKIPLINES + 1
                                     ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2
                                 END IF
                                 FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
@@ -1276,6 +1286,17 @@ SUB SOURCE_VIEW
                                         EXIT FOR
                                     END IF
                                 NEXT MultiLineToggle
+                            CASE 5
+                                Clicked = -1
+                                GOSUB ClearButton_Click
+                            CASE 6
+                                TOTALSKIPLINES = 0
+                                FOR clear.SL = 1 TO CLIENT.TOTALSOURCELINES
+                                    IF ASC(BREAKPOINTLIST, clear.SL) = 2 THEN ASC(BREAKPOINTLIST, clear.SL) = 0
+                                NEXT clear.SL
+                            CASE 7
+                                Clicked = -1
+                                GOSUB RunButton_Click
                         END SELECT
                     END IF
                 END IF
