@@ -1210,7 +1210,11 @@ SUB SOURCE_VIEW
                         MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF)
                         MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF)
                         MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF)
-                        MenuSetup$ = MenuSetup$ + "&Skip this line" + CHR$(LF)
+                        IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
+                            MenuSetup$ = MenuSetup$ + "Un&skip this line" + CHR$(LF)
+                        ELSE
+                            MenuSetup$ = MenuSetup$ + "&Skip this line" + CHR$(LF)
+                        END IF
                         FOR setMenuID = 1 TO 4
                             MenuID$ = MenuID$ + MKI$(setMenuID)
                         NEXT setMenuID
