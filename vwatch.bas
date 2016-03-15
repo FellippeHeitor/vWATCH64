@@ -149,6 +149,7 @@ DIM SHARED MAINSCREEN AS LONG
 DIM SHARED MENU%
 DIM SHARED MESSAGEBOX_RESULT AS INTEGER
 DIM SHARED NEWFILENAME$
+DIM SHARED RUNTOTHISLINE AS LONG
 DIM SHARED SB_TRACK AS INTEGER
 DIM SHARED SCREEN_WIDTH AS INTEGER
 DIM SHARED SCREEN_HEIGHT AS INTEGER
@@ -162,6 +163,7 @@ DIM SHARED TTFONT AS LONG
 DIM SHARED WATCHPOINTLIST AS STRING
 DIM SHARED WATCHPOINTBREAK AS LONG
 DIM SHARED PATHSEP$
+
 
 'File structure:
 DIM SHARED HEADERBLOCK AS LONG
@@ -390,7 +392,6 @@ SUB SOURCE_VIEW
 
     STATIC SearchIn
     STATIC PrevSearchIn, PrevFilter$
-    STATIC RunToThisLine AS LONG
 
     TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -441,9 +442,9 @@ SUB SOURCE_VIEW
                 SetPause# = TIMER
                 ShowPauseIcon = -1
                 ShowRunIcon = 0
-                IF CLIENT.LINENUMBER = RunToThisLine THEN
+                IF CLIENT.LINENUMBER = RUNTOTHISLINE THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
-                    RunToThisLine = 0
+                    RUNTOTHISLINE = 0
                     FOR MultiLineToggle = CLIENT.LINENUMBER + 1 TO CLIENT.TOTALSOURCELINES
                         IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
                             ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, CLIENT.LINENUMBER)
@@ -870,6 +871,7 @@ SUB SOURCE_VIEW
                     'Print only inside the program area
                     GOSUB ColorizeList
                     IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                    IF MenuWasInvoked THEN MenuWasInvoked = 0: RETURN
                     IF SOURCECODE_COLORIZED(i) = 0 THEN ADDCOLORCODE i
                     v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                     PRINT_COLORIZED 5, printY, v$, i
@@ -886,6 +888,7 @@ SUB SOURCE_VIEW
                 'Print only inside the program area
                 GOSUB ColorizeList
                 IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+                IF MenuWasInvoked THEN MenuWasInvoked = 0: RETURN
                 IF SOURCECODE_COLORIZED(i) = 0 THEN ADDCOLORCODE i
                 v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
                 PRINT_COLORIZED 5, printY, v$, i
@@ -1070,7 +1073,7 @@ SUB SOURCE_VIEW
     '...if a breakpoint is set,...
     IF ASC(BREAKPOINTLIST, i) = 1 THEN
         BreakpointColor~& = _RGBA32(200, 0, 0, 200)
-        IF i = RunToThisLine THEN BreakpointColor~& = _RGBA32(255, 255, 0, 200): COLOR _RGB32(0, 0, 0)
+        IF i = RUNTOTHISLINE THEN BreakpointColor~& = _RGBA32(255, 255, 0, 200)
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT), BreakpointColor~&, BF
     END IF
     '...if "skip this line" is set,...
@@ -1213,6 +1216,7 @@ SUB SOURCE_VIEW
                         NEXT setMenuID
 
                         Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
+                        MenuWasInvoked = -1
                         SELECT CASE Choice
                             CASE 1
                                 'Set next statement
@@ -1238,10 +1242,10 @@ SUB SOURCE_VIEW
                             CASE 3
                                 'Run to this line
                                 IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
-                                    RunToThisLine = 0
+                                    RUNTOTHISLINE = 0
                                 ELSE
                                     ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
-                                    RunToThisLine = ContextualMenuLineRef
+                                    RUNTOTHISLINE = ContextualMenuLineRef
                                     FOR MultiLineToggle = ContextualMenuLineRef + 1 TO CLIENT.TOTALSOURCELINES
                                         IF RIGHT$(TRIM$(GETLINE$(MultiLineToggle - 1)), 1) = "_" THEN
                                             ASC(BREAKPOINTLIST, MultiLineToggle) = ASC(BREAKPOINTLIST, ContextualMenuLineRef)
@@ -1489,6 +1493,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
     DO
         Position = Position + 1
         'Lines with breakpoints, skip flags or in $CHECKING/VWATCH:OFF blocks are printed in white/gray
+        IF RUNTOTHISLINE = SourceLineNumber THEN COLOR _RGB32(0, 0, 0): GOTO ColorSet
         IF ASC(BREAKPOINTLIST, SourceLineNumber) = 1 THEN COLOR _RGB32(255, 255, 255): GOTO ColorSet
         IF ASC(BREAKPOINTLIST, SourceLineNumber) = 2 THEN COLOR _RGB32(180, 180, 180): GOTO ColorSet
         IF ASC(CHECKINGOFF_LINES, SourceLineNumber) AND Position >= LINE_TRAIL THEN COLOR _RGB32(170, 170, 170): GOTO ColorSet
@@ -1625,6 +1630,7 @@ SUB VARIABLE_VIEW
             WATCHPOINT_COMMAND.LINENUMBER = 0
             PUT #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
         END IF
+
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
@@ -1870,6 +1876,7 @@ SUB VARIABLE_VIEW
             printY = ((3 + ii) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+            IF MenuWasInvoked THEN MenuWasInvoked = 0: RETURN
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
@@ -1878,6 +1885,7 @@ SUB VARIABLE_VIEW
             printY = ((3 + i) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
+            IF MenuWasInvoked THEN MenuWasInvoked = 0: RETURN
             IF printY < SCREEN_HEIGHT THEN _PRINTSTRING (5, printY), v$ ELSE EXIT FOR
         NEXT i
     END IF
@@ -2138,6 +2146,7 @@ SUB VARIABLE_VIEW
             END IF
 
             Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
+            MenuWasInvoked = -1
             SELECT CASE Choice
                 CASE 4
                     'Clear watchpoint
@@ -2145,8 +2154,9 @@ SUB VARIABLE_VIEW
                     WATCHPOINT(ContextualMenuLineRef).EXPRESSION = ""
                 CASE 1, 2
                     'Create a watchpoint
+                    GET #FILE, DATABLOCK, VARIABLE_DATA()
                     Message$ = "Run until '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ")" + CHR$(LF)
-                    Message$ = Message$ + "meets the following condition (you can use =, <>, >, >=, <, <=):"
+                    Message$ = Message$ + "meets the following condition: (you can use =, <>, >, >=, <, <=)"
                     InitialValue$ = "=" + VARIABLE_DATA(ContextualMenuLineRef).VALUE
                     InitialSelection = 1
                     IF LEN(TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION)) > 0 THEN InitialValue$ = TRIM$(WATCHPOINT(ContextualMenuLineRef).EXPRESSION): InitialSelection = -1
@@ -6409,6 +6419,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
 
     IF LEN(MenuSetup$) = 0 THEN EXIT FUNCTION
 
+    WHILE _MOUSEBUTTON(2): mi = _MOUSEINPUT: WEND
     REDIM Choices(1 TO 1) AS MenuType
     TotalChoices = 1
     MaxLen = 30
@@ -6453,7 +6464,9 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
     DO
         _LIMIT 30
         GOSUB DrawMenu
-        WHILE _MOUSEINPUT: WEND
+        WHILE _MOUSEINPUT
+            IF _MOUSEWHEEL THEN EXIT DO
+        WEND
         mx = _MOUSEX
         my = _MOUSEY
         mb1 = _MOUSEBUTTON(1)
@@ -6478,8 +6491,11 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
         _DISPLAY
 
         'Check for click
-        IF mb1 THEN
-            WHILE _MOUSEBUTTON(1): _LIMIT 500: mi = _MOUSEINPUT: WEND
+        IF mb1 AND mb1held = 0 THEN mb1held = -1
+        IF mb1held = -1 AND mb1 = 0 THEN mb1released = -1: mb1held = 0
+
+        'Check for mouse up:
+        IF mb1released THEN
             IF mx = _MOUSEX AND my = _MOUSEY THEN
                 CheckForClick:
                 FOR i = 1 TO TotalChoices
@@ -6490,12 +6506,13 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
                             PCOPY 1, 0
                             EXIT FUNCTION
                         END IF
-                        IF k = -13 OR CheckingHotkey = -1 THEN EXIT FOR
                     END IF
                 NEXT i
-                'Click outside menu boundaries
-                PCOPY 1, 0
-                EXIT FUNCTION
+                IF mx < MenuX OR mx > MenuX + MenuW OR my < MenuY OR my > MenuY + MenuH THEN
+                    'Click outside menu boundaries
+                    PCOPY 1, 0
+                    EXIT FUNCTION
+                END IF
             END IF
         ELSEIF mb2 THEN
             IF mx < MenuX OR mx > MenuX + MenuW OR my < MenuY OR my > MenuY + MenuH THEN
@@ -6552,7 +6569,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
 
     Highlight:
     IF i < 1 OR i > TotalChoices THEN RETURN
-    LINE (MenuX, Choices(i).Y - (_FONTHEIGHT / 3))-STEP(MenuW, _FONTHEIGHT * 1.5), _RGB32(0, 178, 179), BF
+    LINE (MenuX, Choices(i).Y - (_FONTHEIGHT / 3))-STEP(MenuW, _FONTHEIGHT * 1.5), &HFF005050, BF
     IF Choices(i).Inactive THEN COLOR _RGB32(150, 150, 150) ELSE COLOR _RGB32(255, 255, 255)
     _PRINTSTRING (MenuX + _FONTWIDTH, Choices(i).Y), RTRIM$(Choices(i).Caption)
     IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
