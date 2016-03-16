@@ -1214,13 +1214,16 @@ SUB SOURCE_VIEW
                         ContextualMenu.FilteredList$ = FilteredList$
 
                         MenuSetup$ = "": MenuID$ = ""
-                        MenuSetup$ = MenuSetup$ + "Continue execution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+                        MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+                        MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
                         MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
+                        MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
                         IF TOTALBREAKPOINTS > 0 THEN
                             MenuSetup$ = MenuSetup$ + "&Clear all breakpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
                         END IF
+                        MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
                             MenuSetup$ = MenuSetup$ + "Un&skip this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(4)
                         ELSE
@@ -2164,23 +2167,19 @@ SUB VARIABLE_VIEW
 
             MenuSetup$ = "": MenuID$ = ""
             IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1 THEN
-                MenuSetup$ = MenuSetup$ + "&Edit watchpoint" + CHR$(LF)
-                MenuID$ = MenuID$ + MKI$(2)
-                MenuSetup$ = MenuSetup$ + "&Clear watchpoint for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF)
-                MenuID$ = MenuID$ + MKI$(4)
+                MenuSetup$ = MenuSetup$ + "&Edit watchpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
+                MenuSetup$ = MenuSetup$ + "&Clear watchpoint for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF): MenuID$ = MenuID$ + MKI$(4)
             ELSE
-                MenuSetup$ = MenuSetup$ + "S&et watchpoint" + CHR$(LF)
-                MenuID$ = MenuID$ + MKI$(1)
+                MenuSetup$ = MenuSetup$ + "S&et watchpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
             END IF
             IF TOTALWATCHPOINTS > 0 THEN
-                MenuSetup$ = MenuSetup$ + "Clear all &watchpoints" + CHR$(LF)
-                MenuID$ = MenuID$ + MKI$(5)
+                MenuSetup$ = MenuSetup$ + "Clear all &watchpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
             END IF
             IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                 'Can't edit variable outside scope.
             ELSE
-                MenuSetup$ = MenuSetup$ + "Edit &value of '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF)
-                MenuID$ = MenuID$ + MKI$(3)
+                MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
+                MenuSetup$ = MenuSetup$ + "Edit &value of '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
             END IF
 
             Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
@@ -6469,17 +6468,28 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
         Y AS SINGLE
     END TYPE
 
+    'Color constants
+    CONST MenuBG_COLOR = _RGB32(170, 170, 170)
+    CONST MenuBorder_COLOR = _RGB32(0, 0, 0)
+    CONST InactiveItem_COLOR = _RGB32(150, 150, 150)
+    CONST ActiveItem_COLOR = _RGB32(0, 0, 0)
+    CONST ActiveItemSelected_COLOR = _RGB32(255, 255, 255)
+    CONST Highlight_COLOR = _RGB32(0, 80, 80)
+
     DIM MenuH AS SINGLE
 
     IF LEN(MenuSetup$) = 0 THEN EXIT FUNCTION
+    IF mx < 0 THEN mx = 0
+    IF my < 0 THEN my = 0
 
     WHILE _MOUSEBUTTON(2): mi = _MOUSEINPUT: WEND
     REDIM Choices(1 TO 1) AS MenuType
-    TotalChoices = 1
-    MaxLen = 30
+    TotalChoices = 1: Separators = 0
+    MaxLen = 25
     IF INSTR(MenuSetup$, CHR$(LF)) = 0 THEN
         IF LEFT$(MenuSetup$, 1) = "~" THEN Choices(TotalChoices).Inactive = -1: MenuSetup$ = MID$(MenuSetup$, 2)
         CheckHighlight = INSTR(MenuSetup$, "&")
+        Choices(TotalChoices).Highlight = CheckHighlight
         Choices(TotalChoices).Caption = LEFT$(MenuSetup$, CheckHighlight - 1) + MID$(MenuSetup$, CheckHighlight + 1)
         IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
     ELSE
@@ -6491,6 +6501,10 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
             SELECT CASE ThisChar
                 CASE LF
                     Choices(TotalChoices).Caption = TempCaption$
+                    IF RTRIM$(Choices(TotalChoices).Caption) = "-" THEN
+                        Separators = Separators + 1
+                        Choices(TotalChoices).Inactive = -1
+                    END IF
                     IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
                     TempCaption$ = ""
                     IF LEN(MID$(MenuSetup$, Position + 1)) > 0 THEN
@@ -6509,9 +6523,9 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
         IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
     END IF
 
-    MenuW = (MaxLen + 4) * _FONTWIDTH
+    MenuW = (MaxLen + 4) * _PRINTWIDTH("W")
     IF _WIDTH - mx < MenuW THEN MenuX = _WIDTH - MenuW ELSE MenuX = mx
-    MenuH = TotalChoices * (_FONTHEIGHT * 1.5)
+    MenuH = ((TotalChoices - Separators) * (_FONTHEIGHT * 1.5)) + Separators * (_FONTHEIGHT / 2)
     IF _HEIGHT - my < MenuH THEN MenuY = _HEIGHT - MenuH ELSE MenuY = my
 
     _KEYCLEAR
@@ -6531,10 +6545,12 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
             prev.mx = mx: prev.my = my
             SelectedItem = 0
             FOR i = 1 TO TotalChoices
-                IF mx >= MenuX AND mx <= MenuX + MenuW AND my >= Choices(i).Y - (_FONTHEIGHT / 3) AND my <= Choices(i).Y + (_FONTHEIGHT * 1.5) THEN
-                    SelectedItem = i
-                    GOSUB Highlight
-                    EXIT FOR
+                IF RTRIM$(Choices(i).Caption) <> "-" THEN
+                    IF mx >= MenuX AND mx <= MenuX + MenuW AND my >= Choices(i).Y - (_FONTHEIGHT / 3) AND my <= Choices(i).Y + (_FONTHEIGHT * 1.5) THEN
+                        SelectedItem = i
+                        GOSUB Highlight
+                        EXIT FOR
+                    END IF
                 END IF
             NEXT i
         ELSE
@@ -6555,8 +6571,17 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
                 FOR i = 1 TO TotalChoices
                     IF mx >= MenuX AND mx <= MenuX + MenuW AND my >= Choices(i).Y - (_FONTHEIGHT / 3) AND my <= Choices(i).Y + (_FONTHEIGHT * 1.5) THEN
                         ForceCheckForClick:
+                        IF i = 0 THEN
+                            'Enter is pressed while no choice is highlighted
+                            PCOPY 1, 0
+                            EXIT FUNCTION
+                        END IF
                         IF Choices(i).Inactive = 0 THEN
-                            SHOWMENU = CVI(MID$(MenuID$, i * 2 - 1, 2))
+                            IF LEN(MenuID$) THEN
+                                SHOWMENU = CVI(MID$(MenuID$, i * 2 - 1, 2))
+                            ELSE
+                                SHOWMENU = i
+                            END IF
                             PCOPY 1, 0
                             EXIT FUNCTION
                         END IF
@@ -6567,6 +6592,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
                     PCOPY 1, 0
                     EXIT FUNCTION
                 END IF
+                mb1released = 0
             END IF
         ELSEIF mb2 THEN
             IF mx < MenuX OR mx > MenuX + MenuW OR my < MenuY OR my > MenuY + MenuH THEN
@@ -6580,19 +6606,23 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
         k = _KEYHIT
         IF k = -13 THEN i = SelectedItem: GOTO ForceCheckForClick
         IF k = 20480 THEN 'Down arrow key
-            SelectedItem = SelectedItem + 1
-            IF SelectedItem > TotalChoices THEN SelectedItem = 1
-            i = SelectedItem
+            DO
+                SelectedItem = SelectedItem + 1
+                IF SelectedItem > TotalChoices THEN SelectedItem = 1
+                i = SelectedItem
+            LOOP WHILE RTRIM$(Choices(i).Caption) = "-"
             GOSUB Highlight
         ELSEIF k = 18432 THEN 'Up arrow key
-            SelectedItem = SelectedItem - 1
-            IF SelectedItem < 1 THEN SelectedItem = TotalChoices
-            i = SelectedItem
+            DO
+                SelectedItem = SelectedItem - 1
+                IF SelectedItem < 1 THEN SelectedItem = TotalChoices
+                i = SelectedItem
+            LOOP WHILE RTRIM$(Choices(i).Caption) = "-"
             GOSUB Highlight
         END IF
 
         'Check hotkey presses
-        IF (k >= 65 AND k <= 90) OR (k >= 97 AND k <= 122) THEN
+        IF (k >= 65 AND k <= 90) OR (k >= 97 AND k <= 122) OR (k >= 48 AND k <= 57) THEN
             FOR i = 1 TO TotalChoices
                 IF UCASE$(CHR$(k)) = UCASE$(MID$(Choices(i).Caption, Choices(i).Highlight, 1)) THEN
                     GOTO ForceCheckForClick
@@ -6604,28 +6634,42 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
     _KEYCLEAR
     PCOPY 1, 0
     EXIT FUNCTION
+
     DrawMenu:
     PCOPY 1, 0
-    LINE (MenuX, MenuY)-STEP(MenuW, MenuH), _RGB32(170, 170, 170), BF
-    LINE (MenuX - 1, MenuY - 1)-STEP(MenuW + 2, MenuH + 2), _RGB32(0, 0, 0), B
+    LINE (MenuX, MenuY)-STEP(MenuW, MenuH), MenuBG_COLOR, BF
+    LINE (MenuX - 1, MenuY - 1)-STEP(MenuW + 2, MenuH + 2), MenuBorder_COLOR, B
     COLOR , _RGBA32(0, 0, 0, 0)
     FOR i = 1 TO TotalChoices
-        IF Choices(i).Inactive THEN COLOR _RGB32(150, 150, 150) ELSE COLOR _RGB32(0, 0, 0)
-        Choices(i).Y = MenuY + (_FONTHEIGHT / 3) + ((_FONTHEIGHT * 1.5) * (i - 1))
-        _PRINTSTRING (MenuX + _FONTWIDTH, Choices(i).Y), RTRIM$(Choices(i).Caption)
+        IF i = 1 THEN
+            Choices(i).Y = MenuY + (_FONTHEIGHT / 3)
+        ELSE
+            Choices(i).Y = Choices(i - 1).Y + ((_FONTHEIGHT * 1.5))
+        END IF
+        IF AfterSeparator THEN Choices(i).Y = Choices(i).Y - (_FONTHEIGHT)
+        IF RTRIM$(Choices(i).Caption) = "-" THEN
+            LINE (MenuX, Choices(i).Y - (_FONTHEIGHT * .1))-STEP(MenuW, 0), MenuBorder_COLOR
+            AfterSeparator = -1
+        ELSE
+            IF Choices(i).Inactive THEN COLOR InactiveItem_COLOR ELSE COLOR ActiveItem_COLOR
+            _PRINTSTRING (MenuX + _PRINTWIDTH("W"), Choices(i).Y), RTRIM$(Choices(i).Caption)
+            AfterSeparator = 0
+        END IF
         IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
-            LINE (MenuX + (_FONTWIDTH * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_FONTWIDTH, 0), _RGB32(0, 0, 0)
+            LINE (MenuX + (_PRINTWIDTH("W") * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_PRINTWIDTH("W"), 0), ActiveItem_COLOR
         END IF
     NEXT
     RETURN
 
     Highlight:
     IF i < 1 OR i > TotalChoices THEN RETURN
-    LINE (MenuX, Choices(i).Y - (_FONTHEIGHT / 3))-STEP(MenuW, _FONTHEIGHT * 1.5), &HFF005050, BF
-    IF Choices(i).Inactive THEN COLOR _RGB32(150, 150, 150) ELSE COLOR _RGB32(255, 255, 255)
-    _PRINTSTRING (MenuX + _FONTWIDTH, Choices(i).Y), RTRIM$(Choices(i).Caption)
+    IF RTRIM$(Choices(i).Caption) <> "-" THEN
+        LINE (MenuX, Choices(i).Y - (_FONTHEIGHT / 3))-STEP(MenuW, _FONTHEIGHT * 1.5), Highlight_COLOR, BF
+        IF Choices(i).Inactive THEN COLOR InactiveItem_COLOR ELSE COLOR ActiveItemSelected_COLOR
+        _PRINTSTRING (MenuX + _PRINTWIDTH("W"), Choices(i).Y), RTRIM$(Choices(i).Caption)
+    END IF
     IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
-        LINE (MenuX + (_FONTWIDTH * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_FONTWIDTH, 0), _RGB32(255, 255, 255)
+        LINE (MenuX + (_PRINTWIDTH("W") * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_PRINTWIDTH("W"), 0), ActiveItemSelected_COLOR
     END IF
     RETURN
 END FUNCTION
