@@ -189,11 +189,9 @@ DIM SHARED SetPause#, SetRun#, ShowPauseIcon, ShowRunIcon
 
 'Switches:
 DIM SHARED DONTCOMPILE AS _BIT
-DIM SHARED FIRSTPROCESSING AS _BIT
 DIM SHARED NO_TTFONT AS _BIT
 DIM SHARED STEPMODE AS _BIT
 DIM SHARED SKIPARRAYS AS _BIT
-DIM SHARED TIMED_OUT AS _BIT
 DIM SHARED USERQUIT AS _BIT
 DIM SHARED CLOSE_SESSION AS _BIT
 DIM SHARED DEBUGGEE_CLOSED AS _BIT
@@ -220,7 +218,6 @@ SET_OPTIONBASE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
 NO_TTFONT = 0
-FIRSTPROCESSING = -1
 VARIABLE_HIGHLIGHT = -1
 SCREEN_WIDTH = DEFAULT_WIDTH
 SCREEN_HEIGHT = DEFAULT_HEIGHT
@@ -272,10 +269,10 @@ $END IF
 IF LEN(COMMAND$) THEN
     IF _COMMANDCOUNT = 1 AND NO_TTFONT = 0 THEN
         IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", MKI$(OK_ONLY), 1, 0)
-        NEWFILENAME$ = "": FIRSTPROCESSING = 0
+        NEWFILENAME$ = ""
     ELSEIF _COMMANDCOUNT > 1 THEN
         IF _FILEEXISTS(COMMAND$(1)) THEN FILENAME$ = COMMAND$(1): PROCESSFILE ELSE MESSAGEBOX_RESULT = MESSAGEBOX(ID, "File not found.", MKI$(OK_ONLY), 1, 0)
-        NEWFILENAME$ = "": FIRSTPROCESSING = 0
+        NEWFILENAME$ = ""
     END IF
 END IF
 
@@ -298,7 +295,6 @@ NEXT i
 SET_OPTIONBASE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
-FIRSTPROCESSING = 0
 
 IF _FILEEXISTS(FILENAME$) THEN PROCESSFILE
 NEWFILENAME$ = ""
@@ -415,7 +411,6 @@ SUB SOURCE_VIEW
     STEPMODE = -1
     TRACE = -1
     _KEYCLEAR
-    TIMED_OUT = 0
     CLOSE_SESSION = 0
     DEBUGGEE_CLOSED = 0
 
@@ -474,7 +469,7 @@ SUB SOURCE_VIEW
 
         IF _EXIT THEN USERQUIT = -1
         SEND_PING
-    LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR TIMED_OUT OR CLOSE_SESSION OR DEBUGGEE_CLOSED
+    LOOP UNTIL HEADER.CONNECTED = 0 OR USERQUIT OR CLOSE_SESSION OR DEBUGGEE_CLOSED
 
     EndMessage:
     IF CLOSE_SESSION OR USERQUIT THEN
@@ -493,11 +488,9 @@ SUB SOURCE_VIEW
 
     IF HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED THEN
         EndMessage$ = "Connection closed by client."
-    ELSEIF TIMED_OUT THEN
-        EndMessage$ = "Connection timed out."
     END IF
 
-    IF HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED OR TIMED_OUT THEN
+    IF HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED THEN
         MESSAGEBOX_RESULT = MESSAGEBOX(ID, EndMessage$, MKI$(OK_ONLY), 1, -1)
     END IF
     EXIT SUB
@@ -726,6 +719,7 @@ SUB SOURCE_VIEW
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                 ELSE
+                    IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 2 THEN TOTALSKIPLINES = TOTALSKIPLINES - 1
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 END IF
@@ -740,6 +734,7 @@ SUB SOURCE_VIEW
                 FOR setAll = 1 TO LEN(FilteredList$) / 4
                     which_Line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
                     IF ASC(BREAKPOINTLIST, which_Line) = 0 AND LEN(STRIPCOMMENTS$(GETLINE$(which_Line))) THEN
+                        IF ASC(BREAKPOINTLIST, which_Line) = 2 THEN TOTALSKIPLINES = TOTALSKIPLINES - 1
                         ASC(BREAKPOINTLIST, which_Line) = 1
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                         FOR MultiLineToggle = which_Line + 1 TO CLIENT.TOTALSOURCELINES
@@ -1176,10 +1171,13 @@ SUB SOURCE_VIEW
     END IF
 
     'Turn on contextual options if right mouse click and while in step mode.
-    IF mb2 = -1 AND STEPMODE = -1 THEN
+    IF mb2 = -1 THEN
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb2 = 0
+
+        IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click
+
         temp.SourceLine$ = UCASE$(STRIPCOMMENTS$(TRIM$(SourceLine)))
         e1$ = GETELEMENT$(temp.SourceLine$, 1)
         e2$ = GETELEMENT$(temp.SourceLine$, 2)
@@ -1188,23 +1186,52 @@ SUB SOURCE_VIEW
 
         SELECT CASE e1$
             CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
-                GOSUB TurnOnNonexecutableMessage
+                GenericContextualMenu:
+                IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
+                    'Set contextual menu with global options only
+                    MenuSetup$ = "": MenuID$ = ""
+                    MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+                    IF TOTALBREAKPOINTS > 0 THEN
+                        MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
+                        MenuSetup$ = MenuSetup$ + "&Clear all breakpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
+                    END IF
+                    IF TOTALSKIPLINES > 0 THEN
+                        MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
+                        MenuSetup$ = MenuSetup$ + "Unskip all &lines" + CHR$(LF): MenuID$ = MenuID$ + MKI$(6)
+                    END IF
+
+                    Choice = SHOWMENU(MenuSetup$, MenuID$, mx, my)
+                    MenuWasInvoked = -1
+                    SELECT CASE Choice
+                        CASE 5
+                            Clicked = -1
+                            GOSUB ClearButton_Click
+                        CASE 6
+                            TOTALSKIPLINES = 0
+                            FOR clear.SL = 1 TO CLIENT.TOTALSOURCELINES
+                                IF ASC(BREAKPOINTLIST, clear.SL) = 2 THEN ASC(BREAKPOINTLIST, clear.SL) = 0
+                            NEXT clear.SL
+                        CASE 7
+                            Clicked = -1
+                            GOSUB RunButton_Click
+                    END SELECT
+                END IF
             CASE "END"
                 IF e2$ = "DECLARE" THEN
-                    GOSUB TurnOnNonexecutableMessage
+                    GOTO GenericContextualMenu
                 ELSE
                     GOTO EndAllowed2
                 END IF
             CASE ELSE
                 EndAllowed2:
                 IF LEN(temp.SourceLine$) = 0 THEN
-                    GOSUB TurnOnNonexecutableMessage
+                    GOSUB GenericContextualMenu
                 ELSEIF LEFT$(temp.SourceLine$, 1) = "$" OR LEFT$(temp.SourceLine$, 1) = CHR$(1) THEN
-                    GOSUB TurnOnNonexecutableMessage
+                    GOSUB GenericContextualMenu
                 ELSEIF RIGHT$(PrevDesiredSourceLine$, 1) = "_" THEN
-                    GOSUB TurnOnNonexecutableMessage
+                    GOSUB GenericContextualMenu
                 ELSEIF ASC(CHECKINGOFF_LINES, i) THEN
-                    GOSUB TurnOnNonexecutableMessage
+                    GOSUB GenericContextualMenu
                 ELSE
                     IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
                         'Set contextual menu coordinates relative to this item
@@ -1216,8 +1243,13 @@ SUB SOURCE_VIEW
                         MenuSetup$ = "": MenuID$ = ""
                         MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
                         MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
-                        MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
-                        MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
+                        IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
+                            MenuSetup$ = MenuSetup$ + "~Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
+                            MenuSetup$ = MenuSetup$ + "~&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
+                        ELSE
+                            MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
+                            MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
+                        END IF
                         MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
                         IF TOTALBREAKPOINTS > 0 THEN
@@ -1247,6 +1279,7 @@ SUB SOURCE_VIEW
                                     ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
                                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                                 ELSE
+                                    IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN TOTALSKIPLINES = TOTALSKIPLINES - 1
                                     ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
                                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                                 END IF
@@ -1666,7 +1699,7 @@ SUB VARIABLE_VIEW
         GOSUB UpdateList
 
         IF _EXIT THEN USERQUIT = -1
-    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW OR TIMED_OUT OR HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED
+    LOOP UNTIL USERQUIT OR CLOSE_SESSION OR SWITCH_VIEW OR HEADER.CONNECTED = 0 OR DEBUGGEE_CLOSED
 
     EXIT SUB
     ProcessInput:
@@ -2153,10 +2186,13 @@ SUB VARIABLE_VIEW
     END IF
 
     'Turn on contextual options if right mouse click and while in step mode.
-    IF mb2 AND STEPMODE THEN
+    IF mb2 THEN
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb2 = 0
+
+        IF STEPMODE = 0 THEN Clicked = -1: GOSUB StepButton_Click
+
         IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
             'Set contextual menu coordinates relative to this item
             ShowPopupWatchpoint = 0
@@ -2166,6 +2202,8 @@ SUB VARIABLE_VIEW
             ContextualMenu.FilteredList$ = FilteredList$
 
             MenuSetup$ = "": MenuID$ = ""
+            MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+            MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
             IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1 THEN
                 MenuSetup$ = MenuSetup$ + "&Edit watchpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
                 MenuSetup$ = MenuSetup$ + "&Clear watchpoint for '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "'" + CHR$(LF): MenuID$ = MenuID$ + MKI$(4)
@@ -2311,6 +2349,9 @@ SUB VARIABLE_VIEW
                         END IF
                         IF DoubleClick THEN RETURN
                     END IF
+                CASE 7
+                    Clicked = -1
+                    GOSUB RunButton_Click
             END SELECT
         END IF
     END IF
@@ -2761,7 +2802,6 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
     DIM insc1%, insc2%
     DIM FoundInclude AS _BIT
     DIM InclResult AS INTEGER
-    STATIC CurrDir$
 
     IF _FILEEXISTS(f$) THEN
         c% = FREEFILE
@@ -5058,7 +5098,6 @@ SUB SETUP_CONNECTION
                 IF (mx < Buttons(cb).X) OR (mx > Buttons(cb).X + Buttons(cb).W) THEN RETURN
                 IF INSTR(Buttons(cb).CAPTION, ".BAS") THEN MENU% = 101: RETURN
                 IF INSTR(Buttons(cb).CAPTION, "ESC=") THEN MENU% = 102: RETURN
-                IF INSTR(Buttons(cb).CAPTION, "$INCLUDE") THEN MENU% = 103: RETURN
                 SYSTEM_BEEP 0 'in case a button was added but not yet assigned
                 RETURN
             END IF
@@ -6469,7 +6508,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
     END TYPE
 
     'Color constants
-    CONST MenuBG_COLOR = _RGB32(170, 170, 170)
+    CONST MenuBG_COLOR = _RGB32(190, 190, 190)
     CONST MenuBorder_COLOR = _RGB32(0, 0, 0)
     CONST InactiveItem_COLOR = _RGB32(150, 150, 150)
     CONST ActiveItem_COLOR = _RGB32(0, 0, 0)
