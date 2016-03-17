@@ -1489,8 +1489,8 @@ SUB ADDCOLORCODE (SourceLineNumber)
         'Check if it's a SUB/FUNCTION
         IF ColorCode$ = "" THEN
             FOR j = 1 TO UBOUND(SUBFUNC)
-                ThisKW$ = UCASE$(TRIM$(SUBFUNC(j).NAME))
-                IF a$ = ThisKW$ THEN
+                ThisKW$ = REMOVESIGIL$(UCASE$(TRIM$(SUBFUNC(j).NAME)))
+                IF REMOVESIGIL$(a$) = ThisKW$ THEN
                     IF Start < CommentStart AND InQuote = 0 THEN
                         ColorCode$ = CHR$(5)
                         GOSUB AddThisColorCode
@@ -4639,6 +4639,27 @@ FUNCTION TRUNCATE$ (Text$, Char)
 END FUNCTION
 
 '------------------------------------------------------------------------------
+FUNCTION REMOVESIGIL$ (Var AS STRING)
+    IsUnsigned = INSTR(Var, "~")
+    IF IsUnsigned > 0 THEN Temp$ = LEFT$(Var, IsUnsigned - 1): GOTO Done
+
+    ThisVarSuffix$ = SUFFIXLOOKUP(Var)
+    IF ThisVarSuffix$ = "" THEN Temp$ = Var: GOTO Done
+    SELECT CASE ThisVarSuffix$
+        CASE "INTEGER", "LONG", "SINGLE", "DOUBLE"
+            Temp$ = LEFT$(Var, LEN(Var) - 1)
+        CASE "STRING"
+            Temp$ = LEFT$(Var, INSTR(Var, "$") - 1)
+        CASE "_BIT"
+            Temp$ = LEFT$(Var, INSTR(Var, "`") - 1)
+        CASE "_BYTE", "_INTEGER64", "_FLOAT"
+            Temp$ = LEFT$(Var, LEN(Var) - 2)
+    END SELECT
+    Done:
+    REMOVESIGIL$ = Temp$
+END FUNCTION
+
+'------------------------------------------------------------------------------
 FUNCTION SUFFIXLOOKUP$ (Var AS STRING)
     DIM VarBKP AS STRING
 
@@ -6676,6 +6697,22 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
 
     DrawMenu:
     PCOPY 1, 0
+
+    IF ShowPauseIcon THEN
+        PauseFadeStep# = TIMER - SetPause#
+        IF (PauseFadeStep# <= .75) THEN
+            PauseIconBar.W = 30
+            PauseIconBar.H = 100
+            PauseIcon.X = _WIDTH / 2 - (PauseIconBar.W * 2.5) / 2
+            PauseIcon.Y = _HEIGHT / 2 - PauseIconBar.H / 2
+
+            LINE (PauseIcon.X, PauseIcon.Y)-STEP(PauseIconBar.W - 1, PauseIconBar.H - 1), _RGBA32(0, 178, 179, 255 - (340 * PauseFadeStep#)), BF
+            LINE (PauseIcon.X + (PauseIconBar.W * 1.5), PauseIcon.Y)-STEP(PauseIconBar.W - 1, PauseIconBar.H - 1), _RGBA32(0, 178, 179, 255 - (340 * PauseFadeStep#)), BF
+        ELSE
+            ShowPauseIcon = 0
+        END IF
+    END IF
+
     LINE (MenuX, MenuY)-STEP(MenuW, MenuH), MenuBG_COLOR, BF
     LINE (MenuX - 1, MenuY - 1)-STEP(MenuW + 2, MenuH + 2), MenuBorder_COLOR, B
     COLOR , _RGBA32(0, 0, 0, 0)
