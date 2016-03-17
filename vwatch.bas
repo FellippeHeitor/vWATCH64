@@ -695,11 +695,13 @@ SUB SOURCE_VIEW
             IF shiftDown THEN
                 IF SOURCECODE_COLORIZED(CLIENT.LINENUMBER) = 0 THEN ADDCOLORCODE CLIENT.LINENUMBER
                 IF INSTR(SOURCECODE(CLIENT.LINENUMBER), CHR$(5)) > 0 THEN
+                    StepOverMenu_Click:
                     IF STEPMODE = 0 THEN SetPause# = TIMER: ShowPauseIcon = -1: ShowRunIcon = 0
                     STEPMODE = -1
                     TRACE = -1
                     BREAKPOINT.ACTION = SKIPSUB
                     PUT #FILE, BREAKPOINTBLOCK, BREAKPOINT
+                    IF Clicked THEN Clicked = 0: RETURN
                 ELSE
                     GOTO NormalF8
                 END IF
@@ -1249,6 +1251,9 @@ SUB SOURCE_VIEW
                         ELSE
                             MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
                             MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
+                            IF INSTR(SOURCECODE(ContextualMenuLineRef), CHR$(5)) > 0 AND CLIENT.LINENUMBER = ContextualMenuLineRef THEN
+                                MenuSetup$ = MenuSetup$ + "Step &over" + CHR$(LF): MenuID$ = MenuID$ + MKI$(8)
+                            END IF
                         END IF
                         MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
@@ -1336,6 +1341,9 @@ SUB SOURCE_VIEW
                             CASE 7
                                 Clicked = -1
                                 GOSUB RunButton_Click
+                            CASE 8
+                                Clicked = -1
+                                GOSUB StepOverMenu_Click
                         END SELECT
                     END IF
                 END IF
