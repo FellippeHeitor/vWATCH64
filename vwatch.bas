@@ -138,8 +138,9 @@ DIM SHARED EXCHANGEDATASIZE$4
 DIM SHARED EXCHANGEDATA AS STRING
 DIM SHARED FILE AS INTEGER
 DIM SHARED FILENAME$
-DIM SHARED FILEERRORRAISED AS _BIT
-DIM SHARED CONVERSIONERRORRAISED AS _BIT
+DIM SHARED FILEERRORRAISED AS _BYTE
+DIM SHARED FIRSTEXECUTION AS _BYTE
+DIM SHARED CONVERSIONERRORRAISED AS _BYTE
 DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LIST_AREA AS INTEGER
@@ -188,15 +189,15 @@ DIM SHARED HEADER AS HEADERTYPE
 DIM SHARED SetPause#, SetRun#, ShowPauseIcon, ShowRunIcon
 
 'Switches:
-DIM SHARED DONTCOMPILE AS _BIT
-DIM SHARED NO_TTFONT AS _BIT
-DIM SHARED STEPMODE AS _BIT
-DIM SHARED SKIPARRAYS AS _BIT
-DIM SHARED USERQUIT AS _BIT
-DIM SHARED CLOSE_SESSION AS _BIT
-DIM SHARED DEBUGGEE_CLOSED AS _BIT
-DIM SHARED TRACE AS _BIT
-DIM SHARED VARIABLE_HIGHLIGHT AS _BIT
+DIM SHARED DONTCOMPILE AS _BYTE
+DIM SHARED NO_TTFONT AS _BYTE
+DIM SHARED STEPMODE AS _BYTE
+DIM SHARED SKIPARRAYS AS _BYTE
+DIM SHARED USERQUIT AS _BYTE
+DIM SHARED CLOSE_SESSION AS _BYTE
+DIM SHARED DEBUGGEE_CLOSED AS _BYTE
+DIM SHARED TRACE AS _BYTE
+DIM SHARED VARIABLE_HIGHLIGHT AS _BYTE
 
 'Dynamic arrays:
 REDIM SHARED QB64KEYWORDS(0) AS STRING
@@ -413,6 +414,7 @@ SUB SOURCE_VIEW
     _KEYCLEAR
     CLOSE_SESSION = 0
     DEBUGGEE_CLOSED = 0
+    FIRSTEXECUTION = -1
 
     DO: _LIMIT 500
         GOSUB ProcessInput
@@ -478,6 +480,7 @@ SUB SOURCE_VIEW
         CLOSE #FILE
         ON ERROR GOTO FileError
         DO WHILE _FILEEXISTS(_CWD$ + PATHSEP$ + "vwatch64.dat")
+            _LIMIT 10
             KILL _CWD$ + PATHSEP$ + "vwatch64.dat"
         LOOP
         ON ERROR GOTO 0
@@ -662,6 +665,7 @@ SUB SOURCE_VIEW
             TRACE = 0
         CASE 16128 'F5
             RunButton_Click:
+            FIRSTEXECUTION = 0
             IF WATCHPOINTBREAK > 0 THEN
                 IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
                     Message$ = "Execution was halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
@@ -692,6 +696,7 @@ SUB SOURCE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
+            FIRSTEXECUTION = 0
             IF shiftDown THEN
                 IF SOURCECODE_COLORIZED(CLIENT.LINENUMBER) = 0 THEN ADDCOLORCODE CLIENT.LINENUMBER
                 IF INSTR(SOURCECODE(CLIENT.LINENUMBER), CHR$(5)) > 0 THEN
@@ -1243,13 +1248,13 @@ SUB SOURCE_VIEW
                         ContextualMenu.FilteredList$ = FilteredList$
 
                         MenuSetup$ = "": MenuID$ = ""
-                        MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+                        MenuSetup$ = MenuSetup$ + IIFSTR$(FIRSTEXECUTION, "R&un", "Contin&ue") + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
                         MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
                             MenuSetup$ = MenuSetup$ + "~Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
                             MenuSetup$ = MenuSetup$ + "~&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
                         ELSE
-                            MenuSetup$ = MenuSetup$ + "Set &next statement" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
+                            MenuSetup$ = MenuSetup$ + "Set &next statement (line " + TRIM$(STR$(ContextualMenuLineRef)) + ")" + CHR$(LF): MenuID$ = MenuID$ + MKI$(1)
                             MenuSetup$ = MenuSetup$ + "&Run to this line" + CHR$(LF): MenuID$ = MenuID$ + MKI$(3)
                             IF INSTR(SOURCECODE(ContextualMenuLineRef), CHR$(5)) > 0 AND CLIENT.LINENUMBER = ContextualMenuLineRef THEN
                                 MenuSetup$ = MenuSetup$ + "Step &over" + CHR$(LF): MenuID$ = MenuID$ + MKI$(8)
@@ -1767,6 +1772,7 @@ SUB VARIABLE_VIEW
             END IF
         CASE 16128 'F5
             RunButton_Click:
+            FIRSTEXECUTION = 0
             IF WATCHPOINTBREAK > 0 THEN
                 IF ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 1 THEN
                     Message$ = "Execution was halted on a watchpoint (" + TRIM$(VARIABLES(WATCHPOINTBREAK).NAME) + TRIM$(WATCHPOINT(WATCHPOINTBREAK).EXPRESSION) + ")" + CHR$(LF)
@@ -1794,6 +1800,7 @@ SUB VARIABLE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 16896 'F8
             StepButton_Click:
+            FIRSTEXECUTION = 0
             IF shiftDown THEN
                 IF SOURCECODE_COLORIZED(CLIENT.LINENUMBER) = 0 THEN ADDCOLORCODE CLIENT.LINENUMBER
                 IF INSTR(SOURCECODE(CLIENT.LINENUMBER), CHR$(5)) > 0 THEN
@@ -2210,7 +2217,7 @@ SUB VARIABLE_VIEW
             ContextualMenu.FilteredList$ = FilteredList$
 
             MenuSetup$ = "": MenuID$ = ""
-            MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+            MenuSetup$ = MenuSetup$ + IIFSTR$(FIRSTEXECUTION, "R&un", "Contin&ue") + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
             MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
             IF ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 1 THEN
                 MenuSetup$ = MenuSetup$ + "&Edit watchpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
@@ -2808,7 +2815,7 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
     'OpenInclude adapted from codeguy's routines found in
     'http://www.qb64.net/forum/index.php?topic=1565.msg17025#msg17025
     DIM insc1%, insc2%
-    DIM FoundInclude AS _BIT
+    DIM FoundInclude AS _BYTE
     DIM InclResult AS INTEGER
 
     IF _FILEEXISTS(f$) THEN
@@ -2877,21 +2884,21 @@ SUB PROCESSFILE
     'in order to generate a compatible vWATCH64 client.
 
     DIM CHECKSUM AS STRING * 8
-    DIM CheckingOff AS _BIT
-    DIM DeclaringLibrary AS _BIT
-    DIM DefaultTypeUsed AS _BIT
-    DIM DefiningType AS _BIT
+    DIM CheckingOff AS _BYTE
+    DIM DeclaringLibrary AS _BYTE
+    DIM DefaultTypeUsed AS _BYTE
+    DIM DefiningType AS _BYTE
     DIM FoundType AS STRING
-    DIM InBetweenSubs AS _BIT
-    DIM IsArray AS _BIT
-    DIM LocalVariable AS _BIT
-    DIM MULTILINE AS _BIT
-    DIM MULTILINE_DIM AS _BIT
+    DIM InBetweenSubs AS _BYTE
+    DIM IsArray AS _BYTE
+    DIM LocalVariable AS _BYTE
+    DIM MULTILINE AS _BYTE
+    DIM MULTILINE_DIM AS _BYTE
     DIM MainModule AS _BYTE
     DIM MainModuleEND AS LONG
     DIM NextVar$
     DIM OutputFile AS INTEGER
-    DIM PrecompilerBlock AS _BIT
+    DIM PrecompilerBlock AS _BYTE
     DIM ProcessLine AS LONG
     DIM ProcessStepDescription AS STRING
     DIM SourceLine AS STRING
@@ -3760,7 +3767,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "DIM SHARED vwatch64_WATCHPOINTEXPBLOCK AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADER AS vwatch64_HEADERTYPE"
     PRINT #OutputFile, "DIM SHARED vwatch64_HEADERBLOCK AS LONG"
-    PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BIT"
+    PRINT #OutputFile, "DIM SHARED vwatch64_USERQUIT AS _BYTE"
     PRINT #OutputFile, "DIM SHARED vwatch64_NEXTLINE AS LONG"
     PRINT #OutputFile, "DIM SHARED vwatch64_SUBLEVEL AS INTEGER"
     PRINT #OutputFile, "DIM SHARED vwatch64_TARGETVARINDEX AS LONG"
@@ -4104,9 +4111,9 @@ SUB PROCESSFILE
         PRINT #OutputFile, ""
     END IF
     PRINT #OutputFile, "FUNCTION vwatch64_CHECKBREAKPOINT&(LineNumber AS LONG)"
-    PRINT #OutputFile, "    STATIC FirstRunDone AS _BIT"
-    PRINT #OutputFile, "    STATIC StepMode AS _BIT"
-    PRINT #OutputFile, "    STATIC StepAround AS _BIT"
+    PRINT #OutputFile, "    STATIC FirstRunDone AS _BYTE"
+    PRINT #OutputFile, "    STATIC StepMode AS _BYTE"
+    PRINT #OutputFile, "    STATIC StepAround AS _BYTE"
     PRINT #OutputFile, "    STATIC StartLevel AS INTEGER"
     PRINT #OutputFile, "    DIM k AS LONG"
     PRINT #OutputFile, ""
@@ -4745,7 +4752,7 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
     STATIC LastLine AS LONG
     STATIC LastSF$
     STATIC Position%
-    STATIC EndOfStatement AS _BIT
+    STATIC EndOfStatement AS _BYTE
 
     IF LEN(Text$) = 0 THEN EXIT FUNCTION
 
@@ -4810,7 +4817,7 @@ END FUNCTION
 
 '------------------------------------------------------------------------------
 SUB SETUP_CONNECTION
-    DIM InsideCheckingOffBlock AS _BIT
+    DIM InsideCheckingOffBlock AS _BYTE
     DIM TotalSourceLines AS LONG
 
     _KEYCLEAR 'Clears the keyboard buffer
@@ -6591,7 +6598,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
         IF LEN(RTRIM$(Choices(TotalChoices).Caption)) > MaxLen THEN MaxLen = LEN(RTRIM$(Choices(TotalChoices).Caption))
     END IF
 
-    MenuW = (MaxLen + 4) * _PRINTWIDTH("W")
+    MenuW = (MaxLen + 6) * _PRINTWIDTH("W")
     IF _WIDTH - mx < MenuW THEN MenuX = _WIDTH - MenuW ELSE MenuX = mx
     MenuH = ((TotalChoices - Separators) * (_FONTHEIGHT * 1.5)) + Separators * (_FONTHEIGHT / 2)
     IF _HEIGHT - my < MenuH THEN MenuY = _HEIGHT - MenuH ELSE MenuY = my
@@ -6736,11 +6743,11 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
             AfterSeparator = -1
         ELSE
             IF Choices(i).Inactive THEN COLOR InactiveItem_COLOR ELSE COLOR ActiveItem_COLOR
-            _PRINTSTRING (MenuX + _PRINTWIDTH("W"), Choices(i).Y), RTRIM$(Choices(i).Caption)
+            _PRINTSTRING (MenuX + (_PRINTWIDTH("W") * 3), Choices(i).Y), RTRIM$(Choices(i).Caption)
             AfterSeparator = 0
         END IF
         IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
-            LINE (MenuX + (_PRINTWIDTH("W") * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_PRINTWIDTH("W"), 0), ActiveItem_COLOR
+            LINE (MenuX + (_PRINTWIDTH("W") * (Choices(i).Highlight + 2)), Choices(i).Y + _FONTHEIGHT)-STEP(_PRINTWIDTH("W"), 0), ActiveItem_COLOR
         END IF
     NEXT
     RETURN
@@ -6750,10 +6757,10 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
     IF RTRIM$(Choices(i).Caption) <> "-" THEN
         LINE (MenuX, Choices(i).Y - (_FONTHEIGHT / 3))-STEP(MenuW, _FONTHEIGHT * 1.5), Highlight_COLOR, BF
         IF Choices(i).Inactive THEN COLOR InactiveItem_COLOR ELSE COLOR ActiveItemSelected_COLOR
-        _PRINTSTRING (MenuX + _PRINTWIDTH("W"), Choices(i).Y), RTRIM$(Choices(i).Caption)
+        _PRINTSTRING (MenuX + (_PRINTWIDTH("W") * 3), Choices(i).Y), RTRIM$(Choices(i).Caption)
     END IF
     IF Choices(i).Inactive = 0 AND Choices(i).Highlight > 0 THEN
-        LINE (MenuX + (_PRINTWIDTH("W") * Choices(i).Highlight), Choices(i).Y + _FONTHEIGHT)-STEP(_PRINTWIDTH("W"), 0), ActiveItemSelected_COLOR
+        LINE (MenuX + (_PRINTWIDTH("W") * (Choices(i).Highlight + 2)), Choices(i).Y + _FONTHEIGHT)-STEP(_PRINTWIDTH("W"), 0), ActiveItemSelected_COLOR
     END IF
     RETURN
 END FUNCTION
