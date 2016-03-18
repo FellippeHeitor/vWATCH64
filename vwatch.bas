@@ -6601,7 +6601,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
     MenuW = (MaxLen + 6) * _PRINTWIDTH("W")
     IF _WIDTH - mx < MenuW THEN MenuX = _WIDTH - MenuW ELSE MenuX = mx
     MenuH = ((TotalChoices - Separators) * (_FONTHEIGHT * 1.5)) + Separators * (_FONTHEIGHT / 2)
-    IF _HEIGHT - my < MenuH THEN MenuY = _HEIGHT - MenuH ELSE MenuY = my
+    IF _HEIGHT - my < MenuH THEN MenuY = my - MenuH ELSE MenuY = my
 
     _KEYCLEAR
     DO
@@ -6704,6 +6704,7 @@ FUNCTION SHOWMENU (MenuSetup$, MenuID$, mx, my)
                 END IF
             NEXT i
         END IF
+        IF _EXIT THEN USERQUIT = -1: EXIT DO
     LOOP UNTIL k = -27
 
     _KEYCLEAR
