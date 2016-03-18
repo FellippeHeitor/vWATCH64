@@ -1197,7 +1197,7 @@ SUB SOURCE_VIEW
                 IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
                     'Set contextual menu with global options only
                     MenuSetup$ = "": MenuID$ = ""
-                    MenuSetup$ = MenuSetup$ + "Continue e&xecution (run)" + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
+                    MenuSetup$ = MenuSetup$ + IIFSTR$(FIRSTEXECUTION, "R&un", "Contin&ue") + CHR$(LF): MenuID$ = MenuID$ + MKI$(7)
                     IF TOTALBREAKPOINTS > 0 THEN
                         MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
                         MenuSetup$ = MenuSetup$ + "&Clear all breakpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
