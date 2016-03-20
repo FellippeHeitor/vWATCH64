@@ -32,7 +32,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".962b"
+CONST VERSION = ".963b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -394,7 +394,6 @@ SUB SOURCE_VIEW
     TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
 
-    TOTALBREAKPOINTS = 0
     TOTALSKIPLINES = 0
     BREAKPOINT.ACTION = 0 'Start paused; execution starts with F5 or F8.
     BREAKPOINT.LINENUMBER = 0
@@ -722,7 +721,7 @@ SUB SOURCE_VIEW
         CASE 17152 'F9
             ToggleButton_Click:
             IF LEN(FilteredList$) = 0 THEN
-                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 AND GETELEMENT$(GETLINE$(CLIENT.LINENUMBER), 1) <> "STOP" THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                 ELSE
@@ -758,14 +757,13 @@ SUB SOURCE_VIEW
         CASE 17408 'F10
             ClearButton_Click:
             IF LEN(FilteredList$) = 0 THEN
-                TOTALBREAKPOINTS = 0
                 FOR clear.BP = 1 TO CLIENT.TOTALSOURCELINES
-                    IF ASC(BREAKPOINTLIST, clear.BP) = 1 THEN ASC(BREAKPOINTLIST, clear.BP) = 0
+                    IF ASC(BREAKPOINTLIST, clear.BP) = 1 AND GETELEMENT$(GETLINE$(clear.BP), 1) <> "STOP" THEN ASC(BREAKPOINTLIST, clear.BP) = 0: TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                 NEXT clear.BP
             ELSE
                 FOR setAll = 1 TO LEN(FilteredList$) / 4
                     which_Line = CVL(MID$(FilteredList$, setAll * 4 - 3, 4))
-                    IF ASC(BREAKPOINTLIST, which_Line) = 1 THEN
+                    IF ASC(BREAKPOINTLIST, which_Line) = 1 AND GETELEMENT$(GETLINE$(which_Line), 1) <> "STOP" THEN
                         ASC(BREAKPOINTLIST, which_Line) = 0
                         TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                         FOR MultiLineToggle = which_Line + 1 TO CLIENT.TOTALSOURCELINES
@@ -1149,18 +1147,31 @@ SUB SOURCE_VIEW
                     GOSUB TurnOnNonexecutableMessage
                 ELSE
                     IF DoubleClick THEN
+                        ToggleSkipThisLine:
                         DoubleClick = 0
                         IF ASC(BREAKPOINTLIST, i) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                         TOTALSKIPLINES = TOTALSKIPLINES + 1
                         ASC(BREAKPOINTLIST, i) = 2
                     ELSE
-                        'Toggle breakpoint/skip this line:
-                        IF ASC(BREAKPOINTLIST, i) = 1 THEN
+                        'Toggle breakpoint:
+                        IF ASC(BREAKPOINTLIST, i) = 1 AND e1$ <> "STOP" THEN
                             ASC(BREAKPOINTLIST, i) = 0
                             TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        ELSEIF ASC(BREAKPOINTLIST, i) = 1 AND e1$ = "STOP" THEN
+                            Message$ = ""
+                            Message$ = Message$ + "The STOP statement creates a permanent breakpoint." + CHR$(LF)
+                            Message$ = Message$ + "Would you like to skip this line instead?"
+                            IF MESSAGEBOX("Permanent breakpoint", Message$, MKI$(YN_QUESTION), 1, -1) = MB_YES THEN
+                                GOTO ToggleSkipThisLine
+                            END IF
                         ELSEIF ASC(BREAKPOINTLIST, i) = 2 THEN
                             TOTALSKIPLINES = TOTALSKIPLINES - 1
-                            ASC(BREAKPOINTLIST, i) = 0
+                            IF e1$ = "STOP" THEN
+                                ASC(BREAKPOINTLIST, i) = 1
+                                TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                            ELSE
+                                ASC(BREAKPOINTLIST, i) = 0
+                            END IF
                         ELSE
                             ASC(BREAKPOINTLIST, i) = 1
                             TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
@@ -1216,7 +1227,14 @@ SUB SOURCE_VIEW
                         CASE 6
                             TOTALSKIPLINES = 0
                             FOR clear.SL = 1 TO CLIENT.TOTALSOURCELINES
-                                IF ASC(BREAKPOINTLIST, clear.SL) = 2 THEN ASC(BREAKPOINTLIST, clear.SL) = 0
+                                IF ASC(BREAKPOINTLIST, clear.SL) = 2 THEN
+                                    IF GETELEMENT$(GETLINE$(clear.SL), 1) = "STOP" THEN
+                                        ASC(BREAKPOINTLIST, clear.SL) = 1
+                                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                                    ELSE
+                                        ASC(BREAKPOINTLIST, clear.SL) = 0
+                                    END IF
+                                END IF
                             NEXT clear.SL
                         CASE 7
                             Clicked = -1
@@ -1261,7 +1279,8 @@ SUB SOURCE_VIEW
                             END IF
                         END IF
                         MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
-                        MenuSetup$ = MenuSetup$ + "Toggle &breakpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
+                        IF GETELEMENT$(GETLINE$(ContextualMenuLineRef), 1) = "STOP" THEN DisableToggle$ = "~" ELSE DisableToggle$ = ""
+                        MenuSetup$ = MenuSetup$ + DisableToggle$ + "Toggle &breakpoint" + CHR$(LF): MenuID$ = MenuID$ + MKI$(2)
                         IF TOTALBREAKPOINTS > 0 THEN
                             MenuSetup$ = MenuSetup$ + "&Clear all breakpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
                         END IF
@@ -1285,7 +1304,7 @@ SUB SOURCE_VIEW
                                 GOSUB SetNext_Click
                             CASE 2
                                 'Set breakpoint
-                                IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN
+                                IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 AND GETELEMENT$(GETLINE$(ContextualMenuLineRef), 1) <> "STOP" THEN
                                     ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
                                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                                 ELSE
@@ -1322,7 +1341,12 @@ SUB SOURCE_VIEW
                                 'Skip this line
                                 IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 2 THEN
                                     TOTALSKIPLINES = TOTALSKIPLINES - 1
-                                    ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
+                                    IF GETELEMENT$(GETLINE$(ContextualMenuLineRef), 1) = "STOP" THEN
+                                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1
+                                        TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                                    ELSE
+                                        ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 0
+                                    END IF
                                 ELSE
                                     IF ASC(BREAKPOINTLIST, ContextualMenuLineRef) = 1 THEN TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                                     TOTALSKIPLINES = TOTALSKIPLINES + 1
@@ -1341,7 +1365,14 @@ SUB SOURCE_VIEW
                             CASE 6
                                 TOTALSKIPLINES = 0
                                 FOR clear.SL = 1 TO CLIENT.TOTALSOURCELINES
-                                    IF ASC(BREAKPOINTLIST, clear.SL) = 2 THEN ASC(BREAKPOINTLIST, clear.SL) = 0
+                                    IF ASC(BREAKPOINTLIST, clear.SL) = 2 THEN
+                                        IF GETELEMENT$(GETLINE$(clear.SL), 1) <> "STOP" THEN
+                                            ASC(BREAKPOINTLIST, clear.SL) = 0
+                                        ELSE
+                                            ASC(BREAKPOINTLIST, clear.SL) = 1
+                                            TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
+                                        END IF
+                                    END IF
                                 NEXT clear.SL
                             CASE 7
                                 Clicked = -1
@@ -1825,7 +1856,7 @@ SUB VARIABLE_VIEW
             ToggleButton_Click:
             IF shiftDown = -1 THEN GOTO ClearButton_CLICK
             IF STEPMODE = -1 THEN
-                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
+                IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 AND GETELEMENT$(GETLINE$(CLIENT.LINENUMBER), 1) <> "STOP" THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
                 ELSE
@@ -1844,8 +1875,9 @@ SUB VARIABLE_VIEW
             IF Clicked THEN Clicked = 0: RETURN
         CASE 17408 'F10
             ClearButton_CLICK:
-            TOTALBREAKPOINTS = 0
-            BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
+            FOR clear.BP = 1 TO CLIENT.TOTALSOURCELINES
+                IF ASC(BREAKPOINTLIST, clear.BP) = 1 AND GETELEMENT$(GETLINE$(clear.BP), 1) <> "STOP" THEN ASC(BREAKPOINTLIST, clear.BP) = 0: totalbreapoints = TOTALBREAKPOINTS - 1
+            NEXT clear.BP
             PUT #FILE, BREAKPOINTLISTBLOCK, BREAKPOINTLIST
             IF Clicked THEN Clicked = 0: RETURN
     END SELECT
@@ -3464,6 +3496,10 @@ SUB PROCESSFILE
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "KILL " + Q$ + _CWD$ + PATHSEP$ + "vwatch64.dat" + Q$
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "ON ERROR GOTO 0"
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+        ELSEIF SourceLine = "STOP" THEN
+            'STOP will be handled by vWATCH64 and not the QB64 compiler, so that it can be
+            'converted into an automatic breakpoint, instead of quitting the program.
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vWATCH64_DUMMY%% = 0 'STOP"
         ELSEIF FIND_KEYWORD(bkpSourceLine$, "EXIT SUB", Found_ES_At) OR FIND_KEYWORD(bkpSourceLine$, "EXIT FUNCTION", Found_EF_At) THEN
             GOSUB AddOutputLine
             IF Found_ES_At THEN
@@ -4914,6 +4950,7 @@ SUB SETUP_CONNECTION
     REDIM VARIABLES(1 TO CLIENT.TOTALVARIABLES) AS VARIABLESTYPE
     REDIM VARIABLE_DATA(1 TO CLIENT.TOTALVARIABLES) AS VARIABLEVALUETYPE
     REDIM WATCHPOINT(1 TO CLIENT.TOTALVARIABLES) AS WATCHPOINTTYPE
+    TOTALBREAKPOINTS = 0
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
     WATCHPOINTLIST = STRING$(CLIENT.TOTALVARIABLES, 0)
     DATAINFOBLOCK = BREAKPOINTLISTBLOCK + LEN(BREAKPOINTLIST) + 1
@@ -4997,6 +5034,7 @@ SUB SETUP_CONNECTION
                 bkpSourceLine$ = SOURCECODE(i)
                 caseBkpSourceLine$ = TRIM$(bkpSourceLine$)
                 SourceLine$ = UCASE$(TRIM$(caseBkpSourceLine$))
+                IF GETELEMENT$(SourceLine$, 1) = "STOP" THEN ASC(BREAKPOINTLIST, i) = 1: TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
                 IF SourceLine$ = "$CHECKING:OFF" OR LEFT$(SourceLine$, 13) = "'VWATCH64:OFF" THEN
                     InsideCheckingOffBlock = -1
                 END IF
