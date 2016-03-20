@@ -27,7 +27,7 @@ DO: _LIMIT 60
     LeftForLOOP = False
     FOR j = 1 TO 10: _LIMIT 10
         READ a
-        yname = Revert$(a)
+        yname = Revert(a)
         used$6 = a
         PRINT a;
         PRINT PathSep$; 'But why? :)

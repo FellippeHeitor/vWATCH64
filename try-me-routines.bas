@@ -14,6 +14,7 @@ SUB TakeABreak
     STATIC NoOfBreaks AS LONG
 
     NoOfBreaks = NoOfBreaks + 1
+    STOP
 
     DO
         RANDOMIZE TIMER
