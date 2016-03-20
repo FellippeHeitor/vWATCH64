@@ -3428,6 +3428,7 @@ SUB PROCESSFILE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_SUBLEVEL = vwatch64_SUBLEVEL + 1"
                 IF INSTR(SourceLine, "(") THEN
                     CurrentSubFunc$ = TRIM$("SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5))
+                    Dummy$ = GETNEXTVARIABLE$("", -2) 'Reset STATIC variables in function GETNEXTVARIABLE$
                     GOSUB AddSFParametersAsVariables
                     StatusMessage = "Found: SUB " + MID$(caseBkpSourceLine, 5, INSTR(SourceLine, "(") - 5)
                     GOSUB AddVerboseOutputLine
@@ -3458,6 +3459,7 @@ SUB PROCESSFILE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "    vwatch64_SUBLEVEL = vwatch64_SUBLEVEL + 1"
                 IF INSTR(SourceLine, "(") THEN
                     CurrentSubFunc$ = TRIM$("FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10))
+                    Dummy$ = GETNEXTVARIABLE$("", -2) 'Reset STATIC variables in function GETNEXTVARIABLE$
                     GOSUB AddSFParametersAsVariables
                     StatusMessage = "Found: FUNCTION " + MID$(caseBkpSourceLine, 10, INSTR(SourceLine, "(") - 10)
                     GOSUB AddVerboseOutputLine
@@ -4789,6 +4791,14 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
     STATIC LastSF$
     STATIC Position%
     STATIC EndOfStatement AS _BYTE
+
+    IF WhichLine = -2 THEN 'Reset STATIC variables
+        LastSF$ = ""
+        LastLine = 0
+        Position% = 0
+        EndOfStatement = 0
+        EXIT FUNCTION
+    END IF
 
     IF LEN(Text$) = 0 THEN EXIT FUNCTION
 
