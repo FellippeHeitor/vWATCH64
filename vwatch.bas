@@ -4911,8 +4911,9 @@ SUB SETUP_CONNECTION
     DO: _LIMIT 30
         GET #FILE, HEADERBLOCK, HEADER
         GOSUB GetInput
+        IF k = 27 THEN USERQUIT = -1
+        IF (k = 111 OR k = 79) AND ctrlDown = -1 THEN MENU% = 101
         IF MENU% = 101 THEN CLOSE #FILE: EXIT SUB
-        IF k$ = CHR$(27) THEN USERQUIT = -1
         IF _EXIT THEN USERQUIT = -1
         GOSUB UpdateScreen
     LOOP UNTIL USERQUIT OR HEADER.CONNECTED = -1 OR MENU% = 102
@@ -5116,6 +5117,9 @@ SUB SETUP_CONNECTION
 
     GetInput:
     k$ = INKEY$
+    modKey = _KEYHIT: k = modKey
+    IF modKey = 100305 OR modKey = 100306 THEN ctrlDown = -1
+    IF modKey = -100305 OR modKey = -100306 THEN ctrlDown = 0
     DO: _LIMIT 500
         mx = _MOUSEX
         my = _MOUSEY
@@ -5132,7 +5136,7 @@ SUB SETUP_CONNECTION
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), t$
     t$ = "Launch the program that will be monitored now"
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT * 2), t$
-    t$ = "ESC to quit"
+    t$ = "Ctrl+O to open and process a file / ESC to quit"
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(t$) / 2, _HEIGHT - _FONTHEIGHT), t$
 
 
