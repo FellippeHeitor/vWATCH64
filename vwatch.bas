@@ -212,9 +212,7 @@ REDIM SHARED WATCHPOINT(0) AS WATCHPOINTTYPE
 DIM i AS INTEGER
 
 'Variables initialization: ----------------------------------------------------
-FOR i = 65 TO 90
-    DEFAULTDATATYPE(i) = "SINGLE"
-NEXT i
+SET_DEF "A-Z", "SINGLE"
 SET_OPTIONBASE = 0
 DONTCOMPILE = 0
 SKIPARRAYS = 0
@@ -724,6 +722,15 @@ SUB SOURCE_VIEW
                 IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 AND GETELEMENT$(GETLINE$(CLIENT.LINENUMBER), 1) <> "STOP" THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                ELSEIF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 AND GETELEMENT$(GETLINE$(CLIENT.LINENUMBER), 1) = "STOP" THEN
+                    Message$ = ""
+                    Message$ = Message$ + "The STOP statement creates a permanent breakpoint." + CHR$(LF)
+                    Message$ = Message$ + "Would you like to skip this line instead?"
+                    IF MESSAGEBOX("Permanent breakpoint", Message$, MKI$(YN_QUESTION), 1, -1) = MB_YES THEN
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        TOTALSKIPLINES = TOTALSKIPLINES + 1
+                        ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 2
+                    END IF
                 ELSE
                     IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 2 THEN TOTALSKIPLINES = TOTALSKIPLINES - 1
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
@@ -1859,6 +1866,15 @@ SUB VARIABLE_VIEW
                 IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 AND GETELEMENT$(GETLINE$(CLIENT.LINENUMBER), 1) <> "STOP" THEN
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 0
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                ELSEIF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 AND GETELEMENT$(GETLINE$(CLIENT.LINENUMBER), 1) = "STOP" THEN
+                    Message$ = ""
+                    Message$ = Message$ + "The STOP statement creates a permanent breakpoint." + CHR$(LF)
+                    Message$ = Message$ + "Would you like to skip this line instead?"
+                    IF MESSAGEBOX("Permanent breakpoint", Message$, MKI$(YN_QUESTION), 1, -1) = MB_YES THEN
+                        TOTALBREAKPOINTS = TOTALBREAKPOINTS - 1
+                        TOTALSKIPLINES = TOTALSKIPLINES + 1
+                        ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 2
+                    END IF
                 ELSE
                     ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1
                     TOTALBREAKPOINTS = TOTALBREAKPOINTS + 1
@@ -2048,7 +2064,9 @@ SUB VARIABLE_VIEW
     _PRINTSTRING (3, _FONTHEIGHT + 3), TopLine$
     tl.x = 3 + _PRINTWIDTH(TopLine$)
     IF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 1 THEN
-        LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 0, 0, 200), BF
+        LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGB32(200, 0, 0), BF
+    ELSEIF ASC(BREAKPOINTLIST, CLIENT.LINENUMBER) = 2 THEN
+        LINE (tl.x, _FONTHEIGHT + 3)-STEP(_WIDTH, _FONTHEIGHT), _RGB32(255, 255, 0), BF
     END IF
     IF LEN(SOURCEFILE) THEN IF SOURCECODE_COLORIZED(CLIENT.LINENUMBER) = 0 THEN ADDCOLORCODE CLIENT.LINENUMBER
     TopLine$ = SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(CLIENT.LINENUMBER)))) + TRIM$(STR$(CLIENT.LINENUMBER)) + " " + CHR$(16) + " " + SourceLine
@@ -3619,60 +3637,8 @@ SUB PROCESSFILE
                     GOTO NoValidVarFound
                 END IF
 
-                'All criteria met.
-                'Add temporary variable to watchlist: -------------------------
-                TempList$ = STRING$(TOTALVARIABLES, 1)
-                StartAt = 0
-                LookAgain:
-                StartAt = StartAt + 1
-                Found = FINDVARIABLES(StartAt, NextVar$, TempList$)
-                IF Found = 0 THEN
-                    IF CurrSF > 0 THEN
-                        Found = FIND_KEYWORD(TRIM$(SUBFUNC(CurrSF).NAME), NextVar$, FoundAt)
-                        IF Found THEN GOTO NoValidVarFound
-                    END IF
-                    'Attempt to infer DATA TYPE from suffixes:
-                    FoundType = SUFFIXLOOKUP$(NextVar$)
-                    DefaultTypeUsed = 0
-
-                    IF LEN(FoundType) = 0 THEN
-                        FoundType = DEFAULTDATATYPE(ASC(NextVar$, 1)) 'Assume default data type
-                        DefaultTypeUsed = -1
-                    END IF
-
-                    TOTALVARIABLES = TOTALVARIABLES + 1
-                    REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
-                    VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
-                    IF MainModule THEN
-                        VARIABLES(TOTALVARIABLES).SCOPE = "MAIN MODULE"
-                    ELSE
-                        VARIABLES(TOTALVARIABLES).SCOPE = TRIM$(SUBFUNC(CurrSF).NAME)
-                    END IF
-                    VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
-
-                    IF MainModule THEN
-                        TotalLocalVariables = TotalLocalVariables + 1
-                        REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
-                        LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
-                        LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
-                    END IF
-                ELSE
-                    'Check if scope is the same; if not, we can add this var.
-                    IF MainModule THEN
-                        IF TRIM$(VARIABLES(Found).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(Found).SCOPE) = "SHARED" THEN
-                            'Can't add this var again.
-                        ELSE
-                            StartAt = Found: GOTO LookAgain
-                        END IF
-                    ELSE
-                        IF TRIM$(VARIABLES(Found).SCOPE) = TRIM$(SUBFUNC(CurrSF).NAME) OR TRIM$(VARIABLES(Found).SCOPE) = "SHARED" THEN
-                            'Can't add this var again.
-                        ELSE
-                            StartAt = Found: GOTO LookAgain
-                        END IF
-                    END IF
-                END IF
-                '--------------------------------------------------------------
+                AllCriteriaMet:
+                GOSUB AddThisTempVar
             END IF
             NoValidVarFound:
         LOOP UNTIL StartPos = 0
@@ -4610,6 +4576,62 @@ SUB PROCESSFILE
     Message$ = Message$ + StatusMessage
     PROGRESSBOX "Processing...", Message$, VerboseMaxProgress, VerboseProgress
     RETURN
+
+    AddThisTempVar:
+    'Add temporary variable to watchlist: -------------------------
+    TempList$ = STRING$(TOTALVARIABLES, 1)
+    StartAt = 0
+    LookAgain:
+    StartAt = StartAt + 1
+    Found = FINDVARIABLES(StartAt, NextVar$, TempList$)
+    IF Found = 0 THEN
+        IF CurrSF > 0 THEN
+            Found = FIND_KEYWORD(TRIM$(SUBFUNC(CurrSF).NAME), NextVar$, FoundAt)
+            IF Found THEN GOTO NoValidVarFound
+        END IF
+        'Attempt to infer DATA TYPE from suffixes:
+        FoundType = SUFFIXLOOKUP$(NextVar$)
+        DefaultTypeUsed = 0
+
+        IF LEN(FoundType) = 0 THEN
+            FoundType = DEFAULTDATATYPE(ASC(NextVar$, 1)) 'Assume default data type
+            DefaultTypeUsed = -1
+        END IF
+
+        TOTALVARIABLES = TOTALVARIABLES + 1
+        REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
+        VARIABLES(TOTALVARIABLES).NAME = caseBkpNextVar$
+        IF MainModule THEN
+            VARIABLES(TOTALVARIABLES).SCOPE = "MAIN MODULE"
+        ELSE
+            VARIABLES(TOTALVARIABLES).SCOPE = TRIM$(SUBFUNC(CurrSF).NAME)
+        END IF
+        VARIABLES(TOTALVARIABLES).DATATYPE = FoundType
+
+        IF MainModule THEN
+            TotalLocalVariables = TotalLocalVariables + 1
+            REDIM _PRESERVE LOCALVARIABLES(1 TO TotalLocalVariables) AS VARIABLESTYPE
+            LOCALVARIABLES(TotalLocalVariables).NAME = VARIABLES(TOTALVARIABLES).NAME
+            LOCALVARIABLES(TotalLocalVariables).DATATYPE = IIFSTR$(DefaultTypeUsed, "", VARIABLES(TOTALVARIABLES).DATATYPE)
+        END IF
+    ELSE
+        'Check if scope is the same; if not, we can add this var.
+        IF MainModule THEN
+            IF TRIM$(VARIABLES(Found).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(Found).SCOPE) = "SHARED" THEN
+                'Can't add this var again.
+            ELSE
+                StartAt = Found: GOTO LookAgain
+            END IF
+        ELSE
+            IF TRIM$(VARIABLES(Found).SCOPE) = TRIM$(SUBFUNC(CurrSF).NAME) OR TRIM$(VARIABLES(Found).SCOPE) = "SHARED" THEN
+                'Can't add this var again.
+            ELSE
+                StartAt = Found: GOTO LookAgain
+            END IF
+        END IF
+    END IF
+    '--------------------------------------------------------------
+    RETURN
 END SUB
 
 '------------------------------------------------------------------------------
@@ -5374,7 +5396,7 @@ FUNCTION SelectFile$ (search$, x AS INTEGER, y AS INTEGER)
         LINE (627, 2)-(637, 18), &HFFFF0000, BF
         LINE (626, 2)-(637, 18), &HFF000000, B
 
-        _PRINTSTRING (628, 2), "X"
+        _PRINTSTRING (628, 2), "x"
         IF selection > 0 THEN
             temp$ = LoadFile_DirList(row, selection)
             IF LoadFile_DirList(row, selection) = "" THEN temp$ = ""
