@@ -404,6 +404,7 @@ SUB SOURCE_VIEW
     IF SearchIn = 0 THEN SearchIn = CODE
     SB_ThumbY = 0
     grabbedY = -1
+    SB_X = 1
     ListEnd_Label = "(end of source file)"
     ShowTempMessage = 0
     STEPMODE = -1
@@ -660,6 +661,10 @@ SUB SOURCE_VIEW
             IF ArrowStep! < _FONTHEIGHT THEN ArrowStep! = _FONTHEIGHT
             IF ctrlDown = -1 THEN y = y + _FONTHEIGHT ELSE y = y + ArrowStep!
             TRACE = 0
+        CASE 19200 'Left
+            IF SB_X > 1 THEN SB_X = SB_X - 1
+        CASE 19712 'Right
+            IF SB_X < LONGESTLINE THEN SB_X = SB_X + 1
         CASE 16128 'F5
             RunButton_Click:
             FIRSTEXECUTION = 0
@@ -886,7 +891,7 @@ SUB SOURCE_VIEW
                     IF MenuWasInvoked THEN MenuWasInvoked = 0: RETURN
                     IF SOURCECODE_COLORIZED(i) = 0 THEN ADDCOLORCODE i
                     v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-                    PRINT_COLORIZED 5, printY, v$, i
+                    PRINT_COLORIZED 5 - ((SB_X - 1) * _FONTWIDTH), printY, v$, i
                     COLOR _RGB32(0, 0, 0)
                 END IF
             NEXT ii
@@ -903,7 +908,7 @@ SUB SOURCE_VIEW
                 IF MenuWasInvoked THEN MenuWasInvoked = 0: RETURN
                 IF SOURCECODE_COLORIZED(i) = 0 THEN ADDCOLORCODE i
                 v$ = "[" + IIFSTR$(ASC(BREAKPOINTLIST, i) = 1, CHR$(7), IIFSTR$(ASC(BREAKPOINTLIST, i) = 2, CHR$(9), " ")) + "]" + IIFSTR$(i = CLIENT.LINENUMBER, CHR$(16) + " ", "  ") + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN(TRIM$(STR$(i)))) + TRIM$(STR$(i)) + "    " + SourceLine
-                PRINT_COLORIZED 5, printY, v$, i
+                PRINT_COLORIZED 5 - ((SB_X - 1) * _FONTWIDTH), printY, v$, i
                 COLOR _RGB32(0, 0, 0)
             NEXT i
         END IF
