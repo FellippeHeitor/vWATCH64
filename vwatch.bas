@@ -120,6 +120,7 @@ TYPE SUBFUNC_TYPE
     NAME AS STRING * 50
     LINE AS LONG
     ENDING AS LONG
+    EXTERNAL AS _BYTE
 END TYPE
 
 TYPE BUTTONSTYPE
@@ -1467,7 +1468,7 @@ END SUB
 
 '------------------------------------------------------------------------------
 FUNCTION GETELEMENT$ (SourceLine$, Element)
-    SEP$ = " =<>+-/\^:;,*()" + CHR$(1) + CHR$(3) + CHR$(4) + CHR$(5)
+    SEP$ = " =<>+-/\^:;,*()" + CHR$(1) + CHR$(3) + CHR$(4) + CHR$(5) + CHR$(6)
     i$ = SourceLine$
     Position = 0
     InQuote = 0
@@ -1548,7 +1549,7 @@ SUB ADDCOLORCODE (SourceLineNumber)
                 ThisKW$ = REMOVESIGIL$(UCASE$(TRIM$(SUBFUNC(j).NAME)))
                 IF REMOVESIGIL$(a$) = ThisKW$ THEN
                     IF Start < CommentStart AND InQuote = 0 THEN
-                        ColorCode$ = CHR$(5)
+                        IF SUBFUNC(j).EXTERNAL THEN ColorCode$ = CHR$(6) ELSE ColorCode$ = CHR$(5)
                         GOSUB AddThisColorCode
                     END IF
                     EXIT FOR
@@ -1604,6 +1605,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
     DIM MetaCommand AS LONG
     DIM IsNumber AS LONG
     DIM IsSubFunc AS LONG
+    DIM IsExtSubFunc AS LONG
     DIM CommentStart AS LONG
 
     SEP$ = " =<>+-/\^:;,*()"
@@ -1624,9 +1626,10 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
             COLOR _RGB32(255, 165, 0)
             GOTO ColorSet
         END IF
-        IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 AND (MetaCommand > 0 OR KeyWord > 0 OR IsNumber > 0 OR IsSubFunc > 0) AND NOT InQuote THEN
+        IF INSTR(SEP$, MID$(v$, Position, 1)) > 0 AND (MetaCommand > 0 OR KeyWord > 0 OR IsNumber > 0 OR IsSubFunc > 0 OR IsExtSubFunc > 0) AND NOT InQuote THEN
             IF KeyWord > 0 THEN KeyWord = 0
             IF IsSubFunc > 0 THEN IsSubFunc = 0
+            IF IsExtSubFunc > 0 THEN IsExtSubFunc = 0
             IF MID$(v$, Position, 1) = "-" AND IsNumber > 0 THEN
                 IF Position = IsNumber + 1 THEN
                     'It's a negative.
@@ -1658,7 +1661,11 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
             COLOR _RGB32(255, 0, 255)
             GOTO ColorSet
         END IF
-
+        IF (ASC(v$, Position) = 6 OR IsExtSubFunc > 0) AND NOT InQuote THEN
+            IF ASC(v$, Position) = 6 THEN IsExtSubFunc = Position
+            COLOR _RGB32(153, 77, 0)
+            GOTO ColorSet
+        END IF
         COLOR _RGB32(0, 0, 0)
 
         ColorSet:
@@ -1681,7 +1688,7 @@ SUB PRINT_COLORIZED (StartX AS INTEGER, Y AS INTEGER, v$, SourceLineNumber AS LO
     EXIT SUB
     PrintChar:
     Char = ASC(v$, Position)
-    IF (Char = 1 OR Char = 3 OR Char = 4 OR Char = 5) AND NOT InQuote THEN
+    IF (Char = 1 OR Char = 3 OR Char = 4 OR Char = 5 OR Char = 6) AND NOT InQuote THEN
         StartX = StartX - _FONTWIDTH
     ELSE
         _PRINTSTRING (StartX + (_FONTWIDTH * (Position - 1)), Y), CHR$(Char)
@@ -5067,6 +5074,7 @@ SUB SETUP_CONNECTION
             CurrentLineNo = 1
             LONGESTLINE = 1
             InsideCheckingOffBlock = 0
+            DeclaringLibrary = 0
             TotalSubFunc = 0
             FOR i = 1 TO TotalSourceLines
                 bkpSourceLine$ = SOURCECODE(i)
@@ -5081,6 +5089,11 @@ SUB SETUP_CONNECTION
                     InsideCheckingOffBlock = 0
                 END IF
                 IF LEN(bkpSourceLine$) > LONGESTLINE THEN LONGESTLINE = LEN(bkpSourceLine$)
+                IF GETELEMENT$(SourceLine$, 1) = "DECLARE" AND FIND_SYMBOL(1, SourceLine$, "LIBRARY") THEN
+                    DeclaringLibrary = -1
+                ELSEIF GETELEMENT$(SourceLine$, 1) = "END" AND GETELEMENT$(SourceLine$, 2) = "DECLARE" THEN
+                    DeclaringLibrary = 0
+                END IF
 
                 'SUB/FUNCTION LIST:--------------------------------------------------------------
                 SourceLine$ = STRIPCOMMENTS$(SourceLine$)
@@ -5094,6 +5107,7 @@ SUB SETUP_CONNECTION
                     REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
                     SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
                     SUBFUNC(TotalSubFunc).LINE = i
+                    IF DeclaringLibrary THEN SUBFUNC(TotalSubFunc).EXTERNAL = -1
                 ELSEIF LEFT$(SourceLine$, 9) = "FUNCTION " THEN
                     IF INSTR(SourceLine$, "(") THEN
                         CurrentSubFunc$ = TRIM$(MID$(caseBkpSourceLine$, 10, INSTR(SourceLine$, "(") - 10))
@@ -5104,6 +5118,7 @@ SUB SETUP_CONNECTION
                     REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
                     SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
                     SUBFUNC(TotalSubFunc).LINE = i
+                    IF DeclaringLibrary THEN SUBFUNC(TotalSubFunc).EXTERNAL = -1
                 ELSEIF LEFT$(SourceLine$, 7) = "END SUB" OR LEFT$(SourceLine$, 12) = "END FUNCTION" THEN
                     SUBFUNC(TotalSubFunc).ENDING = i
                     CurrentSubFunc$ = ""
