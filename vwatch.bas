@@ -205,7 +205,6 @@ REDIM SHARED QB64KEYWORDS(0) AS STRING
 REDIM SHARED SOURCECODE(0) AS STRING
 REDIM SHARED SOURCECODE_COLORIZED(0) AS _BYTE
 REDIM SHARED SUBFUNC(0) AS SUBFUNC_TYPE
-REDIM SHARED SUBFUNC_ENDLINE(0) AS LONG
 REDIM SHARED VARIABLES(0) AS VARIABLESTYPE
 REDIM SHARED VARIABLE_DATA(0) AS VARIABLEVALUETYPE
 REDIM SHARED WATCHPOINT(0) AS WATCHPOINTTYPE
@@ -3471,7 +3470,6 @@ SUB PROCESSFILE
                 REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
                 SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
                 SUBFUNC(TotalSubFunc).LINE = ProcessLine
-                REDIM _PRESERVE SUBFUNC_ENDLINE(1 TO TotalSubFunc) AS LONG
             ELSE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             END IF
@@ -3502,7 +3500,6 @@ SUB PROCESSFILE
                 REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
                 SUBFUNC(TotalSubFunc).NAME = CurrentSubFunc$
                 SUBFUNC(TotalSubFunc).LINE = ProcessLine
-                REDIM _PRESERVE SUBFUNC_ENDLINE(1 TO TotalSubFunc) AS LONG
             ELSE
                 GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
             END IF
@@ -3515,7 +3512,7 @@ SUB PROCESSFILE
             END IF
             GOSUB AddGotoNextLineCode
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
-            SUBFUNC_ENDLINE(TotalSubFunc) = TotalOutputLines
+            SUBFUNC(TotalSubFunc).ENDING = TotalOutputLines
             InBetweenSubs = -1
             CurrentSubFunc$ = ""
         ELSEIF SourceLine = "SYSTEM" OR SourceLine = "END" THEN
@@ -3847,7 +3844,7 @@ SUB PROCESSFILE
             GOSUB AddSetVarCode
         END IF
         FOR j = 1 TO TotalSubFunc
-            IF SUBFUNC_ENDLINE(j) = i THEN
+            IF SUBFUNC(j).ENDING = i THEN
                 CurrentSubFunc$ = TRIM$(SUBFUNC(j).NAME)
                 GOSUB AddSFVariableWatchCode
             END IF
