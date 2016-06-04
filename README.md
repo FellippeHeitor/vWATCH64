@@ -23,3 +23,5 @@ vWATCH64 is compatible with Windows, OS X and Linux.
 
 
 You can also follow the development in [this topic](http://www.qb64.net/forum/index.php?topic=13275.msg114691#msg114691) on the official QB64 community.
+
+*(You need the latest daily build of QB64 in order to use vWATCH64. Get it from www.qb64.net)*
