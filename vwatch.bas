@@ -21,7 +21,7 @@ $ELSE
 $END IF
 
 'Custom type library for Steve's File Selection Utility:
-DECLARE CUSTOMTYPE LIBRARY "direntry"
+DECLARE CUSTOMTYPE LIBRARY ".\direntry"
     FUNCTION FILE_load_dir& ALIAS load_dir (s AS STRING)
     FUNCTION FILE_has_next_entry& ALIAS has_next_entry ()
     SUB FILE_close_dir ALIAS close_dir ()
@@ -32,7 +32,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".963b"
+CONST VERSION = ".965b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -375,7 +375,7 @@ DATA SQR,STATIC,$STATIC,STEP,STICK,STOP,STR$,STRIG,STRING
 DATA STRING$,SUB,SWAP,SYSTEM,TAB,TAN,THEN,TIME$,TIMER,TO
 DATA TROFF,TRON,TYPE,UBOUND,UCASE$,UEVENT,UNLOCK,UNTIL,VAL
 DATA VARPTR,VARPTR$,VARSEG,VIEW,WAIT,WEND,WHILE,WIDTH,WINDOW
-DATA WRITE,XOR,_CEIL,**END**
+DATA WRITE,XOR,_CEIL,BASE,_EXPLICIT,_INCLERRORLINE,_DIR$,**END**
 
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
@@ -575,6 +575,7 @@ SUB SOURCE_VIEW
                         IF LEFT$(DesiredSourceLine$, 8) = "DECLARE " THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 8) = "_DEFINE " THEN CanGo = 3
                         IF LEFT$(DesiredSourceLine$, 11) = "END DECLARE" THEN CanGo = 3
+                        IF LEFT$(DesiredSourceLine$, 16) = "OPTION _EXPLICIT" THEN CanGo = 3
                         IF CanGo = -1 THEN
                             IF TRIM$(CLIENT_CURRENTMODULE) = "MAIN MODULE" THEN
                                 CanGo = -1
@@ -1143,6 +1144,12 @@ SUB SOURCE_VIEW
                 GOSUB TurnOnNonexecutableMessage
             CASE "END"
                 IF e2$ = "DECLARE" THEN
+                    GOSUB TurnOnNonexecutableMessage
+                ELSE
+                    GOTO EndAllowed1
+                END IF
+            CASE "OPTION"
+                IF e2$ = "_EXPLICIT" THEN
                     GOSUB TurnOnNonexecutableMessage
                 ELSE
                     GOTO EndAllowed1
@@ -2962,6 +2969,7 @@ SUB PROCESSFILE
     DIM PrecompilerBlock AS _BYTE
     DIM ProcessLine AS LONG
     DIM ProcessStepDescription AS STRING
+    DIM SET_OPTION_EXPLICIT AS INTEGER
     DIM SourceLine AS STRING
     DIM StatusMessage AS STRING
     DIM ThisKeyword AS STRING
@@ -3175,6 +3183,7 @@ SUB PROCESSFILE
                 ELSEIF e1$ = "_DEFINE" THEN
                 ELSEIF e1$ = "FUNCTION" THEN
                 ELSEIF e1$ = "END" AND (e2$ = "DECLARE") THEN
+                ELSEIF e1$ = "OPTION" AND (e2$ = "_EXPLICIT") THEN
                 ELSE
                     IF e1$ = "END" AND (e2$ = "FUNCTION" OR e2$ = "SUB") THEN
                         SkipStatement$ = "vWATCH64_DUMMY%% = 0"
@@ -3395,6 +3404,9 @@ SUB PROCESSFILE
         ELSEIF LEFT$(SourceLine, 11) = "END DECLARE" THEN
             DeclaringLibrary = 0
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
+        ELSEIF LEFT$(SourceLine, 16) = "OPTION _EXPLICIT" THEN
+            SET_OPTION_EXPLICIT = -1
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "'OPTION _EXPLICIT"
         ELSEIF LEFT$(SourceLine, 13) = "OPTION BASE 1" THEN
             SET_OPTIONBASE = 1
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = bkpSourceLine$
@@ -3870,6 +3882,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "SUB vwatch64_CONNECTTOHOST"
     RANDOMIZE TIMER
     PRINT #OutputFile, "    DIM k AS LONG"
+    PRINT #OutputFile, "    DIM Message1$, Message2$, NoGo%"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CHECKFILE:"
     PRINT #OutputFile, "    IF _FILEEXISTS(vwatch64_FILENAME) = 0 THEN"
@@ -4129,6 +4142,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, "    STATIC StepAround AS _BYTE"
     PRINT #OutputFile, "    STATIC StartLevel AS INTEGER"
     PRINT #OutputFile, "    DIM k AS LONG"
+    PRINT #OutputFile, "    DIM Message1$, Message2$"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    IF FirstRunDone = 0 THEN"
     PRINT #OutputFile, "        IF vwatch64_HEADER.CONNECTED = 0 THEN"
@@ -4275,7 +4289,7 @@ SUB PROCESSFILE
     PRINT #OutputFile, ""
     IF TotalSelected > 0 THEN
         PRINT #OutputFile, "FUNCTION vwatch64_CHECKWATCHPOINT"
-        PRINT #OutputFile, "    DIM i AS LONG"
+        PRINT #OutputFile, "    DIM i AS LONG, DataType$"
         PRINT #OutputFile, "    GET #vwatch64_CLIENTFILE, vwatch64_WATCHPOINTLISTBLOCK, vwatch64_WATCHPOINTLIST"
         PRINT #OutputFile, "    FOR i = 1 TO " + LTRIM$(STR$(TotalSelected))
         PRINT #OutputFile, "        IF ASC(vwatch64_WATCHPOINTLIST, i) = 1 THEN"
@@ -4381,11 +4395,11 @@ SUB PROCESSFILE
 
     IF NOT DONTCOMPILE AND _FILEEXISTS(Compiler$) THEN
         ProcessStepDescription = "Attempting to compile..."
-        StatusMessage = Compiler$ + " -x " + Q$ + NOPATH$(NEWFILENAME$) + Q$
+        StatusMessage = Compiler$ + " -x" + IIFSTR$(SET_OPTION_EXPLICIT, " -e ", " ") + Q$ + NOPATH$(NEWFILENAME$) + Q$
         VerboseMaxProgress = 100
         VerboseProgress = 0
         GOSUB AddVerboseOutputLine
-        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -x " + Q$ + NEWFILENAME$ + Q$)
+        AttemptCompile% = SHELL(ThisPath$ + Compiler$ + " -x" + IIFSTR$(SET_OPTION_EXPLICIT, " -e ", " ") + Q$ + NEWFILENAME$ + Q$)
         IF AttemptCompile% <> 0 THEN
             Message$ = ""
             Message$ = Message$ + "Compilation failed (error code: " + TRIM$(STR$(AttemptCompile%)) + ")." + CHR$(LF)
