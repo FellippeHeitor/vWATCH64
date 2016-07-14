@@ -32,7 +32,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".965b"
+CONST VERSION = ".966b"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -147,12 +147,15 @@ DIM SHARED INTERNALKEYWORDS AS INTEGER
 DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LINE_TRAIL AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
+DIM SHARED LONGESTSCOPESPEC AS LONG
+DIM SHARED LONGESTVARNAME AS LONG
 DIM SHARED MAINSCREEN AS LONG
 DIM SHARED MENU%
 DIM SHARED MESSAGEBOX_RESULT AS INTEGER
 DIM SHARED NEWFILENAME$
 DIM SHARED RUNTOTHISLINE AS LONG
 DIM SHARED SB_TRACK AS INTEGER
+DIM SHARED SELECTED_VARIABLES AS STRING
 DIM SHARED SCREEN_WIDTH AS INTEGER
 DIM SHARED SCREEN_HEIGHT AS INTEGER
 DIM SHARED SET_OPTIONBASE AS INTEGER
@@ -162,6 +165,8 @@ DIM SHARED TITLESTRING AS STRING
 DIM SHARED TOTALBREAKPOINTS AS LONG
 DIM SHARED TOTALSKIPLINES AS LONG
 DIM SHARED TOTALVARIABLES AS LONG
+DIM SHARED TOTAL_SELECTEDVARIABLES AS LONG
+DIM SHARED TOTALWATCHPOINTS AS LONG
 DIM SHARED TTFONT AS LONG
 DIM SHARED WATCHPOINTLIST AS STRING
 DIM SHARED WATCHPOINTBREAK AS LONG
@@ -221,7 +226,6 @@ VARIABLE_HIGHLIGHT = -1
 SCREEN_WIDTH = DEFAULT_WIDTH
 SCREEN_HEIGHT = DEFAULT_HEIGHT
 LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
-SB_TRACK = LIST_AREA - 48
 
 RESTORE_LIBRARY
 READ_KEYWORDS
@@ -375,7 +379,8 @@ DATA SQR,STATIC,$STATIC,STEP,STICK,STOP,STR$,STRIG,STRING
 DATA STRING$,SUB,SWAP,SYSTEM,TAB,TAN,THEN,TIME$,TIMER,TO
 DATA TROFF,TRON,TYPE,UBOUND,UCASE$,UEVENT,UNLOCK,UNTIL,VAL
 DATA VARPTR,VARPTR$,VARSEG,VIEW,WAIT,WEND,WHILE,WIDTH,WINDOW
-DATA WRITE,XOR,_CEIL,BASE,_EXPLICIT,_INCLERRORLINE,_DIR$,**END**
+DATA WRITE,XOR,_CEIL,BASE,_EXPLICIT,_INCLERRORLINE,_DIR$
+DATA _INCLERRORFILE$,**END**
 
 '------------------------------------------------------------------------------
 'SUBs and FUNCTIONs:                                                          -
@@ -676,7 +681,7 @@ SUB SOURCE_VIEW
                     MESSAGEBOX_RESULT = MESSAGEBOX("Run/Resume", Message$, MKI$(YN_QUESTION), 1, -1)
                     IF MESSAGEBOX_RESULT = MB_YES THEN
                         ASC(WATCHPOINTLIST, WATCHPOINTBREAK) = 0
-                        totalwatchpoints = totalwatchpoints - 1
+                        TOTALWATCHPOINTS = TOTALWATCHPOINTS - 1
                         WATCHPOINT(WATCHPOINTBREAK).EXPRESSION = ""
                     END IF
                 END IF
@@ -841,6 +846,7 @@ SUB SOURCE_VIEW
 
     UpdateList:
     CHECK_RESIZE 0, 0
+    LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR - ((TOTAL_SELECTEDVARIABLES + 1) * _FONTHEIGHT)
     CLS , _RGB32(255, 255, 255)
     cursorBlink% = cursorBlink% + 1
     IF cursorBlink% > 50 THEN cursorBlink% = 0
@@ -1013,6 +1019,27 @@ SUB SOURCE_VIEW
         Buttons(cb).W = _PRINTWIDTH(TRIM$(Buttons(cb).CAPTION))
     NEXT cb
 
+    'Show QUICK WATCH panel. -----------------------------------------------------------
+    LINE (0, _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)))-STEP(_WIDTH(MAINSCREEN), (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1))), _RGB32(102, 255, 102), BF
+    LINE (0, _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)))-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT), _RGB32(0, 178, 179), BF
+    IF TOTAL_SELECTEDVARIABLES > 0 THEN
+        printY = (_HEIGHT(MAINSCREEN) - (_FONTHEIGHT * TOTAL_SELECTEDVARIABLES)) - _FONTHEIGHT
+        _PRINTSTRING (5, printY), "QUICK WATCH:"
+        this.i = 0
+        FOR i = 1 TO CLIENT.TOTALVARIABLES
+            IF ASC(SELECTED_VARIABLES, i) = 1 THEN
+                this.i = this.i + 1
+                v$ = LEFT$(VARIABLES(i).SCOPE, LONGESTSCOPESPEC) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, LONGESTVARNAME) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
+                printY = (_HEIGHT(MAINSCREEN) - (_FONTHEIGHT * TOTAL_SELECTEDVARIABLES)) + (_FONTHEIGHT * this.i) - _FONTHEIGHT
+                _PRINTSTRING (5, printY), v$
+            END IF
+        NEXT i
+    ELSE
+        printY = _HEIGHT(MAINSCREEN) - _FONTHEIGHT
+        _PRINTSTRING (5, printY), "QUICK WATCH: No variables added."
+    END IF
+    '-----------------------------------------------------------------------------------
+
     GOSUB CheckButtons
 
     FOR i = 1 TO LEN(ButtonLine$)
@@ -1109,6 +1136,11 @@ SUB SOURCE_VIEW
 
     'Select/Clear the item if a mouse click was detected.
     IF mb THEN
+        IF my > _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)) THEN
+            'Click on QUICK WATCH area takes user to VARIABLE VIEW
+            VARIABLE_VIEW
+            RETURN
+        END IF
         IF OldMXClicked = mx AND OldMYClicked = my AND (TIMER - LastClick# <= 0.5) THEN
             OldMXClicked = -1
             OldMYClicked = -1
@@ -1208,7 +1240,7 @@ SUB SOURCE_VIEW
     END IF
 
     'Turn on contextual options if right mouse click and while in step mode.
-    IF mb2 = -1 THEN
+    IF mb2 = -1 AND my < _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)) THEN
         'Wait until a mouse up event is received:
         WHILE _MOUSEBUTTON(2): _LIMIT 500: SEND_PING: mb2 = _MOUSEINPUT: my = _MOUSEY: mx = _MOUSEX: WEND
         mb2 = 0
@@ -1722,14 +1754,6 @@ SUB VARIABLE_VIEW
     grabbedY = -1
     ListEnd_Label = "(end of list)"
     _KEYCLEAR
-    longestVarName = 1
-    longestScopeSpec = 1
-
-    FOR i = 1 TO CLIENT.TOTALVARIABLES
-        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
-        IF LEN(TRIM$(VARIABLES(i).SCOPE)) > longestScopeSpec THEN longestScopeSpec = LEN(TRIM$(VARIABLES(i).SCOPE))
-        IF ASC(WATCHPOINTLIST, i) = 1 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS + 1
-    NEXT i
 
     SWITCH_VIEW = 0
 
@@ -1964,6 +1988,7 @@ SUB VARIABLE_VIEW
 
     UpdateList:
     CHECK_RESIZE 0, 0
+    LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
     CLS , _RGB32(255, 255, 255)
     cursorBlink% = cursorBlink% + 1
     IF cursorBlink% > 50 THEN cursorBlink% = 0
@@ -1994,17 +2019,17 @@ SUB VARIABLE_VIEW
     'Place a light gray rectangle under the column that can currently be filtered
     SELECT CASE SearchIn
         CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestScopeSpec + 1))
+            columnHighlightX = _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC + 1))
             columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
         CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(longestScopeSpec + 1))
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+            columnHighlightX = _PRINTWIDTH(SPACE$(21)) + _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC + 1))
+            columnHighlightW = _PRINTWIDTH(SPACE$(LONGESTVARNAME)) + 8
         CASE VALUES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestVarName)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(longestScopeSpec + 1)) + 16
+            columnHighlightX = _PRINTWIDTH(SPACE$(LONGESTVARNAME)) + _PRINTWIDTH(SPACE$(20)) + _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC + 1)) + 16
             columnHighlightW = _WIDTH
         CASE SCOPE
             columnHighlightX = 0
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestScopeSpec)) + 8
+            columnHighlightW = _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC)) + 8
     END SELECT
     columnHighlightY = 51
 
@@ -2023,7 +2048,7 @@ SUB VARIABLE_VIEW
     IF LEN(Filter$) > 0 AND LEN(FilteredList$) > 0 THEN
         FOR ii = ((y \ _FONTHEIGHT) + 1) TO LEN(FilteredList$) / 4
             i = CVL(MID$(FilteredList$, ii * 4 - 3, 4))
-            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
+            v$ = LEFT$(VARIABLES(i).SCOPE, LONGESTSCOPESPEC) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, LONGESTVARNAME) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
             printY = ((3 + ii) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
@@ -2032,7 +2057,7 @@ SUB VARIABLE_VIEW
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
         FOR i = ((y \ _FONTHEIGHT) + 1) TO CLIENT.TOTALVARIABLES
-            v$ = LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
+            v$ = LEFT$(VARIABLES(i).SCOPE, LONGESTSCOPESPEC) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, LONGESTVARNAME) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
             printY = ((3 + i) * _FONTHEIGHT) - y
             GOSUB ColorizeSelection
             IF (my > SCREEN_TOPBAR + 1) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
@@ -2209,6 +2234,13 @@ SUB VARIABLE_VIEW
         LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(255, 0, 0, 200), BF
         COLOR _RGB(255, 255, 255)
     END IF
+
+    'or that it's been selected to be watched in source view
+    IF ASC(SELECTED_VARIABLES, i) = 1 THEN
+        SelectedItemColor~& = _RGBA32(0, 200, 0, 100)
+        LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), SelectedItemColor~&, BF
+    END IF
+
     RETURN
 
     DetectClick:
@@ -2264,6 +2296,15 @@ SUB VARIABLE_VIEW
                 ContextualMenuLineRef = i
                 GOSUB EditVariableRoutine
                 DoubleClick = 0
+            ELSE
+                'Toggle variable in source panel
+                IF ASC(SELECTED_VARIABLES, i) = 0 THEN
+                    ASC(SELECTED_VARIABLES, i) = 1
+                    TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                ELSE
+                    ASC(SELECTED_VARIABLES, i) = 0
+                    TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES - 1
+                END IF
             END IF
         END IF
     END IF
@@ -2296,6 +2337,15 @@ SUB VARIABLE_VIEW
             IF TOTALWATCHPOINTS > 0 THEN
                 MenuSetup$ = MenuSetup$ + "Clear all &watchpoints" + CHR$(LF): MenuID$ = MenuID$ + MKI$(5)
             END IF
+            MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
+            IF ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 1 THEN
+                MenuSetup$ = MenuSetup$ + "Remove variable from &QUICK WATCH panel" + CHR$(LF): MenuID$ = MenuID$ + MKI$(8)
+            ELSE
+                MenuSetup$ = MenuSetup$ + "Add variable to &QUICK WATCH panel" + CHR$(LF): MenuID$ = MenuID$ + MKI$(8)
+            END IF
+            IF TOTAL_SELECTEDVARIABLES > 0 THEN
+                MenuSetup$ = MenuSetup$ + "Clear all variables from &QUICK WATCH" + CHR$(LF): MenuID$ = MenuID$ + MKI$(9)
+            END IF
             IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                 'Can't edit variable outside scope.
             ELSE
@@ -2313,6 +2363,19 @@ SUB VARIABLE_VIEW
                     FOR clear.WP = 1 TO CLIENT.TOTALVARIABLES
                         WATCHPOINT(clear.WP).EXPRESSION = ""
                     NEXT
+                CASE 9
+                    'Clear all variables from QUICK WATCH
+                    SELECTED_VARIABLES = STRING$(CLIENT.TOTALVARIABLES, 0)
+                    TOTAL_SELECTEDVARIABLES = 0
+                CASE 8
+                    'Toggle variable in QUICK WATCH
+                    IF ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 0 THEN
+                        ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 1
+                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                    ELSE
+                        ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 0
+                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES - 1
+                    END IF
                 CASE 4
                     'Clear watchpoint
                     ASC(WATCHPOINTLIST, ContextualMenuLineRef) = 0
@@ -2516,11 +2579,11 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     ListEnd_Label = "(end of list)"
     _KEYCLEAR
 
-    longestVarName = 1
-    longestScopeSpec = 1
+    LONGESTVARNAME = 1
+    LONGESTSCOPESPEC = 1
     FOR i = 1 TO TOTALVARIABLES
-        IF LEN(TRIM$(VARIABLES(i).NAME)) > longestVarName THEN longestVarName = LEN(TRIM$(VARIABLES(i).NAME))
-        IF LEN(TRIM$(VARIABLES(i).SCOPE)) > longestScopeSpec THEN longestScopeSpec = LEN(TRIM$(VARIABLES(i).SCOPE))
+        IF LEN(TRIM$(VARIABLES(i).NAME)) > LONGESTVARNAME THEN LONGESTVARNAME = LEN(TRIM$(VARIABLES(i).NAME))
+        IF LEN(TRIM$(VARIABLES(i).SCOPE)) > LONGESTSCOPESPEC THEN LONGESTSCOPESPEC = LEN(TRIM$(VARIABLES(i).SCOPE))
     NEXT i
 
     LEAVE_INTERACTIVE_MODE = 0
@@ -2695,14 +2758,14 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
     'Place a light gray rectangle under the column that can currently be filtered:
     SELECT CASE searchIn
         CASE DATATYPES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestScopeSpec + 7))
+            columnHighlightX = _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC + 7))
             columnHighlightW = _PRINTWIDTH(SPACE$(20)) + 8
         CASE VARIABLENAMES
-            columnHighlightX = _PRINTWIDTH(SPACE$(longestScopeSpec + 28))
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestVarName)) + 8
+            columnHighlightX = _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC + 28))
+            columnHighlightW = _PRINTWIDTH(SPACE$(LONGESTVARNAME)) + 8
         CASE SCOPE
             columnHighlightX = _PRINTWIDTH(SPACE$(6))
-            columnHighlightW = _PRINTWIDTH(SPACE$(longestScopeSpec + 1))
+            columnHighlightW = _PRINTWIDTH(SPACE$(LONGESTSCOPESPEC + 1))
     END SELECT
     columnHighlightY = 51
 
@@ -2729,7 +2792,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
             IF printY > SCREEN_HEIGHT THEN EXIT FOR
             GOSUB ColorizeSelection
             IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + LEFT$(VARIABLES(i).SCOPE, LONGESTSCOPESPEC) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, LONGESTVARNAME)
             _PRINTSTRING (5, printY), v$
         NEXT ii
     ELSEIF LEN(Filter$) = 0 THEN
@@ -2738,7 +2801,7 @@ SUB INTERACTIVE_MODE (AddedList$, TotalSelected)
             IF printY > SCREEN_HEIGHT THEN EXIT FOR
             GOSUB ColorizeSelection
             IF (my > 51) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN GOSUB DetectClick
-            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + LEFT$(VARIABLES(i).SCOPE, longestScopeSpec) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, longestVarName)
+            v$ = "[" + IIFSTR$(ASC(AddedList$, i) = 1, "+", " ") + "]" + SPACE$(3) + LEFT$(VARIABLES(i).SCOPE, LONGESTSCOPESPEC) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, LONGESTVARNAME)
             _PRINTSTRING (5, printY), v$
         NEXT i
     END IF
@@ -5009,6 +5072,7 @@ SUB SETUP_CONNECTION
     TOTALBREAKPOINTS = 0
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
     WATCHPOINTLIST = STRING$(CLIENT.TOTALVARIABLES, 0)
+    SELECTED_VARIABLES = STRING$(CLIENT.TOTALVARIABLES, 0)
     DATAINFOBLOCK = BREAKPOINTLISTBLOCK + LEN(BREAKPOINTLIST) + 1
     GET #FILE, DATAINFOBLOCK, VARIABLES()
     DATABLOCK = DATAINFOBLOCK + LEN(VARIABLES()) + 1
@@ -5017,6 +5081,14 @@ SUB SETUP_CONNECTION
     WATCHPOINTCOMMANDBLOCK = WATCHPOINTEXPBLOCK + LEN(WATCHPOINT()) + 1
     EXCHANGEBLOCK = WATCHPOINTCOMMANDBLOCK + LEN(WATCHPOINT_COMMAND) + 1
     LINE_TRAIL = LEN("[ ]  " + SPACE$(LEN(TRIM$(STR$(CLIENT.TOTALSOURCELINES))) - LEN("1")) + "1" + "    ")
+
+    LONGESTSCOPESPEC = 1
+    LONGESTVARNAME = 1
+    FOR i = 1 TO CLIENT.TOTALVARIABLES
+        IF LEN(TRIM$(VARIABLES(i).NAME)) > LONGESTVARNAME THEN LONGESTVARNAME = LEN(TRIM$(VARIABLES(i).NAME))
+        IF LEN(TRIM$(VARIABLES(i).SCOPE)) > LONGESTSCOPESPEC THEN LONGESTSCOPESPEC = LEN(TRIM$(VARIABLES(i).SCOPE))
+        IF ASC(WATCHPOINTLIST, i) = 1 THEN TOTALWATCHPOINTS = TOTALWATCHPOINTS + 1
+    NEXT i
 
     'Load the source file, if it still exists.
     SOURCEFILE = ""
@@ -5806,6 +5878,7 @@ SUB DISPLAYSCROLLBAR (y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio AS SINGLE, mx,
     IF PAGE_HEIGHT <= LIST_AREA THEN EXIT SUB
 
     SB_Ratio = LIST_AREA / PAGE_HEIGHT
+    SB_TRACK = LIST_AREA - 48
     SB_ThumbH = SB_TRACK * SB_Ratio
     IF SB_ThumbH < 20 THEN SB_ThumbH = 20
 
@@ -5819,12 +5892,12 @@ SUB DISPLAYSCROLLBAR (y, grabbedY, SB_ThumbY, SB_ThumbH, SB_Ratio AS SINGLE, mx,
         'Highlight arrows if hovererd
         IF my <= SCREEN_TOPBAR + 21 THEN
             LINE (_WIDTH - 30, SCREEN_TOPBAR + 1)-STEP(29, 20), _RGBA32(230, 230, 230, 235), BF
-        ELSEIF my >= SCREEN_HEIGHT - 21 THEN
-            LINE (_WIDTH - 30, SCREEN_HEIGHT - 21)-STEP(29, 20), _RGBA32(230, 230, 230, 235), BF
+        ELSEIF my >= SCREEN_HEIGHT - ((TOTAL_SELECTEDVARIABLES + 1) * _FONTHEIGHT) - 21 THEN
+            LINE (_WIDTH - 30, SCREEN_HEIGHT - ((TOTAL_SELECTEDVARIABLES + 1) * _FONTHEIGHT) - 21)-STEP(29, 20), _RGBA32(230, 230, 230, 235), BF
         END IF
     END IF
     _PRINTSTRING (_WIDTH - 20, SCREEN_TOPBAR + 5), CHR$(24)
-    _PRINTSTRING (_WIDTH - 20, SCREEN_HEIGHT - _FONTHEIGHT - 5), CHR$(25)
+    _PRINTSTRING (_WIDTH - 20, SCREEN_HEIGHT - ((TOTAL_SELECTEDVARIABLES + 1) * _FONTHEIGHT) - _FONTHEIGHT - 5), CHR$(25)
 
     IF grabbedY = -1 THEN
         SB_StartX = 25
@@ -5887,7 +5960,7 @@ SUB CHECK_RESIZE (new_w%, new_h%)
     COLOR dc, bg
     _FREEIMAGE ts
 
-    LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
+    LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR - ((TOTAL_SELECTEDVARIABLES + 1) * _FONTHEIGHT)
     SB_TRACK = LIST_AREA - 48
 
     $IF WIN THEN
