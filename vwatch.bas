@@ -241,15 +241,16 @@ IF (INSTR(_OS$, "WIN") > 0 AND _FILEEXISTS("qb64.exe") = 0) OR (INSTR(_OS$, "WIN
     MESSAGEBOX_RESULT = MESSAGEBOX(ID, "vWATCH64 must be in QB64's main folder.", MKI$(OK_ONLY), 1, 0)
     SYSTEM
 ELSE
-    IF _FILEEXISTS("internal/c/parts/video/font/ttf/src.c") THEN
-        OPEN "internal/c/parts/video/font/ttf/src.c" FOR BINARY AS #1
+    IF _FILEEXISTS("source/qb64.bas") THEN
+        OPEN "source/qb64.bas" FOR BINARY AS #1
         a$ = SPACE$(LOF(1))
         GET #1, , a$
         CLOSE #1
-        IF INSTR(a$, "if (codepoints > 1) free(render);") = 0 THEN
+        IF INSTR(a$, "osascript -e 'tell application ") = 0 THEN 'Snippet added to QB64 after Feb 27th 2016
             MESSAGEBOX_RESULT = MESSAGEBOX(ID, "vWATCH64 needs a newer version of QB64.", MKI$(OK_ONLY), 1, 0)
             SYSTEM
         END IF
+        a$ = ""
     ELSE
         MESSAGEBOX_RESULT = MESSAGEBOX(ID, "vWATCH64 needs a newer version of QB64.", MKI$(OK_ONLY), 1, 0)
         SYSTEM
