@@ -3970,6 +3970,7 @@ SUB PROCESSFILE
     RANDOMIZE TIMER
     PRINT #OutputFile, "    DIM k AS LONG"
     PRINT #OutputFile, "    DIM Message1$, Message2$, NoGo%"
+    PRINT #OutputFile, "    DIM FileIsOpen%, FileExists%"
     PRINT #OutputFile, ""
     PRINT #OutputFile, "    vwatch64_CHECKFILE:"
     PRINT #OutputFile, "    IF _FILEEXISTS(vwatch64_FILENAME) = 0 THEN"
