@@ -227,7 +227,6 @@ SCREEN_WIDTH = DEFAULT_WIDTH
 SCREEN_HEIGHT = DEFAULT_HEIGHT
 LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR
 
-RESTORE_LIBRARY
 READ_KEYWORDS
 
 'Screen setup: ----------------------------------------------------------------
@@ -236,6 +235,29 @@ SCREEN MAINSCREEN
 DO: _LIMIT 30: LOOP UNTIL _SCREENEXISTS
 TITLESTRING = "vWATCH64 - v" + VERSION
 _TITLE TITLESTRING
+
+'QB64 version check: ----------------------------------------------------------
+IF (INSTR(_OS$, "WIN") > 0 AND _FILEEXISTS("qb64.exe") = 0) OR (INSTR(_OS$, "WIN") = 0 AND _FILEEXISTS("qb64") = 0) THEN
+    MESSAGEBOX_RESULT = MESSAGEBOX(ID, "vWATCH64 must be in QB64's main folder.", MKI$(OK_ONLY), 1, 0)
+    SYSTEM
+ELSE
+    IF _FILEEXISTS("internal/c/parts/video/font/ttf/src.c") THEN
+        OPEN "internal/c/parts/video/font/ttf/src.c" FOR BINARY AS #1
+        a$ = SPACE$(LOF(1))
+        GET #1, , a$
+        CLOSE #1
+        IF INSTR(a$, "if (codepoints > 1) free(render);") = 0 THEN
+            MESSAGEBOX_RESULT = MESSAGEBOX(ID, "vWATCH64 needs a newer version of QB64.", MKI$(OK_ONLY), 1, 0)
+            SYSTEM
+        END IF
+    ELSE
+        MESSAGEBOX_RESULT = MESSAGEBOX(ID, "vWATCH64 needs a newer version of QB64.", MKI$(OK_ONLY), 1, 0)
+        SYSTEM
+    END IF
+END IF
+
+'Restore 'timers.h' -----------------------------------------------------------
+RESTORE_LIBRARY
 
 'Parse the command line: ------------------------------------------------------
 'Did the user drag a .BAS file onto this program or enter parameters?
