@@ -5953,16 +5953,12 @@ END SUB
 
 '------------------------------------------------------------------------------
 SUB CHECK_RESIZE (new_w%, new_h%)
-    'Resize routine adapted from Steve McNeill:
-    'http://www.qb64.net/forum/index.php?topic=11053.msg93650#msg93650
-
-    DIM ts AS LONG 'a temp screen
-    DIM dc AS LONG, bg AS LONG 'default and background colors
-    dc = _DEFAULTCOLOR: bg = _BACKGROUNDCOLOR
+    DIM fg AS LONG, bg AS LONG
 
     IF _RESIZE = 0 THEN
         IF new_w% + new_h% = 0 THEN EXIT SUB
     ELSE
+        DO: LOOP WHILE _RESIZE
         new_w% = _RESIZEWIDTH
         new_h% = _RESIZEHEIGHT
     END IF
@@ -5975,16 +5971,12 @@ SUB CHECK_RESIZE (new_w%, new_h%)
     SCREEN_WIDTH = new_w%
     SCREEN_HEIGHT = new_h%
 
-    ts = _NEWIMAGE(SCREEN_WIDTH, SCREEN_HEIGHT, 32)
-    _PUTIMAGE , MAINSCREEN, ts
+    fg = _DEFAULTCOLOR: bg = _BACKGROUNDCOLOR
 
-    SCREEN ts
+    SCREEN _NEWIMAGE(SCREEN_WIDTH, SCREEN_HEIGHT, 32)
+    COLOR fg, bg
     _FREEIMAGE MAINSCREEN
-    MAINSCREEN = _NEWIMAGE(new_w%, new_h%, 32)
-    _PUTIMAGE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), ts, MAINSCREEN
-    SCREEN MAINSCREEN
-    COLOR dc, bg
-    _FREEIMAGE ts
+    MAINSCREEN = _DEST
 
     LIST_AREA = SCREEN_HEIGHT - SCREEN_TOPBAR - ((TOTAL_SELECTEDVARIABLES + 1) * _FONTHEIGHT)
     SB_TRACK = LIST_AREA - 48
@@ -6326,7 +6318,7 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
 
     CharW = _PRINTWIDTH("_")
     REDIM MessageLines(1) AS STRING
-    PCOPY 1, 0
+    PCOPY 0, 1
     LINE (0, 0)-STEP(SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1), _RGBA32(170, 170, 170, 170), BF
     MaxLen = 1
     DO
