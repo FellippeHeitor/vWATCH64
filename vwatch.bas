@@ -3627,6 +3627,10 @@ SUB PROCESSFILE
             'STOP will be handled by vWATCH64 and not the QB64 compiler, so that it can be
             'converted into an automatic breakpoint, instead of quitting the program.
             GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "vWATCH64_DUMMY%% = 0 'STOP"
+        ELSEIF SourceLine = "$CONSOLE:ONLY" THEN
+            'CONSOLE:ONLY causes issues with vWATCH64; For compatibility purposes,
+            'it'll be turned into $CONSOLE
+            GOSUB AddOutputLine: OutputLines(TotalOutputLines) = "$CONSOLE"
         ELSEIF FIND_KEYWORD(bkpSourceLine$, "EXIT SUB", Found_ES_At) OR FIND_KEYWORD(bkpSourceLine$, "EXIT FUNCTION", Found_EF_At) THEN
             GOSUB AddOutputLine
             IF Found_ES_At THEN
@@ -3708,6 +3712,7 @@ SUB PROCESSFILE
                 IF i = 0 THEN Found = 1 'No separator was found, but we reached the beginning of the line
 
                 caseBkpNextVar$ = TRIM$(MID$(SourceLine, Found, Start - Found + 1))
+                AnalyzeThisVar:
                 NextVar$ = UCASE$(caseBkpNextVar$)
 
                 'No _MEMNEW variables allowed:
@@ -3746,6 +3751,25 @@ SUB PROCESSFILE
 
                 AllCriteriaMet:
                 GOSUB AddThisTempVar
+            ELSE
+                'Look for "INPUT #1, var$" or similar
+                FoundLINEINPUT = FIND_SYMBOL(1, uSourceLine$, "INPUT #")
+                IF FoundLINEINPUT THEN
+                    FoundComma = FIND_SYMBOL(FoundLINEINPUT, uSourceLine$, ",")
+                    Found = FoundComma + 1
+                    caseBkpNextVar$ = MID$(SourceLine, Found)
+                    DO
+                        IF LEFT$(caseBkpNextVar$, 1) = " " THEN caseBkpNextVar$ = MID$(caseBkpNextVar$, 2) ELSE EXIT DO
+                    LOOP
+                    FoundColon = FIND_SYMBOL(1, caseBkpNextVar$, ":")
+                    FoundComma = FIND_SYMBOL(1, caseBkpNextVar$, ",")
+                    IF FoundComma THEN
+                        caseBkpNextVar$ = LEFT$(caseBkpNextVar$, FoundComma - 1)
+                    ELSEIF FoundColon THEN
+                        caseBkpNextVar$ = LEFT$(caseBkpNextVar$, FoundColon - 1)
+                    END IF
+                    IF LEN(caseBkpNextVar$) THEN GOTO AnalyzeThisVar
+                END IF
             END IF
             NoValidVarFound:
         LOOP UNTIL StartPos = 0
@@ -5097,8 +5121,14 @@ SUB SETUP_CONNECTION
     TOTALBREAKPOINTS = 0
     BREAKPOINTLIST = STRING$(CLIENT.TOTALSOURCELINES, 0)
     WATCHPOINTLIST = STRING$(CLIENT.TOTALVARIABLES, 0)
-    SELECTED_VARIABLES = STRING$(CLIENT.TOTALVARIABLES, 0)
-    TOTAL_SELECTEDVARIABLES = 0
+    IF CLIENT.TOTALVARIABLES <= 15 THEN
+        'Up to 15 variables will be added automatically to quick watch panel
+        SELECTED_VARIABLES = STRING$(CLIENT.TOTALVARIABLES, 1)
+        TOTAL_SELECTEDVARIABLES = CLIENT.TOTALVARIABLES
+    ELSE
+        SELECTED_VARIABLES = STRING$(CLIENT.TOTALVARIABLES, 0)
+        TOTAL_SELECTEDVARIABLES = 0
+    END IF
     DATAINFOBLOCK = BREAKPOINTLISTBLOCK + LEN(BREAKPOINTLIST) + 1
     GET #FILE, DATAINFOBLOCK, VARIABLES()
     DATABLOCK = DATAINFOBLOCK + LEN(VARIABLES()) + 1
