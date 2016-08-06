@@ -1530,18 +1530,15 @@ END SUB
 '------------------------------------------------------------------------------
 FUNCTION GETELEMENT$ (SourceLine$, Element)
     SEP$ = " =<>+-/\^:;,*()" + CHR$(1) + CHR$(3) + CHR$(4) + CHR$(5) + CHR$(6)
-    i$ = SourceLine$
+    a$ = SourceLine$
     Position = 0
-    InQuote = 0
     ThisElement = 0
     DO
         Position = Position + 1
-        a$ = UCASE$(i$)
         CommentStart = LEN(STRIPCOMMENTS$(a$))
         IF MID$(a$, Position) = "" THEN EXIT DO
         CheckSep:
         IF INSTR(SEP$, MID$(a$, Position, 1)) > 0 AND Position < LEN(a$) THEN Position = Position + 1: GOTO CheckSep
-        IF ASC(a$, Position) = 34 THEN InQuote = NOT InQuote
 
         Start = Position
         Element$ = ""
@@ -1552,9 +1549,18 @@ FUNCTION GETELEMENT$ (SourceLine$, Element)
             Position = Position + 1
             IF Position > LEN(a$) THEN EXIT DO
         LOOP
-        a$ = Element$
         ThisElement = ThisElement + 1
-        IF ThisElement = Element THEN GETELEMENT$ = Element$
+        IF (LEFT$(Element$, 1) = CHR$(34) AND LEN(Element$) > 1 AND RIGHT$(Element$, 1) <> CHR$(34)) _
+            OR Element$ = CHR$(34) THEN
+            'We found an open quote.
+            'This element will go up until the next closing quote, if any
+            ClosingQuote = INSTR(Position, a$, CHR$(34))
+            IF ClosingQuote > 0 THEN
+                Element$ = Element$ + MID$(a$, Position, ClosingQuote - Position + 1)
+                Position = ClosingQuote + 1
+            END IF
+        END IF
+        IF ThisElement = Element THEN GETELEMENT$ = Element$: EXIT DO
     LOOP
 END FUNCTION
 
@@ -3060,6 +3066,7 @@ SUB PROCESSFILE
     DIM StatusMessage AS STRING
     DIM ThisKeyword AS STRING
     DIM ThisLineHasBPControl AS LONG
+    DIM TotalExpandedWithUDT AS INTEGER
     DIM TotalKeywords AS INTEGER
     DIM TotalLocalVariables AS INTEGER
     DIM TotalNextLineData AS LONG
@@ -3070,6 +3077,7 @@ SUB PROCESSFILE
     DIM bkpSourceLine$
     DIM caseBkpNextVar$
     DIM caseBkpSourceLine AS STRING
+    REDIM ExpandedWithUDT(1) AS VARIABLESTYPE
     REDIM KeywordList(1) AS STRING
     REDIM LOCALSHAREDADDED(1) AS STRING
     REDIM LOCALVARIABLES(1) AS VARIABLESTYPE
@@ -3421,7 +3429,7 @@ SUB PROCESSFILE
                             ValidArray% = 0
                             FOR ItemsinArray = LowerBoundary% TO UpperBoundary%
                                 FOR i = 1 TO TotalUDTs
-                                    'Expand variables defined as UDTs to Variable.Element format:
+                                    'Expand variables defined as UDTs to Variable(?).Element format:
                                     IF UCASE$(TRIM$(UDT(i).UDT)) = FoundType THEN
                                         TOTALVARIABLES = TOTALVARIABLES + 1
                                         REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
@@ -3445,8 +3453,17 @@ SUB PROCESSFILE
                             NEXT ItemsinArray
                         END IF
                     ELSE
+                        'Expand variables defined as UDTs to Variable.Element format:
+                        TotalExpandedWithUDT = TotalExpandedWithUDT + 1
+                        REDIM _PRESERVE ExpandedWithUDT(1 TO TotalExpandedWithUDT) AS VARIABLESTYPE
+                        ExpandedWithUDT(TotalExpandedWithUDT).NAME = LEFT$(caseBkpNextVar$, INSTR(NextVar$, " AS ") - 1)
+                        IF MainModule THEN
+                            ExpandedWithUDT(TotalExpandedWithUDT).SCOPE = IIFSTR$(LocalVariable, "MAIN MODULE", "SHARED")
+                        ELSE
+                            ExpandedWithUDT(TotalExpandedWithUDT).SCOPE = CurrentSubFunc$
+                        END IF
+
                         FOR i = 1 TO TotalUDTs
-                            'Expand variables defined as UDTs to Variable.Element format:
                             IF UCASE$(TRIM$(UDT(i).UDT)) = FoundType THEN
                                 TOTALVARIABLES = TOTALVARIABLES + 1
                                 REDIM _PRESERVE VARIABLES(1 TO TOTALVARIABLES) AS VARIABLESTYPE
@@ -3693,6 +3710,7 @@ SUB PROCESSFILE
         END IF
 
         StartPos = 0
+        ProcessingLineInput = 0
         DO
             StartPos = FIND_SYMBOL(StartPos + 1, SourceLine, "=")
             Start = StartPos
@@ -3751,27 +3769,63 @@ SUB PROCESSFILE
 
                 AllCriteriaMet:
                 GOSUB AddThisTempVar
+                IF ProcessingLineInput THEN RETURN
             ELSE
-                'Look for "INPUT #1, var$" or similar
-                FoundLINEINPUT = FIND_SYMBOL(1, uSourceLine$, "INPUT #")
-                IF FoundLINEINPUT THEN
-                    FoundComma = FIND_SYMBOL(FoundLINEINPUT, uSourceLine$, ",")
-                    Found = FoundComma + 1
-                    caseBkpNextVar$ = MID$(SourceLine, Found)
-                    DO
-                        IF LEFT$(caseBkpNextVar$, 1) = " " THEN caseBkpNextVar$ = MID$(caseBkpNextVar$, 2) ELSE EXIT DO
-                    LOOP
-                    FoundColon = FIND_SYMBOL(1, caseBkpNextVar$, ":")
-                    FoundComma = FIND_SYMBOL(1, caseBkpNextVar$, ",")
-                    IF FoundComma THEN
-                        caseBkpNextVar$ = LEFT$(caseBkpNextVar$, FoundComma - 1)
-                    ELSEIF FoundColon THEN
-                        caseBkpNextVar$ = LEFT$(caseBkpNextVar$, FoundColon - 1)
+                'Look for keywords that create variables, without an assignment (=)
+                bkpSourceLine$ = SourceLine
+                SpecialKeyword = 0
+                DO
+                    SpecialKeyword = SpecialKeyword + 1
+                    SELECT CASE SpecialKeyword
+                        CASE 1: ThisKeyword$ = "INPUT"
+                        CASE 2: ThisKeyword$ = "READ"
+                        CASE 3: ThisKeyword$ = "GET"
+                        CASE 4: ThisKeyword$ = "FIELD"
+                        CASE ELSE: EXIT DO
+                    END SELECT
+
+                    SourceLine = bkpSourceLine$
+
+                    StartSpecialParsing:
+                    FoundSpecialKeyword = FIND_KEYWORD(SourceLine, ThisKeyword$, SpecialKeywordFoundAt)
+                    IF FoundSpecialKeyword THEN
+                        IF SpecialKeywordFoundAt = 0 THEN SpecialKeywordFoundAt = 1
+                        SourceLine = MID$(SourceLine, SpecialKeywordFoundAt + 5)
+                        ElementCount = 0
+                        ProcessingLineInput = -1
+                        DO
+                            DO
+                                ElementCount = ElementCount + 1
+                                ThisElement$ = GETELEMENT$(SourceLine, ElementCount)
+                                NextElement$ = GETELEMENT(SourceLine, ElementCount + 1)
+                                IF LEFT$(ThisElement$, 1) <> CHR$(34) THEN EXIT DO
+                            LOOP
+                            caseBkpNextVar$ = ThisElement$
+                            IF LEN(caseBkpNextVar$) THEN
+                                IF IS_KEYWORD(caseBkpNextVar$) THEN
+                                    IF ThisKeyword$ = "FIELD" AND UCASE$(caseBkpNextVar$) = "AS" THEN
+                                        'Ignore this specific case
+                                    ELSE
+                                        'Consider that the current statement is over, move on:
+                                        SourceLine = MID$(SourceLine, INSTR(SourceLine, caseBkpNextVar$) + LEN(caseBkpNextVar$))
+                                        GOTO StartSpecialParsing
+                                    END IF
+                                END IF
+                                IF ThisKeyword$ = "FIELD" AND UCASE$(NextElement$) = "AS" THEN
+                                    'Ignore this specific case
+                                ELSE
+                                    GOSUB AnalyzeThisVar
+                                END IF
+                            ELSE
+                                EXIT DO
+                            END IF
+                        LOOP
                     END IF
-                    IF LEN(caseBkpNextVar$) THEN GOTO AnalyzeThisVar
-                END IF
+                LOOP
+                ProcessingLineInput = 0
             END IF
             NoValidVarFound:
+            IF ProcessingLineInput THEN RETURN
         LOOP UNTIL StartPos = 0
     LOOP
 
@@ -4714,12 +4768,22 @@ SUB PROCESSFILE
 
     AddThisTempVar:
     'Add temporary variable to watchlist: -------------------------
+    IF MainModule THEN ThisTempScope$ = "MAIN MODULE" ELSE ThisTempScope$ = TRIM$(SUBFUNC(CurrSF).NAME)
     TempList$ = STRING$(TOTALVARIABLES, 1)
     StartAt = 0
     LookAgain:
     StartAt = StartAt + 1
     Found = FINDVARIABLES(StartAt, NextVar$, TempList$)
     IF Found = 0 THEN
+        'Before assuming the variable doesn't exist, check against ExpandedWithUDT()
+        FOR CheckExpanded = 1 TO TotalExpandedWithUDT
+            IF UCASE$(TRIM$(ExpandedWithUDT(CheckExpanded).NAME)) = UCASE$(NextVar$) THEN
+                IF UCASE$(TRIM$(ExpandedWithUDT(CheckExpanded).SCOPE)) = ThisTempScope$ THEN
+                    GOTO NoValidVarFound
+                END IF
+            END IF
+        NEXT
+
         IF CurrSF > 0 THEN
             Found = FIND_KEYWORD(TRIM$(SUBFUNC(CurrSF).NAME), NextVar$, FoundAt)
             IF Found THEN GOTO NoValidVarFound
