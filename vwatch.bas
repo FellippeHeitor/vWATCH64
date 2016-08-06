@@ -144,6 +144,7 @@ DIM SHARED FIRSTEXECUTION AS _BYTE
 DIM SHARED CONVERSIONERRORRAISED AS _BYTE
 DIM SHARED PAGE_HEIGHT AS LONG
 DIM SHARED INTERNALKEYWORDS AS INTEGER
+DIM SHARED GETELEMENT_LASTPOSITION AS LONG
 DIM SHARED LIST_AREA AS INTEGER
 DIM SHARED LINE_TRAIL AS INTEGER
 DIM SHARED LONGESTLINE AS LONG
@@ -1043,7 +1044,7 @@ SUB SOURCE_VIEW
     NEXT cb
 
     'Show QUICK WATCH panel. -----------------------------------------------------------
-    LINE (0, _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)))-STEP(_WIDTH(MAINSCREEN), (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1))), _RGB32(102, 255, 102), BF
+    LINE (0, _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)))-STEP(_WIDTH(MAINSCREEN), (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1))), _RGBA32(0, 200, 0, 100), BF
     LINE (0, _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)))-STEP(_WIDTH(MAINSCREEN), _FONTHEIGHT), _RGB32(0, 178, 179), BF
     IF TOTAL_SELECTEDVARIABLES > 0 THEN
         printY = (_HEIGHT(MAINSCREEN) - (_FONTHEIGHT * TOTAL_SELECTEDVARIABLES)) - _FONTHEIGHT
@@ -1532,6 +1533,7 @@ FUNCTION GETELEMENT$ (SourceLine$, Element)
     SEP$ = " =<>+-/\^:;,*()" + CHR$(1) + CHR$(3) + CHR$(4) + CHR$(5) + CHR$(6)
     a$ = SourceLine$
     Position = 0
+    GETELEMENT_LASTPOSITION = 0
     ThisElement = 0
     DO
         Position = Position + 1
@@ -1560,7 +1562,7 @@ FUNCTION GETELEMENT$ (SourceLine$, Element)
                 Position = ClosingQuote + 1
             END IF
         END IF
-        IF ThisElement = Element THEN GETELEMENT$ = Element$: EXIT DO
+        IF ThisElement = Element THEN GETELEMENT$ = Element$: GETELEMENT_LASTPOSITION = Position: EXIT DO
     LOOP
 END FUNCTION
 
@@ -3797,6 +3799,7 @@ SUB PROCESSFILE
                             DO
                                 ElementCount = ElementCount + 1
                                 ThisElement$ = GETELEMENT$(SourceLine, ElementCount)
+                                ThisElementPosition = GETELEMENT_LASTPOSITION
                                 NextElement$ = GETELEMENT(SourceLine, ElementCount + 1)
                                 IF LEFT$(ThisElement$, 1) <> CHR$(34) THEN EXIT DO
                             LOOP
@@ -3814,6 +3817,9 @@ SUB PROCESSFILE
                                 IF ThisKeyword$ = "FIELD" AND UCASE$(NextElement$) = "AS" THEN
                                     'Ignore this specific case
                                 ELSE
+                                    IF MID$(SourceLine, ThisElementPosition, 1) = "(" THEN
+                                        caseBkpNextVar$ = caseBkpNextVar$ + "()"
+                                    END IF
                                     GOSUB AnalyzeThisVar
                                 END IF
                             ELSE
