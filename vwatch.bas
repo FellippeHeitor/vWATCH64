@@ -1,6 +1,10 @@
 'vWATCH64 - A debug/variable watch system for QB64 programs
 'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
-'https://github.com/FellippeHeitor/vWATCH64
+'
+'Code repository: https://github.com/FellippeHeitor/vWATCH64
+'
+'Requirements: Any build of QB64 released after February 27th, 2016
+'              (preferably the latest daily build).
 
 $RESIZE:ON
 DEFLNG A-Z
