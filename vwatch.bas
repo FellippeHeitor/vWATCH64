@@ -1775,6 +1775,7 @@ SUB VARIABLE_VIEW
     DIM SB_Ratio AS SINGLE
     DIM SourceLine AS STRING
     DIM ListEnd_Label AS STRING
+    DIM LastToggledON AS LONG
     STATIC Filter$
     STATIC SearchIn
     STATIC y AS LONG
@@ -2332,16 +2333,30 @@ SUB VARIABLE_VIEW
                 ContextualMenuLineRef = i
                 GOSUB EditVariableRoutine
                 DoubleClick = 0
+                ShiftON = 0
                 GOTO ToggleQuickWatch 'A double-click must undo the last toggle (single-click before double-click)
             ELSE
                 'Toggle variable in source panel (QUICK WATCH)
+                IF _KEYDOWN(100304) OR _KEYDOWN(100303) THEN ShiftON = -1 ELSE ShiftON = 0
                 ToggleQuickWatch:
-                IF ASC(SELECTED_VARIABLES, i) = 0 THEN
-                    ASC(SELECTED_VARIABLES, i) = 1
-                    TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                IF ShiftON = 0 THEN
+                    IF ASC(SELECTED_VARIABLES, i) = 0 THEN
+                        ASC(SELECTED_VARIABLES, i) = 1
+                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                        LastToggledON = i
+                    ELSE
+                        ASC(SELECTED_VARIABLES, i) = 0
+                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES - 1
+                    END IF
                 ELSE
-                    ASC(SELECTED_VARIABLES, i) = 0
-                    TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES - 1
+                    IF LastToggledON = 0 THEN ShiftON = 0: GOTO ToggleQuickWatch
+                    IF i > LastToggledON THEN ToggleStep = -1 ELSE ToggleStep = 1
+                    FOR ShiftToggle = i TO LastToggledON STEP ToggleStep
+                        IF ASC(SELECTED_VARIABLES, ShiftToggle) = 0 THEN
+                            ASC(SELECTED_VARIABLES, ShiftToggle) = 1
+                            TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                        END IF
+                    NEXT
                 END IF
             END IF
         END IF
