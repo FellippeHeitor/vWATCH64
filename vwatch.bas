@@ -1,5 +1,6 @@
 'vWATCH64 - A debug/variable watch system for QB64 programs
 'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
+'https://github.com/FellippeHeitor/vWATCH64
 
 $RESIZE:ON
 DEFLNG A-Z
@@ -32,7 +33,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = ".966b"
+CONST VERSION = "1.000"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
