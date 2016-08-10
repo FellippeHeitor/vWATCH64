@@ -460,7 +460,7 @@ SUB SOURCE_VIEW
 
         IF LEN(SOURCEFILE) > 0 THEN
             FOR i = 1 TO CLIENT.TOTALVARIABLES
-                IF INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
+                IF (TRIM$(UCASE$(VARIABLES(i).SCOPE)) <> UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
                     VARIABLE_DATA(i).VALUE = "<out of scope>"
                 END IF
             NEXT i
@@ -1807,7 +1807,7 @@ SUB VARIABLE_VIEW
 
         IF LEN(SOURCEFILE) > 0 THEN
             FOR i = 1 TO CLIENT.TOTALVARIABLES
-                IF INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
+                IF (TRIM$(UCASE$(VARIABLES(i).SCOPE)) <> UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) AND TRIM$(VARIABLES(i).SCOPE) <> "SHARED" THEN
                     VARIABLE_DATA(i).VALUE = "<out of scope>"
                 END IF
             NEXT i
@@ -2256,7 +2256,7 @@ SUB VARIABLE_VIEW
             Element = Element + 1
             a$ = GETELEMENT$(SourceLine, Element)
             IF a$ = "" THEN EXIT DO
-            IF UCASE$(a$) = UCASE$(vs$) AND (INSTR(UCASE$(VARIABLES(i).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) > 0 OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+            IF UCASE$(a$) = UCASE$(vs$) AND ((TRIM$(UCASE$(VARIABLES(i).SCOPE)) = UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
                 LINE (0, printY - 1)-STEP(_WIDTH, _FONTHEIGHT + 1), _RGBA32(200, 200, 0, 100), BF
                 EXIT DO
             END IF
@@ -2382,7 +2382,7 @@ SUB VARIABLE_VIEW
             IF TOTAL_SELECTEDVARIABLES > 0 THEN
                 MenuSetup$ = MenuSetup$ + "Clear all variables from &QUICK WATCH" + CHR$(LF): MenuID$ = MenuID$ + MKI$(9)
             END IF
-            IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
+            IF TRIM$(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE)) <> UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                 'Can't edit variable outside scope.
             ELSE
                 MenuSetup$ = MenuSetup$ + "-" + CHR$(LF): MenuID$ = MenuID$ + MKI$(0)
@@ -2468,7 +2468,7 @@ SUB VARIABLE_VIEW
                 CASE 3
                     'Edit
                     EditVariableRoutine:
-                    IF INSTR(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE), GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2)) = 0 AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
+                    IF (TRIM$(UCASE$(VARIABLES(ContextualMenuLineRef).SCOPE)) <> UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) AND TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) <> "SHARED" THEN
                         Message$ = ""
                         Message$ = Message$ + "Cannot edit '" + TRIM$(VARIABLES(ContextualMenuLineRef).NAME) + "' (" + TRIM$(VARIABLES(ContextualMenuLineRef).DATATYPE) + ") until program execution is" + CHR$(LF)
                         Message$ = Message$ + "inside " + TRIM$(VARIABLES(ContextualMenuLineRef).SCOPE) + "."
@@ -6424,7 +6424,7 @@ FUNCTION INPUTBOX (tTitle$, tMessage$, InitialValue AS STRING, NewValue AS STRIN
 
     CharW = _PRINTWIDTH("_")
     REDIM MessageLines(1) AS STRING
-    PCOPY 0, 1
+    PCOPY 1, 0
     LINE (0, 0)-STEP(SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1), _RGBA32(170, 170, 170, 170), BF
     MaxLen = 1
     DO
