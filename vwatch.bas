@@ -2332,8 +2332,10 @@ SUB VARIABLE_VIEW
                 ContextualMenuLineRef = i
                 GOSUB EditVariableRoutine
                 DoubleClick = 0
+                GOTO ToggleQuickWatch 'A double-click must undo the last toggle (single-click before double-click)
             ELSE
-                'Toggle variable in source panel
+                'Toggle variable in source panel (QUICK WATCH)
+                ToggleQuickWatch:
                 IF ASC(SELECTED_VARIABLES, i) = 0 THEN
                     ASC(SELECTED_VARIABLES, i) = 1
                     TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
