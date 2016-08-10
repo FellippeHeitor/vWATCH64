@@ -4848,7 +4848,7 @@ END SUB
 FUNCTION CHECKLIST (Text$, List$(), UpperBoundary%)
     'Checks if Text$ is in List$()
     FOR i = 1 TO UpperBoundary%
-        IF INSTR(List$(i), Text$) THEN
+        IF TRIM$(List$(i)) = TRIM$(Text$) THEN
             CHECKLIST = i
         END IF
     NEXT i
