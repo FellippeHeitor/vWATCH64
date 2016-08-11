@@ -4806,7 +4806,8 @@ SUB PROCESSFILE
         'Before assuming the variable doesn't exist, check against ExpandedWithUDT()
         FOR CheckExpanded = 1 TO TotalExpandedWithUDT
             IF UCASE$(TRIM$(ExpandedWithUDT(CheckExpanded).NAME)) = UCASE$(NextVar$) THEN
-                IF UCASE$(TRIM$(ExpandedWithUDT(CheckExpanded).SCOPE)) = ThisTempScope$ THEN
+                IF UCASE$(TRIM$(ExpandedWithUDT(CheckExpanded).SCOPE)) = ThisTempScope$ OR _
+                    UCASE$(TRIM$(ExpandedWithUDT(CheckExpanded).SCOPE)) = "SHARED" THEN
                     GOTO NoValidVarFound
                 END IF
             END IF
