@@ -3033,7 +3033,14 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
                         IF LEFT$(IncludedFile$, 1) = "\" OR INSTR(IncludedFile$, ":") > 0 THEN
                             'Do nothing; it's an absolute path.
                         ELSE
-                            IncludedFile$ = PATHONLY$(f$) + IncludedFile$
+                            tIncludedFile$ = PATHONLY$(f$) + IncludedFile$
+                            IF _FILEEXISTS(tIncludedFile$) = 0 THEN
+                                'If file not found with path relative to the current source,
+                                'attempt to find it relative to QB64's folder
+                                IncludedFile$ = _CWD$ + PATHSEP$ + IncludedFile$
+                            ELSE
+                                IncludedFile$ = tIncludedFile$
+                            END IF
                         END IF
                     $ELSE
                         IF LEFT$(IncludedFile$, 1) = "/" THEN
