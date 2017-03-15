@@ -3308,6 +3308,7 @@ SUB PROCESSFILE
                 ELSEIF e1$ = "_DEFINE" THEN
                 ELSEIF e1$ = "FUNCTION" THEN
                 ELSEIF e1$ = "END" AND (e2$ = "DECLARE") THEN
+                ELSEIF e1$ = "END" AND (e2$ = "SELECT") THEN
                 ELSEIF e1$ = "OPTION" AND (e2$ = "_EXPLICIT") THEN
                 ELSE
                     IF e1$ = "END" AND (e2$ = "FUNCTION" OR e2$ = "SUB") THEN
