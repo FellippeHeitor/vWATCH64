@@ -6,6 +6,9 @@
 'Requirements: Any build of QB64 released after February 27th, 2016
 '              (preferably the latest daily build).
 
+$EXEICON:'./resources/wasp.ico'
+_ICON
+
 $RESIZE:ON
 DEFLNG A-Z
 

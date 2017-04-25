@@ -1,0 +1,4 @@
+[wasp.ico]
+url=http://www.iconarchive.com/show/flower-icons-by-toma4025/Wasp-icon.html
+Artist=Toma4025
+License=Free for non-commercial use.
