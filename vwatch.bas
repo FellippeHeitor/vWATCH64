@@ -1,10 +1,28 @@
 'vWATCH64 - A debug/variable watch system for QB64 programs
-'Fellippe Heitor, 2015/2016 - fellippeheitor@gmail.com - @fellippeheitor
+'Fellippe Heitor, 2015/2016/2017 - fellippeheitor@gmail.com - @fellippeheitor
 '
 'Code repository: https://github.com/FellippeHeitor/vWATCH64
 '
 'Requirements: Any build of QB64 released after February 27th, 2016
 '              (preferably the latest daily build).
+'------------------------------------------------------------------------------
+
+
+'This $VERSIONINFO block can be commented out if you don't yet have
+'the latest version of QB64:
+$VERSIONINFO:FILEVERSION#=1,0,0,1
+$VERSIONINFO:PRODUCTVERSION#=1,0,0,1
+$VERSIONINFO:CompanyName=Fellippe Heitor
+$VERSIONINFO:FileDescription=vWATCH64 - A debug/variable watch system for QB64 programs
+$VERSIONINFO:FileVersion=v1.001
+$VERSIONINFO:InternalName=vwatch.bas
+$VERSIONINFO:LegalCopyright=Open source
+$VERSIONINFO:OriginalFilename=vwatch.exe
+$VERSIONINFO:ProductName=vWATCH64
+$VERSIONINFO:ProductVersion=v1.001
+$VERSIONINFO:Comments=Requires the latest build of QB64
+$VERSIONINFO:Web=www.vwatch64.tk * https://github.com/FellippeHeitor/vWATCH64
+'------------------------------------------------------------------------------
 
 $EXEICON:'./resources/wasp.ico'
 _ICON
@@ -44,7 +62,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "1.000"
+CONST VERSION = "1.001"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -1209,7 +1227,7 @@ SUB SOURCE_VIEW
         PrevDesiredSourceLine$ = " "
         IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
         SELECT CASE e1$
-            CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
+            CASE "DIM", "COMMON", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
                 GOSUB TurnOnNonexecutableMessage
             CASE "END"
                 IF e2$ = "DECLARE" THEN
@@ -1291,7 +1309,7 @@ SUB SOURCE_VIEW
         IF i > 1 THEN PrevDesiredSourceLine$ = TRIM$(STRIPCOMMENTS$(GETLINE$(i - 1)))
 
         SELECT CASE e1$
-            CASE "DIM", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
+            CASE "DIM", "COMMON", "DATA", "CASE", "TYPE", "REDIM", "CONST", "STATIC", "DEFINT", "DEFLNG", "DEFSTR", "DEFSNG", "DEFDBL", "DECLARE", "_DEFINE", "SUB", "FUNCTION"
                 GenericContextualMenu:
                 IF (my > SCREEN_TOPBAR) AND (my >= printY) AND (my <= (printY + _FONTHEIGHT - 1)) AND (mx < (_WIDTH - 30)) THEN
                     'Set contextual menu with global options only
@@ -3300,6 +3318,7 @@ SUB PROCESSFILE
                 IF LEN(SourceLine) = 0 THEN
                 ELSEIF LEFT$(SourceLine, 1) = "$" THEN
                 ELSEIF e1$ = "DIM" THEN
+                ELSEIF e1$ = "COMMON" THEN
                 ELSEIF e1$ = "SUB" THEN
                 ELSEIF e1$ = "DATA" THEN
                 ELSEIF e1$ = "CASE" THEN
@@ -3363,9 +3382,9 @@ SUB PROCESSFILE
 
         IF MULTILINE_DIM THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE_DIM = 0
 
-        IF LEFT$(SourceLine, 4) = "DIM " OR (LEFT$(SourceLine, 7) = "STATIC " AND NOT MainModule) THEN
+        IF LEFT$(SourceLine, 4) = "DIM " OR LEFT$(SourceLine, 7) = "COMMON " OR (LEFT$(SourceLine, 7) = "STATIC " AND NOT MainModule) THEN
             LocalVariable = 0
-            IF MID$(SourceLine, 5, 7) <> "SHARED " THEN LocalVariable = -1
+            IF GETELEMENT$(SourceLine, 2) <> "SHARED" THEN LocalVariable = -1
 
             IF LEN(caseBkpNextVar$) > 0 THEN
                 NextVar$ = UCASE$(caseBkpNextVar$)
@@ -3821,6 +3840,7 @@ SUB PROCESSFILE
                         CASE 2: ThisKeyword$ = "READ"
                         CASE 3: ThisKeyword$ = "GET"
                         CASE 4: ThisKeyword$ = "FIELD"
+                        CASE 5: ThisKeyword$ = "PRINT"
                         CASE ELSE: EXIT DO
                     END SELECT
 
@@ -5083,6 +5103,9 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
         IF UCASE$(LEFT$(Text$, 4)) = "DIM " THEN
             Position% = 4
             IF MID$(Text$, 5, 7) = "SHARED " THEN Position% = 11
+        ELSEIF UCASE$(LEFT$(Text$, 7)) = "COMMON " THEN
+            Position% = 7
+            IF MID$(Text$, 8, 7) = "SHARED " THEN Position% = 14
         ELSEIF UCASE$(LEFT$(Text$, 7)) = "STATIC " THEN
             Position% = 7
         END IF
