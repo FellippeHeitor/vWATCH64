@@ -10,16 +10,16 @@
 
 'This $VERSIONINFO block can be commented out if you don't yet have
 'the latest version of QB64:
-$VERSIONINFO:FILEVERSION#=1,0,0,1
-$VERSIONINFO:PRODUCTVERSION#=1,0,0,1
+$VERSIONINFO:FILEVERSION#=1,1,0,2
+$VERSIONINFO:PRODUCTVERSION#=1,1,0,2
 $VERSIONINFO:CompanyName=Fellippe Heitor
 $VERSIONINFO:FileDescription=vWATCH64 - A debug/variable watch system for QB64 programs
-$VERSIONINFO:FileVersion=v1.001
+$VERSIONINFO:FileVersion=v1.102
 $VERSIONINFO:InternalName=vwatch.bas
 $VERSIONINFO:LegalCopyright=Open source
 $VERSIONINFO:OriginalFilename=vwatch.exe
 $VERSIONINFO:ProductName=vWATCH64
-$VERSIONINFO:ProductVersion=v1.001
+$VERSIONINFO:ProductVersion=v1.102
 $VERSIONINFO:Comments=Requires the latest build of QB64
 $VERSIONINFO:Web=www.vwatch64.tk * https://github.com/FellippeHeitor/vWATCH64
 '------------------------------------------------------------------------------
@@ -62,7 +62,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "1.001"
+CONST VERSION = "1.102"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -448,6 +448,7 @@ SUB SOURCE_VIEW
 
     STATIC SearchIn
     STATIC PrevSearchIn, PrevFilter$
+    STATIC TempQuickWatchVars AS LONG
 
     TotalButtons = 7
     DIM Buttons(1 TO TotalButtons) AS BUTTONSTYPE
@@ -521,8 +522,13 @@ SUB SOURCE_VIEW
                 WATCHPOINT_COMMAND.ACTION = READY
                 WATCHPOINT_COMMAND.LINENUMBER = 0
                 PUT #FILE, WATCHPOINTCOMMANDBLOCK, WATCHPOINT_COMMAND
+                GOSUB ClearTempQuickWatchVars
                 VARIABLE_VIEW
+                GOSUB AddTempQuickWatchVar
             END IF
+
+            'Dynamically add QUICK WATCH variables based on the current line of code
+            GOSUB AddTempQuickWatchVar
         END IF
 
         GOSUB UpdateList
@@ -751,7 +757,9 @@ SUB SOURCE_VIEW
             WindowButton_Click:
             IF CLIENT.TOTALVARIABLES > 0 THEN
                 _KEYCLEAR
+                GOSUB ClearTempQuickWatchVars
                 VARIABLE_VIEW
+                GOSUB AddTempQuickWatchVar
             ELSE
                 Message$ = "There are no variables in your watch list."
                 MESSAGEBOX_RESULT = MESSAGEBOX("No variables", Message$, MKI$(OK_ONLY), 1, -1)
@@ -1082,10 +1090,15 @@ SUB SOURCE_VIEW
         _PRINTSTRING (5, printY), "QUICK WATCH:"
         this.i = 0
         FOR i = 1 TO CLIENT.TOTALVARIABLES
-            IF ASC(SELECTED_VARIABLES, i) = 1 THEN
+            IF ASC(SELECTED_VARIABLES, i) > 0 THEN
                 this.i = this.i + 1
                 v$ = LEFT$(VARIABLES(i).SCOPE, LONGESTSCOPESPEC) + " " + VARIABLES(i).DATATYPE + " " + LEFT$(VARIABLES(i).NAME, LONGESTVARNAME) + " = " + TRIM$(VARIABLE_DATA(i).VALUE)
                 printY = (_HEIGHT(MAINSCREEN) - (_FONTHEIGHT * TOTAL_SELECTEDVARIABLES)) + (_FONTHEIGHT * this.i) - _FONTHEIGHT
+                IF ASC(SELECTED_VARIABLES, i) = 2 THEN
+                    'differentiate between pinned quick watch vars and temp quick watch vars
+                    LINE (0, printY)-STEP(_WIDTH, _FONTHEIGHT), _RGB32(255, 255, 255), BF
+                    LINE (0, printY)-STEP(_WIDTH, _FONTHEIGHT), _RGBA32(200, 200, 0, 100), BF
+                END IF
                 _PRINTSTRING (5, printY), v$
             END IF
         NEXT i
@@ -1193,7 +1206,9 @@ SUB SOURCE_VIEW
     IF mb THEN
         IF my > _HEIGHT(MAINSCREEN) - (_FONTHEIGHT * (TOTAL_SELECTEDVARIABLES + 1)) THEN
             'Click on QUICK WATCH area takes user to VARIABLE VIEW
+            GOSUB ClearTempQuickWatchVars
             VARIABLE_VIEW
+            GOSUB AddTempQuickWatchVar
             RETURN
         END IF
         IF OldMXClicked = mx AND OldMYClicked = my AND (TIMER - LastClick# <= 0.5) THEN
@@ -1555,6 +1570,44 @@ SUB SOURCE_VIEW
                 END SELECT
             END IF
         NEXT cb
+    END IF
+    RETURN
+
+    AddTempQuickWatchVar:
+    IF VARIABLE_HIGHLIGHT = -1 AND STEPMODE = -1 THEN
+        Element = 0
+        SourceLine = GETLINE$(CLIENT.LINENUMBER)
+        GOSUB ClearTempQuickWatchVars
+        DO
+            Element = Element + 1
+            a$ = GETELEMENT$(SourceLine, Element)
+            IF a$ = "" THEN EXIT DO
+            FOR i = 1 TO CLIENT.TOTALVARIABLES
+                vs$ = TRIM$(VARIABLES(i).NAME)
+                IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
+
+                IF UCASE$(a$) = UCASE$(vs$) AND ((TRIM$(UCASE$(VARIABLES(i).SCOPE)) = UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+                    'This element is a variable; add it to quick watch list, if not already there:
+                    IF ASC(SELECTED_VARIABLES, i) = 0 THEN
+                        ASC(SELECTED_VARIABLES, i) = 2
+                        TempQuickWatchVars = TempQuickWatchVars + 1
+                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                    END IF
+                END IF
+            NEXT i
+        LOOP
+    ELSEIF VARIABLE_HIGHLIGHT = -1 AND STEPMODE = 0 THEN
+        GOSUB ClearTempQuickWatchVars
+    END IF
+    RETURN
+
+    ClearTempQuickWatchVars:
+    IF TempQuickWatchVars > 0 THEN
+        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES - TempQuickWatchVars
+        TempQuickWatchVars = 0
+        FOR i = 1 TO CLIENT.TOTALVARIABLES
+            IF ASC(SELECTED_VARIABLES, i) = 2 THEN ASC(SELECTED_VARIABLES, i) = 0
+        NEXT
     END IF
     RETURN
 END SUB
@@ -2366,9 +2419,9 @@ SUB VARIABLE_VIEW
                 IF _KEYDOWN(100304) OR _KEYDOWN(100303) THEN ShiftON = -1 ELSE ShiftON = 0
                 ToggleQuickWatch:
                 IF ShiftON = 0 THEN
-                    IF ASC(SELECTED_VARIABLES, i) = 0 THEN
+                    IF ASC(SELECTED_VARIABLES, i) = 0 OR ASC(SELECTED_VARIABLES, i) = 2 THEN
+                        IF ASC(SELECTED_VARIABLES, i) = 0 THEN TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
                         ASC(SELECTED_VARIABLES, i) = 1
-                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
                         LastToggledON = i
                     ELSE
                         ASC(SELECTED_VARIABLES, i) = 0
@@ -2378,9 +2431,9 @@ SUB VARIABLE_VIEW
                     IF LastToggledON = 0 THEN ShiftON = 0: GOTO ToggleQuickWatch
                     IF i > LastToggledON THEN ToggleStep = -1 ELSE ToggleStep = 1
                     FOR ShiftToggle = i TO LastToggledON STEP ToggleStep
-                        IF ASC(SELECTED_VARIABLES, ShiftToggle) = 0 THEN
+                        IF ASC(SELECTED_VARIABLES, ShiftToggle) = 0 OR ASC(SELECTED_VARIABLES, ShiftToggle) = 2 THEN
+                            IF ASC(SELECTED_VARIABLES, ShiftToggle) = 0 THEN TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
                             ASC(SELECTED_VARIABLES, ShiftToggle) = 1
-                            TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
                         END IF
                     NEXT
                 END IF
@@ -2448,9 +2501,9 @@ SUB VARIABLE_VIEW
                     TOTAL_SELECTEDVARIABLES = 0
                 CASE 8
                     'Toggle variable in QUICK WATCH
-                    IF ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 0 THEN
+                    IF ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 0 OR ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 2 THEN
+                        IF ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 0 THEN TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
                         ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 1
-                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
                     ELSE
                         ASC(SELECTED_VARIABLES, ContextualMenuLineRef) = 0
                         TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES - 1
@@ -3840,7 +3893,6 @@ SUB PROCESSFILE
                         CASE 2: ThisKeyword$ = "READ"
                         CASE 3: ThisKeyword$ = "GET"
                         CASE 4: ThisKeyword$ = "FIELD"
-                        CASE 5: ThisKeyword$ = "PRINT"
                         CASE ELSE: EXIT DO
                     END SELECT
 
