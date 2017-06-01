@@ -164,6 +164,7 @@ END TYPE
 'Shared variables: ------------------------------------------------------------
 DIM SHARED BREAKPOINTLIST AS STRING
 DIM SHARED CLIENT_CURRENTMODULE AS STRING * 50
+DIM SHARED POSITION_IN_LINE AS LONG
 DIM SHARED DEFAULTDATATYPE(65 TO 90) AS STRING * 20
 DIM SHARED EXCHANGEDATASIZE$4
 DIM SHARED EXCHANGEDATA AS STRING
@@ -3871,6 +3872,18 @@ SUB PROCESSFILE
                     END IF
                 END IF
 
+                'Check for var AS UDT being used as var = var2 (copying values)
+                FOR i = 1 TO UBOUND(ExpandedWithUDT)
+                    IF NextVar$ = UCASE$(RTRIM$(ExpandedWithUDT(i).NAME)) THEN
+                        IF RTRIM$(ExpandedWithUDT(i).SCOPE) = "MAIN MODULE" AND MainModule OR _
+                           RTRIM$(ExpandedWithUDT(i).SCOPE) = "SHARED" AND NOT MainModule THEN
+                            GOTO NoValidVarFound
+                        ELSEIF RTRIM$(ExpandedWithUDT(i).SCOPE) = TRIM$(SUBFUNC(CurrSF).NAME) THEN
+                            GOTO NoValidVarFound
+                        END IF
+                    END IF
+                NEXT
+
                 'Check if this is actually a CONST:
                 'CONST TRUE = -1: CONST FALSE = NOT TRUE
                 FoundCONST = FIND_KEYWORD(SourceLine, "CONST", FoundCONSTAt)
@@ -5127,13 +5140,12 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
     DIM InBrackets AS INTEGER
     STATIC LastLine AS LONG
     STATIC LastSF$
-    STATIC Position%
     STATIC EndOfStatement AS _BYTE
 
     IF WhichLine = -2 THEN 'Reset STATIC variables
         LastSF$ = ""
         LastLine = 0
-        Position% = 0
+        POSITION_IN_LINE = 0
         EndOfStatement = 0
         EXIT FUNCTION
     END IF
@@ -5149,45 +5161,59 @@ FUNCTION GETNEXTVARIABLE$ (Text$, WhichLine)
 
     IF (WhichLine > 0) AND (WhichLine <> LastLine) THEN
         'First time this line is passed
-        Position% = 1
+        POSITION_IN_LINE = 1
         LastLine = WhichLine
 
         IF UCASE$(LEFT$(Text$, 4)) = "DIM " THEN
-            Position% = 4
-            IF MID$(Text$, 5, 7) = "SHARED " THEN Position% = 11
+            POSITION_IN_LINE = 4
+            IF MID$(Text$, 5, 7) = "SHARED " THEN POSITION_IN_LINE = 11
         ELSEIF UCASE$(LEFT$(Text$, 7)) = "COMMON " THEN
-            Position% = 7
-            IF MID$(Text$, 8, 7) = "SHARED " THEN Position% = 14
+            POSITION_IN_LINE = 7
+            IF MID$(Text$, 8, 7) = "SHARED " THEN POSITION_IN_LINE = 14
         ELSEIF UCASE$(LEFT$(Text$, 7)) = "STATIC " THEN
-            Position% = 7
+            POSITION_IN_LINE = 7
         END IF
     ELSEIF (WhichLine = -1) THEN
         'Process SUB/FUNCTION parameters instead of DIM variables
         IF LastSF$ <> Text$ THEN
             LastSF$ = Text$
-            Position% = INSTR(Text$, "(")
+            POSITION_IN_LINE = INSTR(Text$, "(")
         END IF
     END IF
 
     IF WhichLine > 0 THEN
         DO
-            Position% = Position% + 1
-            IF Position% > LEN(Text$) THEN EXIT DO
-            Char$ = MID$(Text$, Position%, 1)
+            POSITION_IN_LINE = POSITION_IN_LINE + 1
+            IF POSITION_IN_LINE > LEN(Text$) THEN EXIT DO
+            Char$ = MID$(Text$, POSITION_IN_LINE, 1)
             SELECT CASE Char$
                 CASE "(": InBrackets = InBrackets + 1
                 CASE ")": InBrackets = InBrackets - 1
                 CASE ",": IF InBrackets = 0 THEN EXIT DO
-                CASE ":": EndOfStatement = -1: EXIT DO
-                CASE "_": IF Position% = LEN(Text$) THEN EXIT DO
+                CASE ":"
+                    IF INSTR(POSITION_IN_LINE, UCASE$(Text$), "DIM SHARED ") > 0 THEN
+                        POSITION_IN_LINE = INSTR(POSITION_IN_LINE, UCASE$(Text$), "DIM SHARED ") + 10
+                    ELSEIF INSTR(POSITION_IN_LINE, UCASE$(Text$), "DIM ") > 0 THEN
+                        POSITION_IN_LINE = INSTR(POSITION_IN_LINE, UCASE$(Text$), "DIM ") + 3
+                    ELSEIF INSTR(POSITION_IN_LINE, UCASE$(Text$), "COMMON SHARED ") > 0 THEN
+                        POSITION_IN_LINE = INSTR(POSITION_IN_LINE, UCASE$(Text$), "COMMON SHARED ") + 13
+                    ELSEIF INSTR(POSITION_IN_LINE, UCASE$(Text$), "COMMON ") > 0 THEN
+                        POSITION_IN_LINE = INSTR(POSITION_IN_LINE, UCASE$(Text$), "COMMON ") + 6
+                    ELSEIF INSTR(POSITION_IN_LINE, UCASE$(Text$), "STATIC ") > 0 THEN
+                        POSITION_IN_LINE = INSTR(POSITION_IN_LINE, UCASE$(Text$), "STATIC ") + 6
+                    ELSE
+                        EndOfStatement = -1
+                    END IF
+                    EXIT DO
+                CASE "_": IF POSITION_IN_LINE = LEN(Text$) THEN EXIT DO
             END SELECT
             Result$ = Result$ + Char$
         LOOP
     ELSEIF WhichLine = -1 THEN
         DO
-            Position% = Position% + 1
-            IF Position% > LEN(Text$) THEN EXIT DO
-            Char$ = MID$(Text$, Position%, 1)
+            POSITION_IN_LINE = POSITION_IN_LINE + 1
+            IF POSITION_IN_LINE > LEN(Text$) THEN EXIT DO
+            Char$ = MID$(Text$, POSITION_IN_LINE, 1)
             SELECT CASE Char$
                 CASE "(": InBrackets = InBrackets + 1
                 CASE ")": InBrackets = InBrackets - 1: IF InBrackets = -1 THEN EXIT DO
