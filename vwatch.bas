@@ -3,23 +3,19 @@
 '
 'Code repository: https://github.com/FellippeHeitor/vWATCH64
 '
-'Requirements: Any build of QB64 released after February 27th, 2016
-'              (preferably the latest daily build).
+'Requirements: QB64 1.1  (preferably the latest daily build).
 '------------------------------------------------------------------------------
 
-
-'This $VERSIONINFO block can be commented out if you don't yet have
-'the latest version of QB64:
-$VERSIONINFO:FILEVERSION#=1,1,0,2
-$VERSIONINFO:PRODUCTVERSION#=1,1,0,2
+$VERSIONINFO:FILEVERSION#=1,1,0,3
+$VERSIONINFO:PRODUCTVERSION#=1,1,0,3
 $VERSIONINFO:CompanyName=Fellippe Heitor
 $VERSIONINFO:FileDescription=vWATCH64 - A debug/variable watch system for QB64 programs
-$VERSIONINFO:FileVersion=v1.102
+$VERSIONINFO:FileVersion=v1.103
 $VERSIONINFO:InternalName=vwatch.bas
 $VERSIONINFO:LegalCopyright=Open source
 $VERSIONINFO:OriginalFilename=vwatch.exe
 $VERSIONINFO:ProductName=vWATCH64
-$VERSIONINFO:ProductVersion=v1.102
+$VERSIONINFO:ProductVersion=v1.103
 $VERSIONINFO:Comments=Requires the latest build of QB64
 $VERSIONINFO:Web=www.vwatch64.tk * https://github.com/FellippeHeitor/vWATCH64
 '------------------------------------------------------------------------------
@@ -62,7 +58,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "1.102"
+CONST VERSION = "1.103"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -3435,6 +3431,17 @@ SUB PROCESSFILE
         END IF
 
         IF MULTILINE_DIM THEN SourceLine = IIFSTR$(LocalVariable, "DIM ", "DIM SHARED ") + SourceLine: MULTILINE_DIM = 0
+
+        'IF DIM or equivalent appear somewhere in the line, but not the beginning,
+        'change SourceLine to begin at such statements, for easier parsing for variables:
+        FindDIM = 0
+        IF FIND_KEYWORD(SourceLine, "DIM", FindDIM) THEN
+            IF FindDIM > 1 THEN SourceLine = MID$(SourceLine, FindDIM): caseBkpSourceLine = MID$(caseBkpSourceLine, FindDIM)
+        ELSEIF FIND_KEYWORD(SourceLine, "COMMON", FindDIM) THEN
+            IF FindDIM > 1 THEN SourceLine = MID$(SourceLine, FindDIM): caseBkpSourceLine = MID$(caseBkpSourceLine, FindDIM)
+        ELSEIF FIND_KEYWORD(SourceLine, "STATIC", FindDIM) AND NOT MainModule THEN
+            IF FindDIM > 1 THEN SourceLine = MID$(SourceLine, FindDIM): caseBkpSourceLine = MID$(caseBkpSourceLine, FindDIM)
+        END IF
 
         IF LEFT$(SourceLine, 4) = "DIM " OR LEFT$(SourceLine, 7) = "COMMON " OR (LEFT$(SourceLine, 7) = "STATIC " AND NOT MainModule) THEN
             LocalVariable = 0
