@@ -1575,24 +1575,28 @@ SUB SOURCE_VIEW
         Element = 0
         SourceLine = GETLINE$(CLIENT.LINENUMBER)
         GOSUB ClearTempQuickWatchVars
-        DO
-            Element = Element + 1
-            a$ = GETELEMENT$(SourceLine, Element)
-            IF a$ = "" THEN EXIT DO
-            FOR i = 1 TO CLIENT.TOTALVARIABLES
-                vs$ = TRIM$(VARIABLES(i).NAME)
-                IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
+        MaxTempVars = INT(_HEIGHT / _FONTHEIGHT) - 10
+        IF MaxTempVars > 0 THEN
+            DO
+                Element = Element + 1
+                a$ = GETELEMENT$(SourceLine, Element)
+                IF a$ = "" THEN EXIT DO
+                FOR i = 1 TO CLIENT.TOTALVARIABLES
+                    vs$ = TRIM$(VARIABLES(i).NAME)
+                    IF INSTR(vs$, "(") THEN vs$ = LEFT$(vs$, INSTR(vs$, "(") - 1)
 
-                IF UCASE$(a$) = UCASE$(vs$) AND ((TRIM$(UCASE$(VARIABLES(i).SCOPE)) = UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
-                    'This element is a variable; add it to quick watch list, if not already there:
-                    IF ASC(SELECTED_VARIABLES, i) = 0 THEN
-                        ASC(SELECTED_VARIABLES, i) = 2
-                        TempQuickWatchVars = TempQuickWatchVars + 1
-                        TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                    IF UCASE$(a$) = UCASE$(vs$) AND ((TRIM$(UCASE$(VARIABLES(i).SCOPE)) = UCASE$(GETELEMENT$(CLIENT_CURRENTMODULE, 1) + " " + GETELEMENT$(CLIENT_CURRENTMODULE, 2))) OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+                        'This element is a variable; add it to quick watch list, if not already there:
+                        IF ASC(SELECTED_VARIABLES, i) = 0 THEN
+                            ASC(SELECTED_VARIABLES, i) = 2
+                            TempQuickWatchVars = TempQuickWatchVars + 1
+                            TOTAL_SELECTEDVARIABLES = TOTAL_SELECTEDVARIABLES + 1
+                            IF TOTAL_SELECTEDVARIABLES >= MaxTempVars THEN EXIT DO
+                        END IF
                     END IF
-                END IF
-            NEXT i
-        LOOP
+                NEXT i
+            LOOP
+        END IF
     ELSEIF VARIABLE_HIGHLIGHT = -1 AND STEPMODE = 0 THEN
         GOSUB ClearTempQuickWatchVars
     END IF
