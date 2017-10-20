@@ -3230,30 +3230,36 @@ SUB PROCESSFILE
         END IF
     END IF
 
-    IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
-        i = -1
-        InputNewFileName:
-        DO: _LIMIT 30
-            i = i + 1
-            IF UCASE$(RIGHT$(FILENAME$, 4)) = ".BAS" THEN
-                NEWFILENAME$ = LEFT$(FILENAME$, LEN(FILENAME$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
-            ELSE
-                NEWFILENAME$ = FILENAME$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
-            END IF
-            IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
-        LOOP
+    'IF LEN(TRIM$(NEWFILENAME$)) = 0 THEN
+    '    i = -1
+    '    InputNewFileName:
+    '    DO: _LIMIT 30
+    '        i = i + 1
+    '        IF UCASE$(RIGHT$(FILENAME$, 4)) = ".BAS" THEN
+    '            NEWFILENAME$ = LEFT$(FILENAME$, LEN(FILENAME$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
+    '        ELSE
+    '            NEWFILENAME$ = FILENAME$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
+    '        END IF
+    '        IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
+    '    LOOP
+    'ELSE
+    '    i = -1
+    '    tempFilename$ = NEWFILENAME$
+    '    DO: _LIMIT 30
+    '        i = i + 1
+    '        IF UCASE$(RIGHT$(tempFilename$, 4)) = ".BAS" THEN
+    '            NEWFILENAME$ = LEFT$(tempFilename$, LEN(tempFilename$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
+    '        ELSE
+    '            NEWFILENAME$ = tempFilename$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
+    '        END IF
+    '        IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
+    '    LOOP
+    'END IF
+    InputNewFileName:
+    IF UCASE$(RIGHT$(FILENAME$, 4)) = ".BAS" THEN
+        NEWFILENAME$ = LEFT$(FILENAME$, LEN(FILENAME$) - 4) + ".vwatch.bas"
     ELSE
-        i = -1
-        tempFilename$ = NEWFILENAME$
-        DO: _LIMIT 30
-            i = i + 1
-            IF UCASE$(RIGHT$(tempFilename$, 4)) = ".BAS" THEN
-                NEWFILENAME$ = LEFT$(tempFilename$, LEN(tempFilename$) - 4) + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
-            ELSE
-                NEWFILENAME$ = tempFilename$ + IIFSTR$(i > 0, "(" + TRIM$(STR$(i)) + ")", "") + ".vwatch.bas"
-            END IF
-            IF _FILEEXISTS(NEWFILENAME$) = 0 THEN EXIT DO
-        LOOP
+        NEWFILENAME$ = FILENAME$ + ".vwatch.bas"
     END IF
 
     TempPath$ = PATHONLY$(NEWFILENAME$)
