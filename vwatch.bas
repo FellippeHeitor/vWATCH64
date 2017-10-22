@@ -6,16 +6,16 @@
 'Requirements: QB64 1.1  (preferably the latest daily build).
 '------------------------------------------------------------------------------
 
-$VERSIONINFO:FILEVERSION#=1,1,0,3
-$VERSIONINFO:PRODUCTVERSION#=1,1,0,3
+$VERSIONINFO:FILEVERSION#=1,1,0,4
+$VERSIONINFO:PRODUCTVERSION#=1,1,0,4
 $VERSIONINFO:CompanyName=Fellippe Heitor
 $VERSIONINFO:FileDescription=vWATCH64 - A debug/variable watch system for QB64 programs
-$VERSIONINFO:FileVersion=v1.103
+$VERSIONINFO:FileVersion=v1.104
 $VERSIONINFO:InternalName=vwatch.bas
 $VERSIONINFO:LegalCopyright=Open source
 $VERSIONINFO:OriginalFilename=vwatch.exe
 $VERSIONINFO:ProductName=vWATCH64
-$VERSIONINFO:ProductVersion=v1.103
+$VERSIONINFO:ProductVersion=v1.104
 $VERSIONINFO:Comments=Requires the latest build of QB64
 $VERSIONINFO:Web=www.vwatch64.tk * https://github.com/FellippeHeitor/vWATCH64
 '------------------------------------------------------------------------------
@@ -58,7 +58,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "1.103"
+CONST VERSION = "1.104"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -3278,7 +3278,7 @@ SUB PROCESSFILE
     IF _FILEEXISTS(NEWFILENAME$) THEN
         Message$ = "'" + NOPATH$(NEWFILENAME$) + "' already exists. Overwrite?"
         MessageSetup$ = MKI$(MB_CUSTOM) + "Yes" + CHR$(LF) + "No " + CHR$(LF) + "Cancel"
-        MESSAGEBOX_RESULT = MESSAGEBOX("File already exists", Message$, MessageSetup$, 2, 0)
+        MESSAGEBOX_RESULT = MESSAGEBOX("File already exists", Message$, MessageSetup$, 1, 0)
         IF MESSAGEBOX_RESULT = 2 THEN i = 0: GOTO InputNewFileName
         IF MESSAGEBOX_RESULT = 3 OR MESSAGEBOX_RESULT = -1 THEN EXIT SUB
     END IF
@@ -3883,11 +3883,11 @@ SUB PROCESSFILE
                 IF IS_KEYWORD(NextVar$) THEN GOTO NoValidVarFound
 
                 'NextVar$ can't be a FUNCTION name:
-                IF NOT MainModule THEN
-                    IF GETELEMENT$(SUBFUNC(CurrSF).NAME, 1) = "FUNCTION" THEN
-                        IF NextVar$ = UCASE$(GETELEMENT$(SUBFUNC(CurrSF).NAME, 2)) THEN GOTO NoValidVarFound
+                FOR i = 1 TO UBOUND(SUBFUNC)
+                    IF GETELEMENT$(SUBFUNC(i).NAME, 1) = "FUNCTION" THEN
+                        IF REMOVESIGIL$(NextVar$) = REMOVESIGIL$(UCASE$(GETELEMENT$(SUBFUNC(i).NAME, 2))) THEN GOTO NoValidVarFound
                     END IF
-                END IF
+                NEXT
 
                 'Check for var AS UDT being used as var = var2 (copying values)
                 FOR i = 1 TO UBOUND(ExpandedWithUDT)
