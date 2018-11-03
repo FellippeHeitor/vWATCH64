@@ -6,16 +6,16 @@
 'Requirements: QB64 1.1  (preferably the latest daily build).
 '------------------------------------------------------------------------------
 
-$VERSIONINFO:FILEVERSION#=1,1,0,4
-$VERSIONINFO:PRODUCTVERSION#=1,1,0,4
+$VERSIONINFO:FILEVERSION#=1,1,0,5
+$VERSIONINFO:PRODUCTVERSION#=1,1,0,5
 $VERSIONINFO:CompanyName=Fellippe Heitor
 $VERSIONINFO:FileDescription=vWATCH64 - A debug/variable watch system for QB64 programs
-$VERSIONINFO:FileVersion=v1.104
+$VERSIONINFO:FileVersion=v1.105
 $VERSIONINFO:InternalName=vwatch.bas
 $VERSIONINFO:LegalCopyright=Open source
 $VERSIONINFO:OriginalFilename=vwatch.exe
 $VERSIONINFO:ProductName=vWATCH64
-$VERSIONINFO:ProductVersion=v1.104
+$VERSIONINFO:ProductVersion=v1.105
 $VERSIONINFO:Comments=Requires the latest build of QB64
 $VERSIONINFO:Web=www.vwatch64.tk * https://github.com/FellippeHeitor/vWATCH64
 '------------------------------------------------------------------------------
@@ -58,7 +58,7 @@ END DECLARE
 
 'Constants: -------------------------------------------------------------------
 CONST ID = "vWATCH64"
-CONST VERSION = "1.104"
+CONST VERSION = "1.105"
 
 CONST LF = 10
 CONST TIMEOUTLIMIT = 10 'SECONDS
@@ -3078,7 +3078,7 @@ END SUB
 FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
     'OpenInclude adapted from codeguy's routines found in
     'http://www.qb64.net/forum/index.php?topic=1565.msg17025#msg17025
-    DIM insc1%, insc2%
+    DIM insc1%, insc2%, tabs%
     DIM FoundInclude AS _BYTE
     DIM InclResult AS INTEGER
 
@@ -3145,6 +3145,12 @@ FUNCTION OpenInclude (f$, CodeText() AS STRING, Lines&)
     EXIT FUNCTION
     AddStringToArray:
     IF Lines& > UBOUND(CodeText) THEN REDIM _PRESERVE CodeText(1 TO UBOUND(CodeText) + 32)
+    tabs% = 0
+    DO WHILE LEFT$(readx$, 1) = CHR$(9)
+        readx$ = MID$(readx$, 2)
+        tabs% = tabs% + 1
+    LOOP
+    readx$ = SPACE$(tabs% * 4) + readx$
     CodeText(Lines&) = readx$
     RETURN
 END FUNCTION
