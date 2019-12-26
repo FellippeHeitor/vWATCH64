@@ -8,7 +8,7 @@ Don't you wish you could have a better way to debug it?
 
 ### Well, pal, here's vWATCH64!
 
-vWATCH64 is a real-time debug/variable watch utility to help with **programs written in [QB64](http://www.qb64.net)**. vWATCH64 generates a modified version of your source file, allowing for breakpoints and real-time variable watch.
+vWATCH64 is a real-time debug/variable watch utility to help with **programs written in [QB64](https://www.qb64.org)**. vWATCH64 generates a modified version of your source file, allowing for breakpoints and real-time variable watch.
 
 vWATCH64 is compatible with Windows, OS X and Linux.
 
@@ -22,6 +22,4 @@ vWATCH64 is compatible with Windows, OS X and Linux.
 - Resume execution after a breakpoint with the F5 key.
 
 
-You can also follow the development in [this topic](http://www.qb64.net/forum/index.php?topic=13275.msg114691#msg114691) on the official QB64 community.
-
-*(You need the latest daily build of QB64 in order to use vWATCH64. Get it from www.qb64.net)*
+*(You need the latest version of QB64 in order to use vWATCH64. Get it from www.qb64.org)*
