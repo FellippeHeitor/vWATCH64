@@ -7,3 +7,13 @@ License=Free for non-commercial use.
 url=http://www.iconarchive.com/show/flower-icons-by-toma4025/Wasp-icon.html
 Artist=Toma4025
 License=Free for non-commercial use.
+
+[hive.png]
+url=https://www.flaticon.com/free-icon/beehive_424052
+Artist=Freepik
+Credits=Icon made by Freepik (http://www.freepik.com/) from www.flaticon.com
+
+[hive.ico]
+url=https://www.flaticon.com/free-icon/beehive_424052
+Artist=Freepik
+Credits=Icon made by Freepik (http://www.freepik.com/) from www.flaticon.com
