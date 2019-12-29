@@ -285,9 +285,9 @@ IF LEN(COMMAND$) THEN
         'Set flags based on command line arguments:
         FOR i = 1 TO _COMMANDCOUNT
             SELECT CASE LCASE$(COMMAND$(i))
-                CASE "-dontcompile", "-d": DONTCOMPILE = -1
-                CASE "-noarrays", "-n": SKIPARRAYS = -1
-                CASE "-target", "-t": IF i < _COMMANDCOUNT THEN NEWFILENAME$ = COMMAND$(i + 1): i = i + 1
+                CASE "--dontcompile", "-d": DONTCOMPILE = -1
+                CASE "--noarrays", "-n": SKIPARRAYS = -1
+                CASE "--target", "-t": IF i < _COMMANDCOUNT THEN NEWFILENAME$ = COMMAND$(i + 1): i = i + 1
                 CASE ELSE
                     'Any other arguments are ignored.
             END SELECT
