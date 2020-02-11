@@ -3786,17 +3786,34 @@ SUB PROCESSFILE
     CurrSF = 0
     ProcessLine = 0
     SET_DEF "A-Z", "SINGLE"
-    UpdateStep = TotalSourceLines / 10
+    UpdateStep = TotalSourceLines / 20
+    AnimatedProgress$ = CHR$(32) + CHR$(250) + CHR$(249) + CHR$(7) + CHR$(254) + CHR$(219)
+    AnimationFrame = 0: AnimationStep = 1
+    BackAnimationColor~& = POINT(0, 0)
     DO
         SEP$ = "<> "
         ProcessLine = ProcessLine + 1
         IF ProcessLine > TotalSourceLines THEN EXIT DO
         k$ = INKEY$: IF k$ = CHR$(27) THEN GOTO ProcessingCanceled
-        IF ProcessLine > UpdateStep THEN
-            UpdateStep = UpdateStep + (TotalSourceLines / 10)
+        IF ProcessLine = 1 THEN
             VerboseProgress = ProcessLine
             StatusMessage = TRIM$(STR$(ProcessLine)) + "/" + TRIM$(STR$(TotalSourceLines))
             GOSUB AddVerboseOutputLine
+        ELSEIF ProcessLine > UpdateStep THEN
+            UpdateStep = UpdateStep + (TotalSourceLines / 20)
+            VerboseProgress = ProcessLine
+            StatusMessage = TRIM$(STR$(ProcessLine)) + "/" + TRIM$(STR$(TotalSourceLines))
+            GOSUB AddVerboseOutputLine
+        ELSE
+            IF TIMER - lastAnimationUpdate! > .1 THEN
+                lastAnimationUpdate! = TIMER
+                AnimationFrame = AnimationFrame + AnimationStep
+                IF AnimationFrame < 1 THEN AnimationFrame = 2: AnimationStep = 1
+                IF AnimationFrame > LEN(AnimatedProgress$) THEN AnimationFrame = LEN(AnimatedProgress$) - 1: AnimationStep = -1
+                COLOR _RGB32(255), BackAnimationColor~&
+                _PRINTSTRING (_WIDTH - _PRINTWIDTH("0"), _HEIGHT - _FONTHEIGHT), MID$(AnimatedProgress$, AnimationFrame, 1)
+                _DISPLAY
+            END IF
         END IF
 
         IF CurrSF < TotalSubFunc THEN
@@ -3875,13 +3892,17 @@ SUB PROCESSFILE
                 NEXT
 
                 'Check for var AS UDT being used as var = var2 (copying values)
-                FOR i = 1 TO UBOUND(ExpandedWithUDT)
+                FOR i = 1 TO TotalExpandedWithUDT
                     IF NextVar$ = UCASE$(RTRIM$(ExpandedWithUDT(i).NAME)) THEN
-                        IF RTRIM$(ExpandedWithUDT(i).SCOPE) = "MAIN MODULE" AND MainModule OR _
-                           RTRIM$(ExpandedWithUDT(i).SCOPE) = "SHARED" AND NOT MainModule THEN
+                        IF (RTRIM$(ExpandedWithUDT(i).SCOPE) = "MAIN MODULE" AND MainModule) OR _
+                           (RTRIM$(ExpandedWithUDT(i).SCOPE) = "SHARED" AND NOT MainModule) THEN
                             GOTO NoValidVarFound
-                        ELSEIF RTRIM$(ExpandedWithUDT(i).SCOPE) = TRIM$(SUBFUNC(CurrSF).NAME) THEN
-                            GOTO NoValidVarFound
+                        ELSE
+                            IF CurrSF > 0 THEN
+                                IF RTRIM$(ExpandedWithUDT(i).SCOPE) = TRIM$(SUBFUNC(CurrSF).NAME) THEN
+                                    GOTO NoValidVarFound
+                                END IF
+                            END IF
                         END IF
                     END IF
                 NEXT
@@ -5687,6 +5708,7 @@ SUB RESTORE_LIBRARY
     ON ERROR GOTO FileError
     OPEN "timers.h" FOR BINARY AS #LibOutput
     IF FILEERRORRAISED THEN SYSTEM_BEEP 0: PRINT "FATAL ERROR: Cannot write 'timers.h' to "; _CWD$: SLEEP: SYSTEM
+    ON ERROR GOTO 0
     PUT #LibOutput, 1, SourceLine$
     CLOSE #LibOutput
 END SUB
@@ -6227,11 +6249,12 @@ SUB PROGRESSBOX (tTitle$, tMessage$, MaxValue, Value)
     DialogY = _HEIGHT(MAINSCREEN) / 2 - DialogH / 2
     ProgressBar.X = (DialogX + (DialogW / 2)) - (((ProgressBarLength * CharW) - 10) / 2) - 4
 
+    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
+
     LINE (DialogX, DialogY)-STEP(DialogW - 1, DialogH - 1), _RGB32(255, 255, 255), BF
     LINE (DialogX, DialogY)-STEP(DialogW - 1, _FONTHEIGHT + 1), _RGB32(0, 178, 179), BF
     _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(Title$) / 2, DialogY + 1), Title$
 
-    COLOR _RGB32(0, 0, 0), _RGBA32(0, 0, 0, 0)
     FOR i = 1 TO totalLines
         Message.X = _WIDTH / 2 - _PRINTWIDTH(MessageLines(i)) / 2
         _PRINTSTRING (Message.X, DialogY + 5 + _FONTHEIGHT * (i + 1)), MessageLines(i)
