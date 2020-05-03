@@ -4437,13 +4437,15 @@ SUB PROCESSFILE
         PRINT #OutputFile, ""
         PRINT #OutputFile, "    IF vwatch64_HEADER.CONNECTED = 0 THEN EXIT SUB"
         PRINT #OutputFile, "    ON ERROR GOTO vwatch64_FILEERROR"
+        tempindex = 0
         FOR i = 1 TO TOTALVARIABLES
             IF ASC(AddedList$, i) = 1 AND (TRIM$(VARIABLES(i).SCOPE) = "MAIN MODULE" OR TRIM$(VARIABLES(i).SCOPE) = "SHARED") THEN
+                tempindex = tempindex + 1
                 IF INSTR(VARIABLES(i).DATATYPE, "STRING") THEN
-                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(i)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
+                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = " + TRIM$(VARIABLES(i).NAME)
                     PRINT #OutputFile, SourceLine
                 ELSE
-                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(i)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
+                    SourceLine = "    vwatch64_VARIABLEDATA(" + LTRIM$(STR$(tempindex)) + ").VALUE = STR$(" + TRIM$(VARIABLES(i).NAME) + ")"
                     PRINT #OutputFile, SourceLine
                 END IF
             END IF
