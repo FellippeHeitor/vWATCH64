@@ -4735,12 +4735,16 @@ SUB PROCESSFILE
             IF _FILEEXISTS(LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$) THEN
                 SHELL _DONTWAIT ThisPath$ + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$
             ELSE
-                Message$ = ""
-                Message$ = Message$ + "Could not run " + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
-                Message$ = Message$ + "The file has been output, you will have to compile/run it yourself."
-                PCOPY 0, 1
-                MESSAGEBOX_RESULT = MESSAGEBOX("Error", Message$, MKI$(OK_ONLY), 1, 0)
-                EXIT SUB
+                IF _FILEEXISTS(LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4) + ExecutableExtension$) THEN
+                    SHELL _DONTWAIT LEFT$(NEWFILENAME$, LEN(NEWFILENAME$) - 4) + ExecutableExtension$
+                ELSE
+                    Message$ = ""
+                    Message$ = Message$ + "Could not run " + LEFT$(NOPATH$(NEWFILENAME$), LEN(NOPATH$(NEWFILENAME$)) - 4) + ExecutableExtension$ + "."
+                    Message$ = Message$ + "The file has been output, you will have to compile/run it yourself."
+                    PCOPY 0, 1
+                    MESSAGEBOX_RESULT = MESSAGEBOX("Error", Message$, MKI$(OK_ONLY), 1, 0)
+                    EXIT SUB
+                END IF
             END IF
         END IF
     END IF
