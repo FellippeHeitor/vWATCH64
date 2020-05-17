@@ -3693,6 +3693,9 @@ SUB PROCESSFILE
                     GOSUB AddVerboseOutputLine
                 ELSE
                     CurrentSubFunc$ = caseBkpSourceLine
+                    IF INSTR(CurrentSubFunc$, " ") > 0 THEN
+                        CurrentSubFunc$ = LEFT$(CurrentSubFunc$, INSTR(CurrentSubFunc$, " ") - 1)
+                    END IF
                     StatusMessage = "Found: " + caseBkpSourceLine
                     GOSUB AddVerboseOutputLine
                 END IF
@@ -5483,6 +5486,9 @@ SUB SETUP_CONNECTION
                         CurrentSubFunc$ = TRIM$(MID$(caseBkpSourceLine$, 5, INSTR(SourceLine$, "(") - 5))
                     ELSE
                         CurrentSubFunc$ = MID$(caseBkpSourceLine$, 5)
+                        IF INSTR(CurrentSubFunc$, " ") > 0 THEN
+                            CurrentSubFunc$ = LEFT$(CurrentSubFunc$, INSTR(CurrentSubFunc$, " ") - 1)
+                        END IF
                     END IF
                     TotalSubFunc = TotalSubFunc + 1
                     REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
@@ -5494,6 +5500,9 @@ SUB SETUP_CONNECTION
                         CurrentSubFunc$ = TRIM$(MID$(caseBkpSourceLine$, 10, INSTR(SourceLine$, "(") - 10))
                     ELSE
                         CurrentSubFunc$ = MID$(caseBkpSourceLine$, 10)
+                        IF INSTR(CurrentSubFunc$, " ") > 0 THEN
+                            CurrentSubFunc$ = LEFT$(CurrentSubFunc$, INSTR(CurrentSubFunc$, " ") - 1)
+                        END IF
                     END IF
                     TotalSubFunc = TotalSubFunc + 1
                     REDIM _PRESERVE SUBFUNC(1 TO TotalSubFunc) AS SUBFUNC_TYPE
